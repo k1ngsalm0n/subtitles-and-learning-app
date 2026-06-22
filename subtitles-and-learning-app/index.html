@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Miraa-style Language Studio</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-row">
+          <div class="brand-mark">M</div>
+          <div>
+            <h1>Miraa Studio</h1>
+            <p>Personal bilingual media learning</p>
+          </div>
+        </div>
+
+        <nav class="nav-tabs" aria-label="Main views">
+          <button class="nav-tab active" data-view="study" type="button">Study</button>
+          <button class="nav-tab" data-view="cards" type="button">Flashcards</button>
+          <button class="nav-tab" data-view="library" type="button">Library</button>
+        </nav>
+
+        <section class="panel compact">
+          <div class="section-title">
+            <h2>Appearance</h2>
+            <button id="themeToggle" class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme">☾</button>
+          </div>
+          <div class="segmented" role="group" aria-label="Translation mode">
+            <button id="modeHuman" class="active" type="button">Human</button>
+            <button id="modeAI" type="button">AI</button>
+          </div>
+        </section>
+
+        <section class="panel compact">
+          <h2>Quick Stats</h2>
+          <div class="stat-grid">
+            <div>
+              <strong id="subtitleCount">0</strong>
+              <span>lines</span>
+            </div>
+            <div>
+              <strong id="cardCount">0</strong>
+              <span>cards</span>
+            </div>
+            <div>
+              <strong id="reviewDue">0</strong>
+              <span>due</span>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <main>
+        <section id="studyView" class="view active">
+          <div class="workspace">
+            <section class="media-pane">
+              <div class="player-wrap">
+                <video id="video" controls playsinline></video>
+                <div id="emptyPlayer" class="empty-player">
+                  <span>Import a local video or load the sample lesson.</span>
+                </div>
+              </div>
+
+              <div class="import-bar">
+                <label class="file-button">
+                  Video
+                  <input id="videoInput" type="file" accept="video/*" />
+                </label>
+                <label class="file-button">
+                  Original SRT/VTT
+                  <input id="originalInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" />
+                </label>
+                <label class="file-button">
+                  Translation SRT/VTT
+                  <input id="translationInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" />
+                </label>
+                <button id="sampleButton" type="button">Sample</button>
+              </div>
+
+              <div class="url-row">
+                <input id="sourceUrl" type="url" placeholder="Paste a media URL for your own authorized content" />
+                <button id="queueUrl" type="button">Import</button>
+                <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+
+            <section class="learning-pane">
+              <div class="subtitle-stage">
+                <p id="activeOriginal" class="active-original">Load subtitles to begin.</p>
+                <p id="activeTranslation" class="active-translation"></p>
+              </div>
+
+              <div class="toolbar-row">
+                <div class="search-box">
+                  <input id="searchInput" type="search" placeholder="Search transcript" />
+                </div>
+                <button id="loopLine" type="button">Loop Line</button>
+                <button id="saveLine" type="button">Save Line</button>
+              </div>
+
+              <div id="transcript" class="transcript" aria-label="Transcript"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="cardsView" class="view">
+          <div class="cards-layout">
+            <section class="review-panel">
+              <div class="section-title">
+                <h2>Review</h2>
+                <button id="shuffleCards" type="button">Shuffle</button>
+              </div>
+              <div id="reviewCard" class="review-card">
+                <p>No flashcards yet.</p>
+              </div>
+              <div class="card-actions">
+                <button id="flipCard" type="button">Flip</button>
+                <button id="markHard" type="button">Hard</button>
+                <button id="markGood" type="button">Good</button>
+              </div>
+            </section>
+
+            <section class="deck-panel">
+              <div class="section-title">
+                <h2>Deck</h2>
+                <button id="exportCards" type="button">Export</button>
+              </div>
+              <form id="manualCardForm" class="manual-card">
+                <input id="manualFront" type="text" placeholder="Word or phrase" required />
+                <input id="manualBack" type="text" placeholder="Meaning" required />
+                <button type="submit">Add</button>
+              </form>
+              <div id="deckList" class="deck-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="libraryView" class="view">
+          <div class="library-layout">
+            <section class="panel">
+              <h2>Queued Sources</h2>
+              <div id="sourceList" class="source-list"></div>
+            </section>
+            <section class="panel">
+              <h2>AI Translation Setup</h2>
+              <p class="muted">
+                URL import uses available caption tracks first. If none are available, the local server extracts audio and sends it to OpenAI Whisper for transcription.
+              </p>
+              <textarea id="translatorPrompt" rows="8">Translate the subtitle naturally, preserve names, and keep the line short enough to read while watching.</textarea>
+              <button id="savePrompt" type="button">Save Prompt</button>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="wordDialog">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="dialogWord">Word</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <label>
+          Meaning
+          <input id="dialogMeaning" type="text" />
+        </label>
+        <label>
+          Example
+          <textarea id="dialogExample" rows="3"></textarea>
+        </label>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="addWordCard" value="default" type="button">Add Flashcard</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
