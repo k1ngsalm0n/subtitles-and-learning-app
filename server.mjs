@@ -39,7 +39,7 @@ createServer(async (req, res) => {
     await serveStatic(req, res);
   } catch (error) {
     console.error(error);
-    sendJson(res, 500, { error: error.message || "Unexpected server error" });
+    sendJson(res, error.status || 500, { error: error.message || "Unexpected server error" });
   }
 }).listen(PORT, "127.0.0.1", () => {
   console.log(`Miraa Studio running at http://localhost:${PORT}`);
@@ -280,7 +280,14 @@ async function listFiles(dir) {
 async function ensureCommand(command, installMessage) {
   const result = await runCommand(command, ["--version"], { timeoutMs: 10_000, allowFailure: true });
   if (result.code !== 0) {
-    throw new Error(`${command} is required. ${installMessage}`);
+    throw new HttpError(503, `${command} is required. ${installMessage}`);
+  }
+}
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
   }
 }
 
