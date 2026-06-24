@@ -313,16 +313,24 @@ async function openWordBubble(anchor, context, els) {
   const pron = result.pronunciation
     ? `<div class="bubble-pron">${escapeHtml(result.pronunciation)}</div>`
     : "";
-  const primaryMeaning = result.defs?.[0] || result.meaning || "No definition found.";
-  const extraDefs = (result.defs || []).slice(1);
-  const detail = extraDefs.length
-    ? `<div class="bubble-detail">${extraDefs.map(d => escapeHtml(d)).join("; ")}</div>`
+  const meaningHtml = result.meaning
+    ? `<div class="bubble-meaning">${escapeHtml(result.meaning)}</div>`
     : "";
+  const explanationHtml = result.explanation
+    ? `<div class="bubble-explanation">${escapeHtml(result.explanation)}</div>`
+    : "";
+  const defs = result.defs || [];
+  const defsHtml = defs.length > 1
+    ? `<details class="bubble-dict"><summary>All definitions (${defs.length})</summary><ol class="bubble-defs">${defs.map(d => `<li>${escapeHtml(d)}</li>`).join("")}</ol></details>`
+    : defs.length === 1 && !result.explanation
+      ? `<div class="bubble-meaning">${escapeHtml(defs[0])}</div>`
+      : "";
   bubble.innerHTML = `
     <div class="bubble-word">${escapeHtml(word)}</div>
     ${pron}
-    <div class="bubble-meaning">${escapeHtml(primaryMeaning)}</div>
-    ${detail}
+    ${meaningHtml}
+    ${explanationHtml}
+    ${defsHtml}
     <div class="bubble-actions">
       <button type="button" class="bubble-save">+ Flashcard</button>
       <button type="button" class="bubble-edit">Edit…</button>

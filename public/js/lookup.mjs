@@ -1,12 +1,19 @@
-// Client-side word lookup. Caches results in memory + localStorage so a word
-// is only fetched once. The server runs the dictionary -> LLM layers.
 const CACHE_KEY = "miraaStudio.lookupCache";
+const CACHE_VERSION_KEY = "miraaStudio.lookupCacheVersion";
+const CACHE_VERSION = 4;
 
 let cache;
 function getCache() {
   if (cache) return cache;
   try {
-    cache = JSON.parse(localStorage.getItem(CACHE_KEY)) || {};
+    const stored = Number(localStorage.getItem(CACHE_VERSION_KEY)) || 0;
+    if (stored < CACHE_VERSION) {
+      localStorage.removeItem(CACHE_KEY);
+      localStorage.setItem(CACHE_VERSION_KEY, String(CACHE_VERSION));
+      cache = {};
+    } else {
+      cache = JSON.parse(localStorage.getItem(CACHE_KEY)) || {};
+    }
   } catch {
     cache = {};
   }
