@@ -3,6 +3,7 @@ import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize } from "./util.mjs";
 import { activateLine } from "./player.mjs";
 import { addCard } from "./flashcards.mjs";
+import { lookupWord } from "./lookup.mjs";
 
 export function renderAll(els) {
   // When called without els (from modules that don't have direct access),
@@ -36,7 +37,7 @@ export function renderTranscript(els) {
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${formatTime(line.start)}</span>
         <div>
-          <div class="original">${tokenize(line.text)}</div>
+          <div class="original">${tokenize(line.text, state.learningLang)}</div>
           <p class="translation">${escapeHtml(translation)}</p>
         </div>
       </article>`;
@@ -52,7 +53,11 @@ export function renderTranscript(els) {
     });
   });
   e.transcript.querySelectorAll(".word").forEach((button) => {
-    button.addEventListener("click", () => openWordDialog(button.dataset.word, e));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const line = state.subtitles[Number(button.closest(".line").dataset.index)];
+      openWordBubble(button, line?.text || "", e);
+    });
   });
 }
 
@@ -125,13 +130,113 @@ export function updateStats(els) {
   ).length;
 }
 
-function openWordDialog(word, els) {
+function openWordDialog(word, els, prefill = {}) {
   const line = state.subtitles[state.activeIndex];
   state.selectedWord = word;
   els.dialogWord.textContent = word;
-  els.dialogMeaning.value = "";
-  els.dialogExample.value = line?.text || "";
+  els.dialogMeaning.value = prefill.meaning || "";
+  els.dialogExample.value = prefill.example ?? line?.text ?? "";
   els.wordDialog.showModal();
+}
+
+// ---- Word bubble: word + pronunciation + meaning, anchored to the word -----
+
+let _bubble = null;
+let _bubbleCleanup = null;
+
+function getBubble() {
+  if (_bubble) return _bubble;
+  _bubble = document.createElement("div");
+  _bubble.className = "word-bubble";
+  _bubble.hidden = true;
+  document.body.appendChild(_bubble);
+  return _bubble;
+}
+
+function closeBubble() {
+  if (_bubble) _bubble.hidden = true;
+  if (_bubbleCleanup) {
+    _bubbleCleanup();
+    _bubbleCleanup = null;
+  }
+}
+
+function positionBubble(bubble, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  bubble.style.visibility = "hidden";
+  bubble.hidden = false;
+  const bw = bubble.offsetWidth;
+  const bh = bubble.offsetHeight;
+  let left = rect.left + rect.width / 2 - bw / 2 + window.scrollX;
+  left = Math.max(8, Math.min(left, window.scrollX + window.innerWidth - bw - 8));
+  // Prefer above the word; flip below if there isn't room.
+  let top = rect.top + window.scrollY - bh - 8;
+  if (rect.top < bh + 16) top = rect.bottom + window.scrollY + 8;
+  bubble.style.left = `${left}px`;
+  bubble.style.top = `${top}px`;
+  bubble.style.visibility = "visible";
+}
+
+async function openWordBubble(anchor, context, els) {
+  closeBubble();
+  const word = anchor.dataset.word;
+  const bubble = getBubble();
+  const lang = state.learningLang;
+
+  bubble.innerHTML = `
+    <div class="bubble-word">${escapeHtml(word)}</div>
+    <div class="bubble-pron muted">…</div>
+    <div class="bubble-meaning">Looking up…</div>`;
+  positionBubble(bubble, anchor);
+
+  // Dismiss on outside click, Escape, or scroll.
+  const onDocClick = (ev) => {
+    if (!bubble.contains(ev.target) && ev.target !== anchor) closeBubble();
+  };
+  const onKey = (ev) => ev.key === "Escape" && closeBubble();
+  const onScroll = () => closeBubble();
+  setTimeout(() => document.addEventListener("click", onDocClick), 0);
+  document.addEventListener("keydown", onKey);
+  window.addEventListener("scroll", onScroll, true);
+  _bubbleCleanup = () => {
+    document.removeEventListener("click", onDocClick);
+    document.removeEventListener("keydown", onKey);
+    window.removeEventListener("scroll", onScroll, true);
+  };
+
+  const result = await lookupWord(word, lang, context);
+  if (bubble.hidden) return; // closed while loading
+
+  const pron = result.pronunciation
+    ? `<div class="bubble-pron">${escapeHtml(result.pronunciation)}</div>`
+    : "";
+  const meaning = result.meaning
+    ? escapeHtml(result.meaning)
+    : "No definition found. Add the full dictionary or an OpenAI key.";
+  bubble.innerHTML = `
+    <div class="bubble-word">${escapeHtml(word)}</div>
+    ${pron}
+    <div class="bubble-meaning">${meaning}</div>
+    <div class="bubble-actions">
+      <button type="button" class="bubble-save">+ Flashcard</button>
+      <button type="button" class="bubble-edit">Edit…</button>
+    </div>`;
+  positionBubble(bubble, anchor);
+
+  bubble.querySelector(".bubble-save").addEventListener("click", () => {
+    const back = [result.pronunciation, result.meaning]
+      .filter(Boolean)
+      .join(" — ");
+    addCard(word, back || "Add your meaning", context);
+    closeBubble();
+  });
+  bubble.querySelector(".bubble-edit").addEventListener("click", () => {
+    closeBubble();
+    openWordDialog(word, els, {
+      meaning: [result.pronunciation, result.meaning].filter(Boolean).join(" — "),
+      example: context,
+    });
+  });
 }
 
 export function addDialogCard(els) {

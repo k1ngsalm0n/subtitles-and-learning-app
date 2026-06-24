@@ -65,7 +65,7 @@ function init() {
   els.translatorPrompt.value =
     localStorage.getItem(STORAGE_KEYS.prompt) || els.translatorPrompt.value;
   bindEvents();
-  loadSubtitles(sampleOriginal, sampleTranslation);
+  loadSubtitles(sampleOriginal, sampleTranslation, "zh");
   renderAll(els);
 }
 
@@ -76,7 +76,7 @@ function bindEvents() {
 
   els.themeToggle.addEventListener("click", toggleTheme);
   els.sampleButton.addEventListener("click", () =>
-    loadSubtitles(sampleOriginal, sampleTranslation),
+    loadSubtitles(sampleOriginal, sampleTranslation, "zh"),
   );
   els.videoInput.addEventListener("change", handleVideoInput);
   els.originalInput.addEventListener("change", () => readSubtitleInputs());

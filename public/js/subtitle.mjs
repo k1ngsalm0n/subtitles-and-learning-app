@@ -1,19 +1,9 @@
 import { state } from "./state.mjs";
 import { renderAll } from "./ui.mjs";
 
+// The "original" is the language being studied. For the Chinese-first demo the
+// original lines are Chinese (clickable) and the translation is English.
 export const sampleOriginal = `1
-00:00:00,000 --> 00:00:03,200
-Learning with real conversations makes vocabulary easier to remember.
-
-2
-00:00:03,200 --> 00:00:06,800
-Pause when you hear a useful phrase and save it as a flashcard.
-
-3
-00:00:06,800 --> 00:00:10,500
-Short daily reviews help new words become active language.`;
-
-export const sampleTranslation = `1
 00:00:00,000 --> 00:00:03,200
 用真实对话学习，会让词汇更容易记住。
 
@@ -25,7 +15,20 @@ export const sampleTranslation = `1
 00:00:06,800 --> 00:00:10,500
 每天简短复习能帮助新词变成主动语言。`;
 
-export function loadSubtitles(originalText, translationText = "") {
+export const sampleTranslation = `1
+00:00:00,000 --> 00:00:03,200
+Learning with real conversations makes vocabulary easier to remember.
+
+2
+00:00:03,200 --> 00:00:06,800
+Pause when you hear a useful phrase and save it as a flashcard.
+
+3
+00:00:06,800 --> 00:00:10,500
+Short daily reviews help new words become active language.`;
+
+export function loadSubtitles(originalText, translationText = "", lang) {
+  if (lang) state.learningLang = lang;
   const original = parseSubtitle(originalText);
   const translated = parseSubtitle(translationText);
   state.subtitles = original.map((line, index) => ({

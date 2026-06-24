@@ -16,6 +16,7 @@ export const state = {
   showingBack: false,
   translationMode: "human",
   selectedWord: "",
+  learningLang: "zh",
 };
 
 export function saveCards() {

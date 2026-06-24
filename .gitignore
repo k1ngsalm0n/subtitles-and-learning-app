@@ -2,3 +2,7 @@ node_modules/
 .env
 .DS_Store
 Thumbs.db
+
+# Full CC-CEDICT (optional, fetched locally) and the LLM lookup cache
+data/cedict.u8
+data/lookup-cache.json

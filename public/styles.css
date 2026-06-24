@@ -367,6 +367,59 @@ video {
   background: rgba(95, 214, 180, 0.18);
 }
 
+.word-bubble {
+  position: absolute;
+  z-index: 1000;
+  max-width: 260px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.bubble-word {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.bubble-pron {
+  margin-top: 2px;
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+
+.bubble-meaning {
+  margin-top: 6px;
+}
+
+.bubble-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bubble-actions button {
+  flex: 1;
+  min-height: auto;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.bubble-actions .bubble-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #07120f;
+}
+
 .translation {
   margin-top: 6px;
   line-height: 1.5;

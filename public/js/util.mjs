@@ -1,3 +1,5 @@
+import { getProvider } from "./lang/index.mjs";
+
 export function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -13,10 +15,15 @@ export function formatTime(seconds) {
   return `${min}:${sec}`;
 }
 
-export function tokenize(text) {
-  return escapeHtml(text).replace(/\b[\w'-]+\b/g, (word) => {
-    return `<button class="word" type="button" data-word="${escapeHtml(word.toLowerCase())}">${word}</button>`;
-  });
+export function tokenize(text, lang = "generic") {
+  const provider = getProvider(lang);
+  return provider
+    .segment(text)
+    .map(({ text: piece, isWord }) => {
+      if (!isWord) return escapeHtml(piece);
+      return `<button class="word" type="button" data-word="${escapeHtml(piece)}">${escapeHtml(piece)}</button>`;
+    })
+    .join("");
 }
 
 export function loadJson(key, fallback) {
