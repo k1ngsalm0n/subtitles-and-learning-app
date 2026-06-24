@@ -19,7 +19,8 @@ const MIME_TYPES = {
 export async function serveStatic(req, res, publicDir) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = decodeURIComponent(url.pathname);
-  const requested = pathname === "/" ? "/index.html" : pathname;
+  const protoRoutes = { "/1": "/prototype1.html", "/2": "/prototype2.html", "/3": "/prototype3.html" };
+  const requested = pathname === "/" ? "/index.html" : (protoRoutes[pathname] || pathname);
   const filePath = path.normalize(path.join(publicDir, requested));
 
   if (!filePath.startsWith(publicDir)) {
