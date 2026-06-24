@@ -56,11 +56,88 @@ export function renderTranscript(els) {
   });
 }
 
+const _segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+
+function splitIntoTokens(text) {
+  const raw = [..._segmenter.segment(text)];
+  const tokens = [];
+  for (const seg of raw) {
+    if (seg.isWordLike) {
+      tokens.push({ text: seg.segment, isWord: true });
+    } else if (tokens.length && !seg.segment.includes(" ") && !seg.segment.includes("\n")) {
+      tokens[tokens.length - 1].text += seg.segment;
+    } else {
+      tokens.push({ text: seg.segment, isWord: false });
+    }
+  }
+  return tokens;
+}
+
 export function renderActiveSubtitle(els) {
   const e = els || _els;
   const line = state.subtitles[state.activeIndex];
-  e.activeOriginal.textContent = line?.text || "Load subtitles to begin.";
-  e.activeTranslation.textContent = line ? getTranslation(line) : "";
+  if (!line) {
+    e.activeOriginal.textContent = "Load subtitles to begin.";
+    e.activeTranslation.textContent = "";
+    return;
+  }
+  const tokens = splitIntoTokens(line.text);
+  e.activeOriginal.innerHTML = tokens
+    .map((t) =>
+      t.isWord
+        ? `<span class="stage-word">${escapeHtml(t.text)}</span>`
+        : escapeHtml(t.text),
+    )
+    .join("");
+  e.activeTranslation.textContent = getTranslation(line);
+}
+
+let _rafId = null;
+
+export function startHighlightLoop(els) {
+  const e = els || _els;
+  if (_rafId) return;
+
+  function tick() {
+    _rafId = requestAnimationFrame(tick);
+    const video = e.video;
+    if (!video || video.paused) {
+      e.activeOriginal.querySelectorAll(".stage-word.spoken").forEach(
+        (el) => el.classList.remove("spoken"),
+      );
+      return;
+    }
+    const line = state.subtitles[state.activeIndex];
+    if (!line) return;
+    const duration = line.end - line.start;
+    if (duration <= 0) return;
+    const elapsed = Math.max(0, Math.min(duration, video.currentTime - line.start));
+    const progress = elapsed / duration;
+    const wordEls = e.activeOriginal.querySelectorAll(".stage-word");
+    if (!wordEls.length) return;
+
+    const lengths = Array.from(wordEls, (el) => el.textContent.length);
+    const totalChars = lengths.reduce((a, b) => a + b, 0) || 1;
+    let acc = 0;
+    let idx = wordEls.length - 1;
+    for (let i = 0; i < lengths.length; i++) {
+      acc += lengths[i] / totalChars;
+      if (progress < acc) {
+        idx = i;
+        break;
+      }
+    }
+    wordEls.forEach((el, i) => el.classList.toggle("spoken", i === idx));
+  }
+
+  tick();
+}
+
+export function stopHighlightLoop() {
+  if (_rafId) {
+    cancelAnimationFrame(_rafId);
+    _rafId = null;
+  }
 }
 
 export function renderDeck(els) {

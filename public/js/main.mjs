@@ -6,6 +6,7 @@ import {
   renderAll,
   renderTranscript,
   renderActiveSubtitle,
+  startHighlightLoop,
   renderSources,
   renderDeck,
   renderReviewCard,
@@ -34,8 +35,6 @@ const els = {
   loopLine: document.querySelector("#loopLine"),
   saveLine: document.querySelector("#saveLine"),
   themeToggle: document.querySelector("#themeToggle"),
-  modeHuman: document.querySelector("#modeHuman"),
-  modeAI: document.querySelector("#modeAI"),
   deckList: document.querySelector("#deckList"),
   reviewCard: document.querySelector("#reviewCard"),
   flipCard: document.querySelector("#flipCard"),
@@ -49,6 +48,17 @@ const els = {
   sourceList: document.querySelector("#sourceList"),
   translatorPrompt: document.querySelector("#translatorPrompt"),
   savePrompt: document.querySelector("#savePrompt"),
+  cookieModeNone: document.querySelector("#cookieModeNone"),
+  cookieModeBrowser: document.querySelector("#cookieModeBrowser"),
+  cookieModeFile: document.querySelector("#cookieModeFile"),
+  cookieBrowserSection: document.querySelector("#cookieBrowserSection"),
+  cookieFileSection: document.querySelector("#cookieFileSection"),
+  cookieBrowser: document.querySelector("#cookieBrowser"),
+  cookiesTxt: document.querySelector("#cookiesTxt"),
+  saveCookies: document.querySelector("#saveCookies"),
+  cookieStatus: document.querySelector("#cookieStatus"),
+  progressWrap: document.querySelector("#progressWrap"),
+  progressFill: document.querySelector("#progressFill"),
   wordDialog: document.querySelector("#wordDialog"),
   dialogWord: document.querySelector("#dialogWord"),
   dialogMeaning: document.querySelector("#dialogMeaning"),
@@ -67,6 +77,7 @@ function init() {
   bindEvents();
   loadSubtitles(sampleOriginal, sampleTranslation);
   renderAll(els);
+  loadCookieSettings();
 }
 
 function bindEvents() {
@@ -82,12 +93,12 @@ function bindEvents() {
   els.originalInput.addEventListener("change", () => readSubtitleInputs());
   els.translationInput.addEventListener("change", () => readSubtitleInputs());
   els.video.addEventListener("timeupdate", () => syncToVideo(els));
+  startHighlightLoop(els);
   els.searchInput.addEventListener("input", () => renderTranscript(els));
   els.loopLine.addEventListener("click", () => loopActiveLine(els));
   els.saveLine.addEventListener("click", () => saveActiveLine(els));
   els.queueUrl.addEventListener("click", () => importSourceUrl());
-  els.modeHuman.addEventListener("click", () => setTranslationMode("human"));
-  els.modeAI.addEventListener("click", () => setTranslationMode("ai"));
+  els.sourceUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") importSourceUrl(); });
   els.manualCardForm.addEventListener("submit", addManualCard);
   els.flipCard.addEventListener("click", flipReviewCard);
   els.markHard.addEventListener("click", () => gradeCard("hard"));
@@ -98,6 +109,11 @@ function bindEvents() {
     localStorage.setItem(STORAGE_KEYS.prompt, els.translatorPrompt.value),
   );
   els.addWordCard.addEventListener("click", () => addDialogCard(els));
+
+  els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
+  els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
+  els.cookieModeFile.addEventListener("click", () => setCookieMode("file"));
+  els.saveCookies.addEventListener("click", saveCookieSettings);
 }
 
 function switchView(view) {
@@ -134,18 +150,28 @@ async function readSubtitleInputs() {
   loadSubtitles(original, translation);
 }
 
-function setTranslationMode(mode) {
-  state.translationMode = mode;
-  els.modeHuman.classList.toggle("active", mode === "human");
-  els.modeAI.classList.toggle("active", mode === "ai");
-  renderTranscript(els);
-  renderActiveSubtitle(els);
-}
 
 function addManualCard(event) {
   event.preventDefault();
   addCard(els.manualFront.value, els.manualBack.value, "");
   els.manualCardForm.reset();
+}
+
+function showProgress(message, percent) {
+  els.progressWrap.classList.add("visible");
+  setSourceStatus(message, els);
+  if (percent === undefined) {
+    els.progressFill.style.width = "";
+    els.progressFill.classList.add("indeterminate");
+  } else {
+    els.progressFill.classList.remove("indeterminate");
+    els.progressFill.style.width = `${percent}%`;
+  }
+}
+
+function hideProgress() {
+  els.progressFill.classList.remove("indeterminate");
+  els.progressWrap.classList.remove("visible");
 }
 
 async function importSourceUrl() {
@@ -160,9 +186,22 @@ async function importSourceUrl() {
   };
   state.sources.unshift(source);
   saveSources();
-  setSourceStatus("Looking for captions...", els);
   els.queueUrl.disabled = true;
   renderSources(els);
+
+  showProgress("Connecting and looking for captions...", 10);
+
+  const steps = [
+    { message: "Downloading media info...", percent: 25, delay: 2000 },
+    { message: "Extracting subtitles...", percent: 50, delay: 4000 },
+    { message: "Processing audio (this may take a while)...", percent: 70, delay: 8000 },
+    { message: "Almost done...", percent: 85, delay: 15000 },
+  ];
+  let stepTimer = 0;
+  const stepTimeouts = steps.map((step) => {
+    stepTimer += step.delay;
+    return setTimeout(() => showProgress(step.message, step.percent), stepTimer);
+  });
 
   try {
     const response = await fetch("/api/import-url", {
@@ -170,6 +209,9 @@ async function importSourceUrl() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     });
+
+    stepTimeouts.forEach(clearTimeout);
+    showProgress("Loading results...", 95);
 
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Import failed.");
@@ -179,24 +221,74 @@ async function importSourceUrl() {
       els.emptyPlayer.classList.add("hidden");
     }
 
-    loadSubtitles(result.subtitles || "");
+    loadSubtitles(result.subtitles || "", result.translation || "");
     source.status =
       result.source === "whisper" ? "transcribed" : "captions loaded";
     source.title = result.title || "";
     els.sourceUrl.value = "";
+    showProgress("", 100);
+    const langNote = result.language ? ` (${result.language})` : "";
     setSourceStatus(
       result.source === "whisper"
-        ? "Transcribed with Whisper."
+        ? `Transcribed with Whisper${langNote}.`
         : "Loaded existing subtitles.",
       els,
     );
+    setTimeout(hideProgress, 2000);
   } catch (error) {
+    stepTimeouts.forEach(clearTimeout);
     source.status = "error";
     source.error = error.message;
     setSourceStatus(error.message, els);
+    hideProgress();
   } finally {
     els.queueUrl.disabled = false;
     saveSources();
     renderSources(els);
+  }
+}
+
+function setCookieMode(mode) {
+  els.cookieModeNone.classList.toggle("active", mode === "none");
+  els.cookieModeBrowser.classList.toggle("active", mode === "browser");
+  els.cookieModeFile.classList.toggle("active", mode === "file");
+  els.cookieBrowserSection.style.display = mode === "browser" ? "" : "none";
+  els.cookieFileSection.style.display = mode === "file" ? "" : "none";
+  els.cookieStatus.textContent = "";
+}
+
+async function loadCookieSettings() {
+  try {
+    const res = await fetch("/api/cookies");
+    const data = await res.json();
+    setCookieMode(data.mode || "none");
+    if (data.browser) els.cookieBrowser.value = data.browser;
+    if (data.cookiesTxt) els.cookiesTxt.value = data.cookiesTxt;
+  } catch {
+    // server unavailable — leave defaults
+  }
+}
+
+async function saveCookieSettings() {
+  const mode = els.cookieModeBrowser.classList.contains("active")
+    ? "browser"
+    : els.cookieModeFile.classList.contains("active")
+      ? "file"
+      : "none";
+
+  const body = { mode };
+  if (mode === "browser") body.browser = els.cookieBrowser.value.trim();
+  if (mode === "file") body.cookiesTxt = els.cookiesTxt.value;
+
+  try {
+    const res = await fetch("/api/cookies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error("Save failed");
+    els.cookieStatus.textContent = "Saved.";
+  } catch (err) {
+    els.cookieStatus.textContent = err.message;
   }
 }

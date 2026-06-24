@@ -1,7 +1,8 @@
-import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   ensureCommand,
   normalizeExternalUrl,
@@ -10,8 +11,31 @@ import {
   runCommand,
   sendJson,
 } from "./util.mjs";
+import { ytdlpCookieArgs } from "./cookies.mjs";
 
-const MAX_AUDIO_BYTES = 24 * 1024 * 1024;
+const WHISPER_MODEL = process.env.WHISPER_MODEL || "base";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
+const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
+const TRANSLATE_SCRIPT = path.join(__dirname, "translate.py");
+const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
+
+const WHISPER_LANG_TO_CODE = {
+  afrikaans: "af", arabic: "ar", azerbaijani: "az", bengali: "bn",
+  bulgarian: "bg", catalan: "ca", chinese: "zh", czech: "cs", danish: "da",
+  dutch: "nl", english: "en", esperanto: "eo", estonian: "et", finnish: "fi",
+  french: "fr", german: "de", greek: "el", hebrew: "he", hindi: "hi",
+  hungarian: "hu", indonesian: "id", irish: "ga", italian: "it",
+  japanese: "ja", korean: "ko", latvian: "lv", lithuanian: "lt",
+  malay: "ms", norwegian: "nb", persian: "fa", polish: "pl",
+  portuguese: "pt", romanian: "ro", russian: "ru", slovak: "sk",
+  slovenian: "sl", spanish: "es", swedish: "sv", tagalog: "tl",
+  thai: "th", turkish: "tr", ukrainian: "uk", urdu: "ur", vietnamese: "vi",
+};
+
+async function ytdlpBase() {
+  return ["--no-playlist", ...(await ytdlpCookieArgs())];
+}
 
 export async function handleImportUrl(req, res) {
   const body = await readJsonBody(req);
@@ -29,33 +53,34 @@ export async function handleImportUrl(req, res) {
     );
 
     const title = await getMediaTitle(url.href);
-    const videoUrl = await getPlayableVideoUrl(url.href);
+    const videoUrl = await downloadVideo(url.href);
     const subtitle = await getExistingSubtitle(url.href, workspace);
 
     if (subtitle) {
+      let translation = "";
+      if (subtitle.lang && subtitle.lang !== "en") {
+        translation = await translateSrt(subtitle.text, subtitle.lang, workspace);
+      }
       sendJson(res, 200, {
         title,
         videoUrl,
         source: subtitle.auto ? "auto-subtitles" : "subtitles",
+        language: subtitle.lang || "",
         subtitles: subtitle.text,
+        translation,
       });
       return;
     }
 
     const audioPath = await downloadAudio(url.href, workspace);
-    const audioStats = await stat(audioPath);
-    if (audioStats.size > MAX_AUDIO_BYTES) {
-      throw new Error(
-        "Extracted audio is larger than the OpenAI transcription upload limit for this app. Try a shorter video.",
-      );
-    }
-
-    const subtitles = await transcribeWithWhisper(audioPath);
+    const whisperResult = await transcribeWithWhisper(audioPath, workspace);
     sendJson(res, 200, {
       title,
       videoUrl,
       source: "whisper",
-      subtitles,
+      language: whisperResult.language,
+      subtitles: whisperResult.subtitles,
+      translation: whisperResult.translation,
     });
   } finally {
     await rm(workspace, { recursive: true, force: true });
@@ -65,31 +90,44 @@ export async function handleImportUrl(req, res) {
 async function getMediaTitle(url) {
   const result = await runCommand(
     "yt-dlp",
-    ["--no-playlist", "--print", "%(title)s", url],
+    [...(await ytdlpBase()), "--print", "%(title)s", url],
     { timeoutMs: 30_000 },
   );
   return result.stdout.trim().split("\n").at(-1) || "Imported media";
 }
 
-async function getPlayableVideoUrl(url) {
-  const result = await runCommand(
+async function downloadVideo(url) {
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(VIDEO_DIR, { recursive: true });
+  const id = crypto.randomUUID();
+  const outTemplate = path.join(VIDEO_DIR, `${id}.%(ext)s`);
+  await runCommand(
     "yt-dlp",
-    ["--no-playlist", "--get-url", "-f", "best[ext=mp4]/best", url],
-    { timeoutMs: 45_000 },
+    [
+      ...(await ytdlpBase()),
+      "-f", "best[ext=mp4]/best",
+      "--merge-output-format", "mp4",
+      "-o", outTemplate,
+      url,
+    ],
+    { timeoutMs: 10 * 60_000 },
   );
-  return result.stdout.trim().split("\n")[0] || "";
+  const files = await listFiles(VIDEO_DIR);
+  const video = files.find((f) => f.includes(id));
+  if (!video) return "";
+  return `/videos/${path.basename(video)}`;
 }
 
 async function getExistingSubtitle(url, workspace) {
   await runCommand(
     "yt-dlp",
     [
-      "--no-playlist",
+      ...(await ytdlpBase()),
       "--skip-download",
       "--write-subs",
       "--write-auto-subs",
       "--sub-langs",
-      "en.*,en",
+      "all",
       "--convert-subs",
       "srt",
       "-o",
@@ -108,8 +146,10 @@ async function getExistingSubtitle(url, workspace) {
   if (!subtitleFiles.length) return null;
 
   const file = subtitleFiles[0];
+  const langMatch = path.basename(file).match(/\.([a-z]{2,3})(?:\.auto)?\.(srt|vtt)$/i);
   return {
     auto: /\.auto\./i.test(file),
+    lang: langMatch ? langMatch[1].toLowerCase() : null,
     text: await readFile(file, "utf8"),
   };
 }
@@ -126,7 +166,7 @@ async function downloadAudio(url, workspace) {
   await runCommand(
     "yt-dlp",
     [
-      "--no-playlist",
+      ...(await ytdlpBase()),
       "-x",
       "--audio-format",
       "mp3",
@@ -155,45 +195,84 @@ async function downloadAudio(url, workspace) {
   return compactAudio;
 }
 
-async function transcribeWithWhisper(audioPath) {
-  if (!process.env.OPENAI_API_KEY) {
+async function transcribeWithWhisper(audioPath, workspace) {
+  const check = await runCommand(WHISPER_BIN, ["--help"], {
+    timeoutMs: 10_000,
+    allowFailure: true,
+  });
+  if (check.code !== 0 && check.code !== 2) {
     throw new Error(
-      "OPENAI_API_KEY is required when no subtitle track is available.",
+      `${WHISPER_BIN} is required. Install whisper first: .venv/bin/pip install openai-whisper`,
     );
   }
 
-  const bytes = await readFile(audioPath);
-  const form = new FormData();
-  form.append(
-    "file",
-    new Blob([bytes], { type: "audio/mpeg" }),
-    path.basename(audioPath),
-  );
-  form.append("model", "whisper-1");
-  form.append("response_format", "verbose_json");
-  form.append("timestamp_granularities[]", "segment");
+  const transcribeDir = path.join(workspace, "transcribe");
 
-  const response = await fetch(
-    "https://api.openai.com/v1/audio/transcriptions",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: form,
-    },
+  // Transcribe in original language (auto-detect)
+  await runCommand(
+    WHISPER_BIN,
+    [
+      audioPath,
+      "--model", WHISPER_MODEL,
+      "--output_format", "json",
+      "--output_dir", transcribeDir,
+    ],
+    { timeoutMs: 30 * 60_000 },
   );
 
-  const payload = await response
-    .json()
-    .catch(async () => ({ error: { message: await response.text() } }));
-  if (!response.ok) {
-    throw new Error(payload.error?.message || "OpenAI transcription failed.");
+  const transcribeJson = await readFirstJson(transcribeDir);
+  const language = transcribeJson.language || "unknown";
+
+  let subtitles;
+  if (language === "zh" || language.toLowerCase() === "chinese") {
+    // Re-run with Traditional Chinese prompt to bias output
+    const zhDir = path.join(workspace, "transcribe-zh");
+    await runCommand(
+      WHISPER_BIN,
+      [
+        audioPath,
+        "--model", WHISPER_MODEL,
+        "--language", "zh",
+        "--output_format", "json",
+        "--output_dir", zhDir,
+        "--initial_prompt", "以下是繁體中文的內容。",
+      ],
+      { timeoutMs: 30 * 60_000 },
+    );
+    const zhJson = await readFirstJson(zhDir);
+    subtitles = segmentsToSrt(zhJson.segments || []);
+  } else {
+    subtitles = segmentsToSrt(transcribeJson.segments || []);
   }
 
-  if (Array.isArray(payload.segments) && payload.segments.length) {
-    return segmentsToSrt(payload.segments);
-  }
+  const lowerLang = language.toLowerCase();
+  const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
+  const translation = await translateSrt(subtitles, langCode, workspace);
 
-  return textToSingleCue(payload.text || "");
+  return { language, subtitles, translation };
+}
+
+async function translateSrt(srtText, fromCode, workspace) {
+  if (!fromCode || fromCode === "en") return "";
+  const srtPath = path.join(workspace, "to-translate.srt");
+  await writeFile(srtPath, srtText);
+  try {
+    const result = await runCommand(
+      PYTHON_BIN,
+      [TRANSLATE_SCRIPT, srtPath, "--from", fromCode, "--to", "en"],
+      { timeoutMs: 10 * 60_000 },
+    );
+    return result.stdout;
+  } catch {
+    return "";
+  }
+}
+
+async function readFirstJson(dir) {
+  const files = await listFiles(dir);
+  const jsonFile = files.find((f) => f.endsWith(".json"));
+  if (!jsonFile) throw new Error("Whisper did not produce output.");
+  return JSON.parse(await readFile(jsonFile, "utf8"));
 }
 
 function segmentsToSrt(segments) {
@@ -206,10 +285,6 @@ function segmentsToSrt(segments) {
       ].join("\n"),
     )
     .join("\n\n");
-}
-
-function textToSingleCue(text) {
-  return `1\n00:00:00,000 --> 99:59:59,000\n${text.trim()}`;
 }
 
 function formatSrtTime(seconds) {

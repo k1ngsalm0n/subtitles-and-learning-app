@@ -14,7 +14,6 @@ export const state = {
   activeIndex: 0,
   reviewIndex: 0,
   showingBack: false,
-  translationMode: "human",
   selectedWord: "",
 };
 

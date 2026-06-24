@@ -10,17 +10,18 @@ npm start
 
 Then open `http://localhost:3000`.
 
-URL import needs `yt-dlp` and `ffmpeg` on your PATH. This machine already has `ffmpeg`; install `yt-dlp` with your system package manager, for example:
+URL import needs `yt-dlp`, `ffmpeg`, and `whisper` on your PATH:
 
 ```bash
-sudo pacman -S --needed yt-dlp
+sudo pacman -S --needed yt-dlp python-openai-whisper
 ```
 
-For videos without available subtitle tracks, add your OpenAI API key to a `.env` file:
+When no existing subtitles are found, Whisper transcribes the audio locally, auto-detects the language, and translates to English. Chinese audio is output in Traditional Chinese.
+
+Optionally set the Whisper model in `.env` (defaults to `base`):
 
 ```bash
 cp .env.example .env
-# edit .env and set your key
 ```
 
 ## What works now

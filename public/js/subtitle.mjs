@@ -70,12 +70,5 @@ function parseTime(value) {
 }
 
 export function getTranslation(line) {
-  if (state.translationMode === "human")
-    return line.translation || "No translation loaded.";
-  return line.translation || draftTranslation(line.text);
-}
-
-function draftTranslation(text) {
-  const words = text.split(/\s+/).slice(0, 12).join(" ");
-  return `AI draft: ${words}`;
+  return line.translation || "";
 }

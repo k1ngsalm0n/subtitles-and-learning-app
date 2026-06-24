@@ -2,11 +2,13 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleImportUrl } from "./import.mjs";
+import { handleGetCookies, handleSaveCookies } from "./cookies.mjs";
 import { serveStatic } from "./static.mjs";
 import { sendJson } from "./util.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
+const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
 const PORT = Number(process.env.PORT || 3000);
 
 createServer(async (req, res) => {
@@ -15,9 +17,23 @@ createServer(async (req, res) => {
       await handleImportUrl(req, res);
       return;
     }
+    if (req.method === "GET" && req.url === "/api/cookies") {
+      await handleGetCookies(req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/cookies") {
+      await handleSaveCookies(req, res);
+      return;
+    }
 
     if (req.method !== "GET" && req.method !== "HEAD") {
       sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+
+    if (req.url.startsWith("/videos/")) {
+      req.url = req.url.slice("/videos".length);
+      await serveStatic(req, res, VIDEO_DIR);
       return;
     }
 
