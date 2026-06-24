@@ -16,11 +16,11 @@ URL import needs `yt-dlp` and `ffmpeg` on your PATH. This machine already has `f
 sudo pacman -S --needed yt-dlp
 ```
 
-For videos without available subtitle tracks, set an OpenAI API key before starting the server:
+For videos without available subtitle tracks, add your OpenAI API key to a `.env` file:
 
 ```bash
-export OPENAI_API_KEY="your_api_key_here"
-npm start
+cp .env.example .env
+# edit .env and set your key
 ```
 
 ## What works now
