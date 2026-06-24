@@ -1,0 +1,202 @@
+import { state, saveSources, STORAGE_KEYS } from "./state.mjs";
+import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
+import { addCard, flipReviewCard, gradeCard, shuffleCards, exportCards } from "./flashcards.mjs";
+import { syncToVideo, loopActiveLine, saveActiveLine } from "./player.mjs";
+import {
+  renderAll,
+  renderTranscript,
+  renderActiveSubtitle,
+  renderSources,
+  renderDeck,
+  renderReviewCard,
+  setElements,
+  setSourceStatus,
+  addDialogCard,
+} from "./ui.mjs";
+
+const els = {
+  video: document.querySelector("#video"),
+  emptyPlayer: document.querySelector("#emptyPlayer"),
+  videoInput: document.querySelector("#videoInput"),
+  originalInput: document.querySelector("#originalInput"),
+  translationInput: document.querySelector("#translationInput"),
+  sampleButton: document.querySelector("#sampleButton"),
+  sourceUrl: document.querySelector("#sourceUrl"),
+  queueUrl: document.querySelector("#queueUrl"),
+  sourceStatus: document.querySelector("#sourceStatus"),
+  transcript: document.querySelector("#transcript"),
+  activeOriginal: document.querySelector("#activeOriginal"),
+  activeTranslation: document.querySelector("#activeTranslation"),
+  subtitleCount: document.querySelector("#subtitleCount"),
+  cardCount: document.querySelector("#cardCount"),
+  reviewDue: document.querySelector("#reviewDue"),
+  searchInput: document.querySelector("#searchInput"),
+  loopLine: document.querySelector("#loopLine"),
+  saveLine: document.querySelector("#saveLine"),
+  themeToggle: document.querySelector("#themeToggle"),
+  modeHuman: document.querySelector("#modeHuman"),
+  modeAI: document.querySelector("#modeAI"),
+  deckList: document.querySelector("#deckList"),
+  reviewCard: document.querySelector("#reviewCard"),
+  flipCard: document.querySelector("#flipCard"),
+  markHard: document.querySelector("#markHard"),
+  markGood: document.querySelector("#markGood"),
+  shuffleCards: document.querySelector("#shuffleCards"),
+  exportCards: document.querySelector("#exportCards"),
+  manualCardForm: document.querySelector("#manualCardForm"),
+  manualFront: document.querySelector("#manualFront"),
+  manualBack: document.querySelector("#manualBack"),
+  sourceList: document.querySelector("#sourceList"),
+  translatorPrompt: document.querySelector("#translatorPrompt"),
+  savePrompt: document.querySelector("#savePrompt"),
+  wordDialog: document.querySelector("#wordDialog"),
+  dialogWord: document.querySelector("#dialogWord"),
+  dialogMeaning: document.querySelector("#dialogMeaning"),
+  dialogExample: document.querySelector("#dialogExample"),
+  addWordCard: document.querySelector("#addWordCard"),
+};
+
+setElements(els);
+init();
+
+function init() {
+  document.documentElement.dataset.theme =
+    localStorage.getItem(STORAGE_KEYS.theme) || "dark";
+  els.translatorPrompt.value =
+    localStorage.getItem(STORAGE_KEYS.prompt) || els.translatorPrompt.value;
+  bindEvents();
+  loadSubtitles(sampleOriginal, sampleTranslation);
+  renderAll(els);
+}
+
+function bindEvents() {
+  document.querySelectorAll(".nav-tab").forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.view));
+  });
+
+  els.themeToggle.addEventListener("click", toggleTheme);
+  els.sampleButton.addEventListener("click", () =>
+    loadSubtitles(sampleOriginal, sampleTranslation),
+  );
+  els.videoInput.addEventListener("change", handleVideoInput);
+  els.originalInput.addEventListener("change", () => readSubtitleInputs());
+  els.translationInput.addEventListener("change", () => readSubtitleInputs());
+  els.video.addEventListener("timeupdate", () => syncToVideo(els));
+  els.searchInput.addEventListener("input", () => renderTranscript(els));
+  els.loopLine.addEventListener("click", () => loopActiveLine(els));
+  els.saveLine.addEventListener("click", () => saveActiveLine(els));
+  els.queueUrl.addEventListener("click", () => importSourceUrl());
+  els.modeHuman.addEventListener("click", () => setTranslationMode("human"));
+  els.modeAI.addEventListener("click", () => setTranslationMode("ai"));
+  els.manualCardForm.addEventListener("submit", addManualCard);
+  els.flipCard.addEventListener("click", flipReviewCard);
+  els.markHard.addEventListener("click", () => gradeCard("hard"));
+  els.markGood.addEventListener("click", () => gradeCard("good"));
+  els.shuffleCards.addEventListener("click", shuffleCards);
+  els.exportCards.addEventListener("click", exportCards);
+  els.savePrompt.addEventListener("click", () =>
+    localStorage.setItem(STORAGE_KEYS.prompt, els.translatorPrompt.value),
+  );
+  els.addWordCard.addEventListener("click", () => addDialogCard(els));
+}
+
+function switchView(view) {
+  document
+    .querySelectorAll(".nav-tab")
+    .forEach((button) =>
+      button.classList.toggle("active", button.dataset.view === view),
+    );
+  document.querySelectorAll(".view").forEach((panel) => panel.classList.remove("active"));
+  document.querySelector(`#${view}View`).classList.add("active");
+}
+
+function toggleTheme() {
+  const next =
+    document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem(STORAGE_KEYS.theme, next);
+  els.themeToggle.textContent = next === "dark" ? "☾" : "☀";
+}
+
+function handleVideoInput(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  els.video.src = URL.createObjectURL(file);
+  els.emptyPlayer.classList.add("hidden");
+}
+
+async function readSubtitleInputs() {
+  const originalFile = els.originalInput.files[0];
+  const translationFile = els.translationInput.files[0];
+  if (!originalFile) return;
+  const original = await originalFile.text();
+  const translation = translationFile ? await translationFile.text() : "";
+  loadSubtitles(original, translation);
+}
+
+function setTranslationMode(mode) {
+  state.translationMode = mode;
+  els.modeHuman.classList.toggle("active", mode === "human");
+  els.modeAI.classList.toggle("active", mode === "ai");
+  renderTranscript(els);
+  renderActiveSubtitle(els);
+}
+
+function addManualCard(event) {
+  event.preventDefault();
+  addCard(els.manualFront.value, els.manualBack.value, "");
+  els.manualCardForm.reset();
+}
+
+async function importSourceUrl() {
+  const url = els.sourceUrl.value.trim();
+  if (!url) return;
+
+  const source = {
+    id: crypto.randomUUID(),
+    url,
+    status: "importing",
+    createdAt: Date.now(),
+  };
+  state.sources.unshift(source);
+  saveSources();
+  setSourceStatus("Looking for captions...", els);
+  els.queueUrl.disabled = true;
+  renderSources(els);
+
+  try {
+    const response = await fetch("/api/import-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Import failed.");
+
+    if (result.videoUrl) {
+      els.video.src = result.videoUrl;
+      els.emptyPlayer.classList.add("hidden");
+    }
+
+    loadSubtitles(result.subtitles || "");
+    source.status =
+      result.source === "whisper" ? "transcribed" : "captions loaded";
+    source.title = result.title || "";
+    els.sourceUrl.value = "";
+    setSourceStatus(
+      result.source === "whisper"
+        ? "Transcribed with Whisper."
+        : "Loaded existing subtitles.",
+      els,
+    );
+  } catch (error) {
+    source.status = "error";
+    source.error = error.message;
+    setSourceStatus(error.message, els);
+  } finally {
+    els.queueUrl.disabled = false;
+    saveSources();
+    renderSources(els);
+  }
+}
