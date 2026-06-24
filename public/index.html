@@ -270,17 +270,12 @@ video { width: 100%; height: 100%; display: block; }
 .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 16px; padding-top: 2px; }
 .original { line-height: 1.6; font-size: 20px; }
 .word {
-  border: 0;
-  min-height: auto;
-  padding: 1px 2px;
-  background: transparent;
-  color: inherit;
+  padding: 2px 3px;
   border-radius: 4px;
-  white-space: normal;
-  height: auto;
+  cursor: pointer;
 }
 .word:hover { background: rgba(110,231,183,0.15); }
-.translation { margin-top: 4px; line-height: 1.5; color: var(--muted); font-size: 18px; }
+.translation { margin-top: 8px; line-height: 1.5; color: var(--muted); font-size: 18px; }
 
 /* Cards & Library views */
 .cards-layout, .library-layout {
@@ -331,6 +326,94 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
 .word-form label { display: grid; gap: 6px; color: var(--muted); }
 menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .icon-button { width: 36px; padding: 0; }
+
+.word-bubble {
+  position: absolute;
+  z-index: 100;
+  width: 280px;
+  padding: 20px 22px;
+  border: none;
+  border-radius: 18px;
+  background: rgba(40, 40, 46, 0.95);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+  color: #f0ece4;
+  font-size: 14px;
+}
+:root[data-theme="light"] .word-bubble {
+  background: rgba(255, 255, 255, 0.96);
+  color: #1a1a1a;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+}
+.bubble-word {
+  font-size: 28px;
+  font-weight: 800;
+  margin-bottom: 2px;
+  letter-spacing: -0.01em;
+}
+.bubble-pron {
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 14px;
+}
+:root[data-theme="light"] .bubble-pron { color: #777; }
+.bubble-meaning {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+.bubble-detail {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #ccc;
+  margin-bottom: 14px;
+}
+:root[data-theme="light"] .bubble-detail { color: #555; }
+.bubble-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ddd;
+  margin-bottom: 14px;
+}
+:root[data-theme="light"] .bubble-tag {
+  background: rgba(0, 0, 0, 0.06);
+  color: #555;
+}
+.bubble-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+:root[data-theme="light"] .bubble-actions {
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+.bubble-actions button {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f0ece4;
+  cursor: pointer;
+}
+.bubble-actions button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+:root[data-theme="light"] .bubble-actions button {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1a1a1a;
+}
+:root[data-theme="light"] .bubble-actions button:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
 
 @media (max-width: 900px) {
   .workspace, .cards-layout, .library-layout { grid-template-columns: 1fr; }

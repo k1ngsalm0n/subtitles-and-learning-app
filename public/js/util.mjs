@@ -13,11 +13,26 @@ export function formatTime(seconds) {
   return `${min}:${sec}`;
 }
 
-export function tokenize(text) {
-  return escapeHtml(text).replace(/\b[\w'-]+\b/g, (word) => {
-    return `<button class="word" type="button" data-word="${escapeHtml(word.toLowerCase())}">${word}</button>`;
-  });
+const _segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+const _cjkRe = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+function isWord(seg) {
+  return seg.isWordLike || _cjkRe.test(seg.segment);
 }
+
+export function tokenize(text) {
+  const segments = [..._segmenter.segment(text)];
+  return segments
+    .map((seg) => {
+      if (isWord(seg)) {
+        return `<span class="word" data-word="${escapeHtml(seg.segment)}">${escapeHtml(seg.segment)}</span>`;
+      }
+      return escapeHtml(seg.segment);
+    })
+    .join("");
+}
+
+export { isWord };
 
 export function loadJson(key, fallback) {
   try {

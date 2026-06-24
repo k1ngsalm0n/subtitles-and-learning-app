@@ -7,6 +7,7 @@ import {
   renderTranscript,
   renderActiveSubtitle,
   startHighlightLoop,
+  setupTranscriptDelegation,
   renderSources,
   renderDeck,
   renderReviewCard,
@@ -77,6 +78,7 @@ function init() {
   bindEvents();
   loadSubtitles(sampleOriginal, sampleTranslation);
   renderAll(els);
+  setupTranscriptDelegation(els);
   loadCookieSettings();
 }
 
