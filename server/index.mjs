@@ -12,6 +12,16 @@ const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
 const PORT = Number(process.env.PORT || 3000);
 
+// Keep the server up if a stray async error escapes a request handler. Node's
+// default is to terminate the process on an unhandled rejection, which would
+// take the whole server down for a single bad import/lookup. Log and continue.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+});
+
 createServer(async (req, res) => {
   try {
     if (req.method === "POST" && req.url === "/api/import-url") {

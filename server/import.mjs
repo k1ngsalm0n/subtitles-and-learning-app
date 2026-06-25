@@ -260,10 +260,15 @@ async function translateSrt(srtText, fromCode, workspace) {
     const result = await runCommand(
       PYTHON_BIN,
       [TRANSLATE_SCRIPT, srtPath, "--from", fromCode, "--to", "en"],
-      { timeoutMs: 10 * 60_000 },
+      // Generous budget: the first run may download the ~2.4GB NLLB model,
+      // and CPU translation of a long transcript is slow.
+      { timeoutMs: 30 * 60_000 },
     );
     return result.stdout;
-  } catch {
+  } catch (err) {
+    // Don't fail the whole import — transcription is still useful — but make
+    // the failure visible instead of silently returning an empty translation.
+    console.error(`Translation failed (${fromCode} -> en):`, err.message);
     return "";
   }
 }
