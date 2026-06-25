@@ -1,5 +1,6 @@
 import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,11 @@ const VIDEO_CACHE_MAX_AGE_MS =
   60 *
   1000;
 
+// Prefer the venv's yt-dlp (kept on the nightly channel, which gets YouTube
+// fixes ahead of distro packages); fall back to whatever is on PATH.
+const VENV_YTDLP = path.join(__dirname, "..", ".venv", "bin", "yt-dlp");
+const YTDLP_BIN = existsSync(VENV_YTDLP) ? VENV_YTDLP : "yt-dlp";
+
 const WHISPER_LANG_TO_CODE = {
   afrikaans: "af", arabic: "ar", azerbaijani: "az", bengali: "bn",
   bulgarian: "bg", catalan: "ca", chinese: "zh", czech: "cs", danish: "da",
@@ -61,7 +67,7 @@ export async function handleImportUrl(req, res) {
   const workspace = await mkdtemp(path.join(tmpdir(), "miraa-import-"));
   try {
     await ensureCommand(
-      "yt-dlp",
+      YTDLP_BIN,
       [
         "Install yt-dlp first: python -m pip install -U yt-dlp",
         "or use your system package manager, then restart this server.",
@@ -105,7 +111,7 @@ export async function handleImportUrl(req, res) {
 
 async function getMediaTitle(url) {
   const result = await runCommand(
-    "yt-dlp",
+    YTDLP_BIN,
     [...(await ytdlpBase()), "--print", "%(title)s", url],
     { timeoutMs: 30_000 },
   );
@@ -118,7 +124,7 @@ async function downloadVideo(url) {
   const id = crypto.randomUUID();
   const outTemplate = path.join(VIDEO_DIR, `${id}.%(ext)s`);
   await runCommand(
-    "yt-dlp",
+    YTDLP_BIN,
     [
       ...(await ytdlpBase()),
       "-f", "best[ext=mp4]/best",
@@ -188,7 +194,7 @@ async function pruneVideoCache(keepId) {
 
 async function getExistingSubtitle(url, workspace) {
   await runCommand(
-    "yt-dlp",
+    YTDLP_BIN,
     [
       ...(await ytdlpBase()),
       "--skip-download",
@@ -232,7 +238,7 @@ function scoreSubtitleFile(file) {
 
 async function downloadAudio(url, workspace) {
   await runCommand(
-    "yt-dlp",
+    YTDLP_BIN,
     [
       ...(await ytdlpBase()),
       "-x",
