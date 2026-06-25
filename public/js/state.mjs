@@ -15,6 +15,7 @@ export const state = {
   reviewIndex: 0,
   showingBack: false,
   selectedWord: "",
+  learningLang: "zh",
 };
 
 export function saveCards() {

@@ -1,8 +1,9 @@
 import { state, saveCards } from "./state.mjs";
 import { getTranslation } from "./subtitle.mjs";
-import { escapeHtml, formatTime, tokenize } from "./util.mjs";
+import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
 import { addCard } from "./flashcards.mjs";
+import { lookupWord } from "./lookup.mjs";
 
 export function renderAll(els) {
   // When called without els (from modules that don't have direct access),
@@ -45,32 +46,69 @@ export function renderTranscript(els) {
 
   e.transcript.innerHTML =
     html || `<p class="muted">No matching subtitles.</p>`;
-  e.transcript.querySelectorAll(".line").forEach((lineEl) => {
-    lineEl.addEventListener("click", (event) => {
-      if (event.target.classList.contains("word")) return;
+}
+
+let _transcriptDelegated = false;
+export function setupTranscriptDelegation(els) {
+  if (_transcriptDelegated) return;
+  _transcriptDelegated = true;
+  const e = els || _els;
+
+  e.transcript.addEventListener("click", (event) => {
+    const wordEl = event.target.closest(".word");
+    if (wordEl) {
+      event.stopPropagation();
+      const lineEl = wordEl.closest(".line");
+      if (!lineEl) return;
+      const line = state.subtitles[Number(lineEl.dataset.index)];
+      openWordBubble(wordEl, line?.text || "", e);
+      return;
+    }
+
+    // If clicked inside .original (on punctuation/space between words),
+    // find the nearest word using caret position
+    const originalEl = event.target.closest(".original");
+    if (originalEl) {
+      const nearestWord = findNearestWord(event.clientX, event.clientY, originalEl);
+      if (nearestWord) {
+        event.stopPropagation();
+        const lineEl = nearestWord.closest(".line");
+        if (!lineEl) return;
+        const line = state.subtitles[Number(lineEl.dataset.index)];
+        openWordBubble(nearestWord, line?.text || "", e);
+        return;
+      }
+    }
+
+    const lineEl = event.target.closest(".line");
+    if (lineEl) {
       activateLine(Number(lineEl.dataset.index), true, e);
-    });
+    }
   });
-  e.transcript.querySelectorAll(".word").forEach((button) => {
-    button.addEventListener("click", () => openWordDialog(button.dataset.word, e));
-  });
+}
+
+function findNearestWord(x, y, container) {
+  const words = container.querySelectorAll(".word");
+  let closest = null;
+  let minDist = Infinity;
+  for (const w of words) {
+    const rect = w.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dist = Math.hypot(x - cx, y - cy);
+    if (dist < minDist) {
+      minDist = dist;
+      closest = w;
+    }
+  }
+  return minDist < 40 ? closest : null;
 }
 
 const _segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
 function splitIntoTokens(text) {
   const raw = [..._segmenter.segment(text)];
-  const tokens = [];
-  for (const seg of raw) {
-    if (seg.isWordLike) {
-      tokens.push({ text: seg.segment, isWord: true });
-    } else if (tokens.length && !seg.segment.includes(" ") && !seg.segment.includes("\n")) {
-      tokens[tokens.length - 1].text += seg.segment;
-    } else {
-      tokens.push({ text: seg.segment, isWord: false });
-    }
-  }
-  return tokens;
+  return raw.map((seg) => ({ text: seg.segment, isWord: isWord(seg) }));
 }
 
 export function renderActiveSubtitle(els) {
@@ -202,13 +240,115 @@ export function updateStats(els) {
   ).length;
 }
 
-function openWordDialog(word, els) {
+function openWordDialog(word, els, prefill = {}) {
   const line = state.subtitles[state.activeIndex];
   state.selectedWord = word;
   els.dialogWord.textContent = word;
-  els.dialogMeaning.value = "";
-  els.dialogExample.value = line?.text || "";
+  els.dialogMeaning.value = prefill.meaning || "";
+  els.dialogExample.value = prefill.example ?? line?.text ?? "";
   els.wordDialog.showModal();
+}
+
+let _bubble = null;
+let _bubbleCleanup = null;
+
+function getBubble() {
+  if (_bubble) return _bubble;
+  _bubble = document.createElement("div");
+  _bubble.className = "word-bubble";
+  _bubble.hidden = true;
+  document.body.appendChild(_bubble);
+  return _bubble;
+}
+
+function closeBubble() {
+  if (_bubble) _bubble.hidden = true;
+  if (_bubbleCleanup) {
+    _bubbleCleanup();
+    _bubbleCleanup = null;
+  }
+}
+
+function positionBubble(bubble, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  bubble.style.visibility = "hidden";
+  bubble.hidden = false;
+  const bw = bubble.offsetWidth;
+  const bh = bubble.offsetHeight;
+  let left = rect.left + rect.width / 2 - bw / 2 + window.scrollX;
+  left = Math.max(8, Math.min(left, window.scrollX + window.innerWidth - bw - 8));
+  let top = rect.top + window.scrollY - bh - 8;
+  if (rect.top < bh + 16) top = rect.bottom + window.scrollY + 8;
+  bubble.style.left = `${left}px`;
+  bubble.style.top = `${top}px`;
+  bubble.style.visibility = "visible";
+}
+
+async function openWordBubble(anchor, context, els) {
+  closeBubble();
+  const word = anchor.dataset.word;
+  const bubble = getBubble();
+  const lang = state.learningLang;
+
+  bubble.innerHTML = `
+    <div class="bubble-word">${escapeHtml(word)}</div>
+    <div class="bubble-pron muted">…</div>
+    <div class="bubble-meaning">Looking up…</div>`;
+  positionBubble(bubble, anchor);
+
+  const onDocClick = (ev) => {
+    if (!bubble.contains(ev.target) && !ev.target.closest(".word")) closeBubble();
+  };
+  const onKey = (ev) => { if (ev.key === "Escape") closeBubble(); };
+  setTimeout(() => document.addEventListener("click", onDocClick), 0);
+  document.addEventListener("keydown", onKey);
+  _bubbleCleanup = () => {
+    document.removeEventListener("click", onDocClick);
+    document.removeEventListener("keydown", onKey);
+  };
+
+  const result = await lookupWord(word, lang, context);
+  if (bubble.hidden) return;
+
+  const pron = result.pronunciation
+    ? `<div class="bubble-pron">${escapeHtml(result.pronunciation)}</div>`
+    : "";
+  const meaningHtml = result.meaning
+    ? `<div class="bubble-meaning">${escapeHtml(result.meaning)}</div>`
+    : "";
+  const explanationHtml = result.explanation
+    ? `<div class="bubble-explanation">${escapeHtml(result.explanation)}</div>`
+    : "";
+  const defs = result.defs || [];
+  const defsHtml = defs.length > 1
+    ? `<details class="bubble-dict"><summary>All definitions (${defs.length})</summary><ol class="bubble-defs">${defs.map(d => `<li>${escapeHtml(d)}</li>`).join("")}</ol></details>`
+    : defs.length === 1 && !result.explanation
+      ? `<div class="bubble-meaning">${escapeHtml(defs[0])}</div>`
+      : "";
+  bubble.innerHTML = `
+    <div class="bubble-word">${escapeHtml(word)}</div>
+    ${pron}
+    ${meaningHtml}
+    ${explanationHtml}
+    ${defsHtml}
+    <div class="bubble-actions">
+      <button type="button" class="bubble-save">+ Flashcard</button>
+      <button type="button" class="bubble-edit">Edit…</button>
+    </div>`;
+  positionBubble(bubble, anchor);
+
+  bubble.querySelector(".bubble-save").addEventListener("click", () => {
+    const back = [result.pronunciation, result.meaning].filter(Boolean).join(" — ");
+    addCard(word, back || "Add your meaning", context);
+    closeBubble();
+  });
+  bubble.querySelector(".bubble-edit").addEventListener("click", () => {
+    closeBubble();
+    openWordDialog(word, els, {
+      meaning: [result.pronunciation, result.meaning].filter(Boolean).join(" — "),
+      example: context,
+    });
+  });
 }
 
 export function addDialogCard(els) {
