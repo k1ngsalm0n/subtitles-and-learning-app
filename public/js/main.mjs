@@ -224,6 +224,12 @@ async function importSourceUrl() {
     }
 
     loadSubtitles(result.subtitles || "", result.translation || "");
+    if (result.language) {
+      // Drive word lookups off the imported video's language. Whisper may
+      // report "chinese"; normalize it to the "zh" code the dictionary uses.
+      const lang = result.language.toLowerCase();
+      state.learningLang = lang === "chinese" ? "zh" : lang;
+    }
     source.status =
       result.source === "whisper" ? "transcribed" : "captions loaded";
     source.title = result.title || "";

@@ -1,6 +1,6 @@
 const CACHE_KEY = "miraaStudio.lookupCache";
 const CACHE_VERSION_KEY = "miraaStudio.lookupCacheVersion";
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 
 let cache;
 function getCache() {
@@ -30,7 +30,9 @@ function persist() {
 
 export async function lookupWord(word, lang = "zh", context = "") {
   const store = getCache();
-  const key = `${lang}:${word}`;
+  // Include context in the key: the server ranks definitions by the sentence,
+  // so the same word in a different sentence is a different answer.
+  const key = `${lang}:${word}:${context}`;
   if (store[key]) return store[key];
 
   const params = new URLSearchParams({ word, lang, context });
