@@ -322,9 +322,12 @@ async function openWordBubble(anchor, context, els) {
     ? `<div class="bubble-explanation">${escapeHtml(result.explanation)}</div>`
     : "";
   const defs = result.defs || [];
+  // The single definition is only shown here as a fallback when there's no
+  // meaning line; otherwise it would just repeat the meaning (which already is
+  // that definition) and print it twice.
   const defsHtml = defs.length > 1
     ? `<details class="bubble-dict"><summary>All definitions (${defs.length})</summary><ol class="bubble-defs">${defs.map(d => `<li>${escapeHtml(d)}</li>`).join("")}</ol></details>`
-    : defs.length === 1 && !result.explanation
+    : defs.length === 1 && !result.explanation && !result.meaning
       ? `<div class="bubble-meaning">${escapeHtml(defs[0])}</div>`
       : "";
   bubble.innerHTML = `
