@@ -12,9 +12,9 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 MODEL_NAME = "facebook/nllb-200-distilled-600M"
 
 # Translate this many subtitle lines per model call. Batching is what makes the
-# CPU path faster; the GPU path benefits even more. Kept modest so padding waste
-# and peak memory stay bounded on low-end machines.
-BATCH_SIZE = 16
+# CPU path faster; the GPU path benefits even more. Sized for the GPU path while
+# staying safe on CPU thanks to length-sorting (below) keeping padding small.
+BATCH_SIZE = 64
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
@@ -181,10 +181,17 @@ def main():
         for _idx, _timestamp, content in entries
     ]
 
-    translations = []
-    for start in range(0, len(texts), BATCH_SIZE):
-        chunk = texts[start : start + BATCH_SIZE]
-        translations.extend(translate_batch(chunk, src_lang, tgt_lang))
+    # Group similar-length lines together so each batch pads to a length close
+    # to its own longest line instead of the longest line in the whole file.
+    # This cuts wasted compute on padding; we translate in the sorted order and
+    # then restore the original order, so the output is unchanged.
+    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+    translations = [None] * len(texts)
+    for start in range(0, len(order), BATCH_SIZE):
+        idx_chunk = order[start : start + BATCH_SIZE]
+        out = translate_batch([texts[i] for i in idx_chunk], src_lang, tgt_lang)
+        for i, translated_text in zip(idx_chunk, out):
+            translations[i] = translated_text
 
     translated_blocks = [
         f"{idx}\n{timestamp}\n{translated_text}"
