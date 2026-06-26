@@ -17,6 +17,11 @@ MODEL_NAME = "facebook/nllb-200-distilled-600M"
 # staying safe on CPU thanks to length-sorting (below) keeping padding small.
 BATCH_SIZE = 64
 
+# Beam search instead of greedy decoding. Greedy occasionally collapses into a
+# confident hallucination (e.g. a "你好…" line rendered as unrelated text);
+# searching a few hypotheses avoids that. 5 is NLLB's usual default.
+NUM_BEAMS = 5
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
 CEDICT_FULL = os.path.join(DATA_DIR, "cedict.u8")
@@ -51,6 +56,51 @@ def get_model():
         _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME).to(_device)
     return _tokenizer, _model
+
+
+_cn_char_sets = None
+
+
+def _chinese_char_sets():
+    """Characters unique to Traditional vs Simplified, from CC-CEDICT.
+
+    CEDICT lists each word as `traditional simplified [pinyin] /defs/`. For
+    entries where the two forms differ, the characters that appear only in the
+    Traditional column (and only in the Simplified column) are reliable markers
+    of each script. Built once and cached.
+    """
+    global _cn_char_sets
+    if _cn_char_sets is None:
+        trad, simp = set(), set()
+        path = CEDICT_FULL if os.path.exists(CEDICT_FULL) else CEDICT_SEED
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("#"):
+                        continue
+                    m = re.match(r"^(\S+)\s+(\S+)\s+\[", line)
+                    if not m:
+                        continue
+                    t_form, s_form = m.group(1), m.group(2)
+                    if t_form != s_form:
+                        trad.update(t_form)
+                        simp.update(s_form)
+        _cn_char_sets = (trad - simp, simp - trad)
+    return _cn_char_sets
+
+
+def detect_chinese_script(text):
+    """Choose zho_Hant vs zho_Hans from the text itself.
+
+    The `zh` code doesn't say which script the subtitles use, and feeding
+    Simplified text to the model labelled as Traditional (or vice versa) makes
+    it hallucinate. Count script-specific characters and pick the winner,
+    defaulting to Simplified, which is far more common.
+    """
+    trad_only, simp_only = _chinese_char_sets()
+    trad_hits = sum(c in trad_only for c in text)
+    simp_hits = sum(c in simp_only for c in text)
+    return "zho_Hant" if trad_hits > simp_hits else "zho_Hans"
 
 
 def load_unambiguous_nouns():
@@ -135,6 +185,7 @@ def translate_batch(texts, src_lang, tgt_lang):
         **inputs,
         forced_bos_token_id=tgt_id,
         max_new_tokens=256,
+        num_beams=NUM_BEAMS,
     )
     return tokenizer.batch_decode(translated, skip_special_tokens=True)
 
@@ -158,7 +209,12 @@ def parse_srt(text):
 
 def translate_srt(srt_text, from_code, to_code="en"):
     """Translate a full SRT string and return the translated SRT string."""
-    src_lang = LANG_CODE_MAP.get(from_code)
+    # `zh` is script-agnostic; pick Hant/Hans from the actual text so the model
+    # isn't told the wrong script (which makes it hallucinate).
+    if from_code == "zh":
+        src_lang = detect_chinese_script(srt_text)
+    else:
+        src_lang = LANG_CODE_MAP.get(from_code)
     tgt_lang = LANG_CODE_MAP.get(to_code, "eng_Latn")
     if not src_lang:
         raise ValueError(f"Unsupported source language: {from_code}")
