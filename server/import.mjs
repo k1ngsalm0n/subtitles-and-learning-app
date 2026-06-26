@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,6 +19,22 @@ const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
 const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const TRANSLATE_SCRIPT = path.join(__dirname, "translate.py");
 const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
+
+// Retention policy for the downloaded-video cache. Without this the directory
+// grows without bound (data/ is gitignored, so the growth is invisible).
+// Both limits are configurable; set either to 0 to disable that limit.
+const VIDEO_CACHE_MAX =
+  process.env.VIDEO_CACHE_MAX !== undefined
+    ? Number(process.env.VIDEO_CACHE_MAX)
+    : 20;
+const VIDEO_CACHE_MAX_AGE_MS =
+  (process.env.VIDEO_CACHE_MAX_AGE_DAYS !== undefined
+    ? Number(process.env.VIDEO_CACHE_MAX_AGE_DAYS)
+    : 30) *
+  24 *
+  60 *
+  60 *
+  1000;
 
 const WHISPER_LANG_TO_CODE = {
   afrikaans: "af", arabic: "ar", azerbaijani: "az", bengali: "bn",
@@ -115,7 +131,59 @@ async function downloadVideo(url) {
   const files = await listFiles(VIDEO_DIR);
   const video = files.find((f) => f.includes(id));
   if (!video) return "";
+  await pruneVideoCache(id);
   return `/videos/${path.basename(video)}`;
+}
+
+// Enforce the cache retention policy: drop files older than the age limit,
+// then prune the oldest until at most VIDEO_CACHE_MAX remain. The file just
+// downloaded (keepId) is always preserved. Best-effort: never throws, so a
+// pruning hiccup can't fail an otherwise-successful import.
+async function pruneVideoCache(keepId) {
+  try {
+    const files = await listFiles(VIDEO_DIR);
+    const entries = (
+      await Promise.all(
+        files.map(async (file) => {
+          try {
+            return { file, mtime: (await stat(file)).mtimeMs };
+          } catch {
+            return null;
+          }
+        }),
+      )
+    ).filter(Boolean);
+
+    const now = Date.now();
+    const survivors = [];
+    let keptCount = 0;
+    for (const entry of entries) {
+      // The freshly downloaded file is never pruned, by age or by count.
+      if (keepId && path.basename(entry.file).includes(keepId)) {
+        keptCount += 1;
+        continue;
+      }
+      if (
+        VIDEO_CACHE_MAX_AGE_MS > 0 &&
+        now - entry.mtime > VIDEO_CACHE_MAX_AGE_MS
+      ) {
+        await rm(entry.file, { force: true });
+      } else {
+        survivors.push(entry);
+      }
+    }
+
+    // The kept file counts toward the cap but is never itself removed.
+    const budget = Math.max(VIDEO_CACHE_MAX - keptCount, 0);
+    if (VIDEO_CACHE_MAX > 0 && survivors.length > budget) {
+      survivors.sort((a, b) => b.mtime - a.mtime); // newest first
+      for (const entry of survivors.slice(budget)) {
+        await rm(entry.file, { force: true });
+      }
+    }
+  } catch (err) {
+    console.error("Video cache pruning failed:", err.message);
+  }
 }
 
 async function getExistingSubtitle(url, workspace) {
