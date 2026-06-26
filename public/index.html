@@ -223,8 +223,55 @@ video { width: 100%; height: 100%; display: block; }
   background: var(--surface);
   border: 1px solid var(--border);
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
   min-width: 0;
+}
+
+/* Google-Translate-style language picker above the subtitle stage */
+.translate-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  flex-wrap: wrap;
+}
+.translate-langs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+}
+.translate-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.translate-field span { white-space: nowrap; }
+.translate-field select {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.translate-field select:focus { border-color: var(--accent); outline: none; }
+#swapLangs { flex: 0 0 auto; font-size: 16px; }
+#translateButton { flex: 0 0 auto; }
+.translate-status {
+  flex: 1 1 100%;
+  color: var(--muted);
+  font-size: 12px;
+  min-height: 16px;
 }
 .subtitle-stage {
   padding: 32px 24px;
@@ -488,6 +535,21 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
           </section>
 
           <section class="learning-pane">
+            <div class="translate-bar">
+              <div class="translate-langs">
+                <label class="translate-field">
+                  <span>From</span>
+                  <select id="translateFrom" aria-label="Translate from"></select>
+                </label>
+                <button id="swapLangs" class="icon-button" type="button" title="Swap languages" aria-label="Swap languages">⇄</button>
+                <label class="translate-field">
+                  <span>To</span>
+                  <select id="translateTo" aria-label="Translate to"></select>
+                </label>
+              </div>
+              <button id="translateButton" type="button">Translate</button>
+              <p id="translateStatus" class="translate-status" role="status" aria-live="polite"></p>
+            </div>
             <div class="subtitle-stage">
               <p id="activeOriginal" class="active-original">Load subtitles to begin.</p>
               <p id="activeTranslation" class="active-translation"></p>

@@ -67,6 +67,7 @@ python -m unittest discover -s test -p "test_*.py"
 - URL import through the local server for authorized website media.
 - Existing subtitle tracks are loaded first; if none are available, audio is transcribed with OpenAI Whisper.
 - Bilingual transcript synced to video time.
+- Language bar above the subtitles: pick the source and target language (or let it auto-detect the source) and re-translate the loaded subtitles on demand with the offline NLLB model.
 - Clickable words that can be saved as flashcards.
 - Manual flashcard creation, review, simple spaced repetition, shuffle, delete, and JSON export.
 - AI translation mode placeholder for testing the workflow locally.

@@ -3,6 +3,12 @@ import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs
 import { addCard, flipReviewCard, gradeCard, shuffleCards, exportCards } from "./flashcards.mjs";
 import { syncToVideo, loopActiveLine, saveActiveLine } from "./player.mjs";
 import {
+  populateLanguageSelects,
+  syncTranslateLangs,
+  swapLanguages,
+  runTranslation,
+} from "./translate.mjs";
+import {
   renderAll,
   renderTranscript,
   renderActiveSubtitle,
@@ -35,6 +41,11 @@ const els = {
   searchInput: document.querySelector("#searchInput"),
   loopLine: document.querySelector("#loopLine"),
   saveLine: document.querySelector("#saveLine"),
+  translateFrom: document.querySelector("#translateFrom"),
+  translateTo: document.querySelector("#translateTo"),
+  swapLangs: document.querySelector("#swapLangs"),
+  translateButton: document.querySelector("#translateButton"),
+  translateStatus: document.querySelector("#translateStatus"),
   themeToggle: document.querySelector("#themeToggle"),
   deckList: document.querySelector("#deckList"),
   reviewCard: document.querySelector("#reviewCard"),
@@ -76,6 +87,7 @@ function init() {
   els.translatorPrompt.value =
     localStorage.getItem(STORAGE_KEYS.prompt) || els.translatorPrompt.value;
   bindEvents();
+  populateLanguageSelects(els);
   loadSubtitles(sampleOriginal, sampleTranslation);
   renderAll(els);
   setupTranscriptDelegation(els);
@@ -99,6 +111,8 @@ function bindEvents() {
   els.searchInput.addEventListener("input", () => renderTranscript(els));
   els.loopLine.addEventListener("click", () => loopActiveLine(els));
   els.saveLine.addEventListener("click", () => saveActiveLine(els));
+  els.swapLangs.addEventListener("click", () => swapLanguages(els));
+  els.translateButton.addEventListener("click", () => runTranslation(els));
   els.queueUrl.addEventListener("click", () => importSourceUrl());
   els.sourceUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") importSourceUrl(); });
   els.manualCardForm.addEventListener("submit", addManualCard);
@@ -229,6 +243,7 @@ async function importSourceUrl() {
       // report "chinese"; normalize it to the "zh" code the dictionary uses.
       const lang = result.language.toLowerCase();
       state.learningLang = lang === "chinese" ? "zh" : lang;
+      syncTranslateLangs(els);
     }
     source.status =
       result.source === "whisper" ? "transcribed" : "captions loaded";
