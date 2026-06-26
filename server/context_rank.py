@@ -15,7 +15,12 @@ import sys
 from difflib import SequenceMatcher
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
+from translate import detect_chinese_script
+
 MODEL_NAME = "facebook/nllb-200-distilled-600M"
+
+# Beam search avoids the greedy hallucinations seen in the main translate path.
+NUM_BEAMS = 5
 
 _tokenizer = None
 _model = None
@@ -35,7 +40,7 @@ def translate(text, src_lang="zho_Hant", tgt_lang="eng_Latn"):
     inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
     tgt_id = tokenizer.convert_tokens_to_ids(tgt_lang)
     translated = model.generate(
-        **inputs, forced_bos_token_id=tgt_id, max_new_tokens=256
+        **inputs, forced_bos_token_id=tgt_id, max_new_tokens=256, num_beams=NUM_BEAMS
     )
     return tokenizer.batch_decode(translated, skip_special_tokens=True)[0]
 
@@ -83,14 +88,20 @@ def main():
     parser.add_argument("--word", required=True)
     parser.add_argument("--context", required=True)
     parser.add_argument("--defs", nargs="+", required=True)
-    parser.add_argument("--src-lang", default="zho_Hant")
+    parser.add_argument("--src-lang", default="zh")
     args = parser.parse_args()
 
+    # `zh` (or either explicit Chinese code) doesn't fix the script; detect it
+    # from the actual context so Simplified text isn't translated as Traditional.
+    src_lang = args.src_lang
+    if src_lang in ("zh", "zho_Hant", "zho_Hans"):
+        src_lang = detect_chinese_script(args.context)
+
     # Translate the full sentence
-    full_translation = translate(args.context, args.src_lang)
+    full_translation = translate(args.context, src_lang)
 
     # Translate just the word
-    word_translation = translate(args.word, args.src_lang)
+    word_translation = translate(args.word, src_lang)
 
     # Score each definition
     scored = []

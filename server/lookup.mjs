@@ -198,7 +198,9 @@ async function rankWithContext(word, context, defs, lang) {
   const key = `nllb:${lang}:${word}:${context}`;
   if (cache[key]) return cache[key];
 
-  const srcLang = lang === "zh" ? "zho_Hant" : lang;
+  // Pass the generic code; context_rank.py detects Simplified vs Traditional
+  // from the context text instead of assuming one script.
+  const srcLang = lang;
   try {
     const result = await runCommand(
       PYTHON_BIN,
