@@ -1,6 +1,8 @@
 const CACHE_KEY = "miraaStudio.lookupCache";
 const CACHE_VERSION_KEY = "miraaStudio.lookupCacheVersion";
-const CACHE_VERSION = 5;
+// 6: server now returns a sentence-translation note instead of a template that
+// repeated the meaning and echoed the whole line; bump to drop stale entries.
+const CACHE_VERSION = 6;
 
 let cache;
 function getCache() {
