@@ -113,8 +113,10 @@ def main():
 
     best = scored[0]["def"] if scored else args.defs[0]
 
-    # Build explanation from translations
-    explanation = f'In "{args.context}", {args.word} means "{best}".'
+    # Contextual note = the sentence's English translation. The old template
+    # echoed the raw context sentence and restated `best`, which made the popup
+    # show the definition twice and dump the whole subtitle line.
+    explanation = f"Sentence: {full_translation}" if full_translation else ""
 
     result = {
         "meaning": best,
