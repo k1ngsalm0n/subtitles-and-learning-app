@@ -59,7 +59,11 @@ export async function serveStatic(req, res, publicDir) {
   const requested = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.normalize(path.join(publicDir, requested));
 
-  if (!filePath.startsWith(publicDir)) {
+  // Guard against path traversal. A prefix check (startsWith) is not enough:
+  // it also matches a sibling directory such as `public-evil/`. Resolve the
+  // path relative to publicDir and reject anything that escapes it.
+  const relative = path.relative(publicDir, filePath);
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
     sendJson(res, 403, { error: "Forbidden" });
     return;
   }
