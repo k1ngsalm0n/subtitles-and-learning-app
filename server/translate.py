@@ -2,6 +2,7 @@
 """Translate an SRT file line-by-line using Facebook NLLB-200 (offline)."""
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -155,25 +156,14 @@ def parse_srt(text):
     return entries
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("srt_file", help="Path to SRT file to translate")
-    parser.add_argument("--from", dest="from_code", required=True)
-    parser.add_argument("--to", dest="to_code", default="en")
-    args = parser.parse_args()
-
-    src_lang = LANG_CODE_MAP.get(args.from_code)
-    tgt_lang = LANG_CODE_MAP.get(args.to_code, "eng_Latn")
+def translate_srt(srt_text, from_code, to_code="en"):
+    """Translate a full SRT string and return the translated SRT string."""
+    src_lang = LANG_CODE_MAP.get(from_code)
+    tgt_lang = LANG_CODE_MAP.get(to_code, "eng_Latn")
     if not src_lang:
-        print(f"Unsupported source language: {args.from_code}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Unsupported source language: {from_code}")
 
-    with open(args.srt_file, "r", encoding="utf-8") as f:
-        srt_text = f.read()
-
-    nouns = {}
-    if args.from_code == "zh":
-        nouns = load_unambiguous_nouns()
+    nouns = load_unambiguous_nouns() if from_code == "zh" else {}
 
     entries = parse_srt(srt_text)
     texts = [
@@ -193,12 +183,77 @@ def main():
         for i, translated_text in zip(idx_chunk, out):
             translations[i] = translated_text
 
-    translated_blocks = [
+    return "\n\n".join(
         f"{idx}\n{timestamp}\n{translated_text}"
         for (idx, timestamp, _content), translated_text in zip(entries, translations)
-    ]
+    )
 
-    print("\n\n".join(translated_blocks), flush=True)
+
+def serve():
+    """Long-lived worker: load the model once, then answer JSON requests.
+
+    Reads one JSON request per line from stdin ({"id", "srt", "from", "to"})
+    and writes one JSON response per line to stdout. Loading the ~600M model is
+    the slow part (~several seconds, or a download on first ever use); doing it
+    once here instead of per request is the whole point of this mode.
+    """
+    try:
+        get_model()
+    except Exception as exc:  # model download/load failure
+        sys.stdout.write(json.dumps({"ready": False, "error": str(exc)}) + "\n")
+        sys.stdout.flush()
+        return
+
+    sys.stdout.write(json.dumps({"ready": True}) + "\n")
+    sys.stdout.flush()
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rid = req.get("id")
+        try:
+            translation = translate_srt(
+                req.get("srt", ""), req.get("from", ""), req.get("to", "en")
+            )
+            resp = {"id": rid, "translation": translation}
+        except Exception as exc:  # noqa: BLE001 - report any failure to the caller
+            resp = {"id": rid, "error": str(exc)}
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("srt_file", nargs="?", help="Path to SRT file to translate")
+    parser.add_argument("--from", dest="from_code")
+    parser.add_argument("--to", dest="to_code", default="en")
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Run as a persistent worker reading JSON requests from stdin",
+    )
+    args = parser.parse_args()
+
+    if args.serve:
+        serve()
+        return
+
+    if not args.srt_file or not args.from_code:
+        parser.error("srt_file and --from are required unless --serve is given")
+
+    with open(args.srt_file, "r", encoding="utf-8") as f:
+        srt_text = f.read()
+
+    try:
+        print(translate_srt(srt_text, args.from_code, args.to_code), flush=True)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

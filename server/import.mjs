@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,12 +13,11 @@ import {
   sendJson,
 } from "./util.mjs";
 import { ytdlpCookieArgs } from "./cookies.mjs";
+import { translateViaWorker } from "./translateWorker.mjs";
 
 const WHISPER_MODEL = process.env.WHISPER_MODEL || "base";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
-const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
-const TRANSLATE_SCRIPT = path.join(__dirname, "translate.py");
 const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
 
 // Retention policy for the downloaded-video cache. Without this the directory
@@ -81,7 +80,7 @@ export async function handleImportUrl(req, res) {
     if (subtitle) {
       let translation = "";
       if (subtitle.lang && subtitle.lang !== "en") {
-        translation = await translateSrt(subtitle.text, subtitle.lang, workspace);
+        translation = await translateSrt(subtitle.text, subtitle.lang);
       }
       sendJson(res, 200, {
         title,
@@ -321,24 +320,17 @@ async function transcribeWithWhisper(audioPath, workspace) {
 
   const lowerLang = language.toLowerCase();
   const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
-  const translation = await translateSrt(subtitles, langCode, workspace);
+  const translation = await translateSrt(subtitles, langCode);
 
   return { language, subtitles, translation };
 }
 
-async function translateSrt(srtText, fromCode, workspace) {
+async function translateSrt(srtText, fromCode) {
   if (!fromCode || fromCode === "en") return "";
-  const srtPath = path.join(workspace, "to-translate.srt");
-  await writeFile(srtPath, srtText);
   try {
-    const result = await runCommand(
-      PYTHON_BIN,
-      [TRANSLATE_SCRIPT, srtPath, "--from", fromCode, "--to", "en"],
-      // Generous budget: the first run may download the ~2.4GB NLLB model,
-      // and CPU translation of a long transcript is slow.
-      { timeoutMs: 30 * 60_000 },
-    );
-    return result.stdout;
+    // Shared worker keeps the model loaded between requests (see
+    // translateWorker.mjs); the first call may still pause to download it.
+    return await translateViaWorker(srtText, fromCode, "en");
   } catch (err) {
     // Don't fail the whole import — transcription is still useful — but make
     // the failure visible instead of silently returning an empty translation.
