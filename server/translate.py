@@ -2,13 +2,25 @@
 """Translate an SRT file line-by-line using Facebook NLLB-200 (offline)."""
 
 import argparse
+import json
 import os
 import re
 import sys
 
+import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 MODEL_NAME = "facebook/nllb-200-distilled-600M"
+
+# Translate this many subtitle lines per model call. Batching is what makes the
+# CPU path faster; the GPU path benefits even more. Sized for the GPU path while
+# staying safe on CPU thanks to length-sorting (below) keeping padding small.
+BATCH_SIZE = 64
+
+# Beam search instead of greedy decoding. Greedy occasionally collapses into a
+# confident hallucination (e.g. a "你好…" line rendered as unrelated text);
+# searching a few hypotheses avoids that. 5 is NLLB's usual default.
+NUM_BEAMS = 5
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
@@ -32,14 +44,63 @@ LANG_CODE_MAP = {
 
 _tokenizer = None
 _model = None
+_device = None
 
 
 def get_model():
-    global _tokenizer, _model
+    global _tokenizer, _model, _device
     if _tokenizer is None:
+        # Use the GPU when one is present; otherwise stay on CPU. This is purely
+        # automatic, so machines without a GPU keep working unchanged.
+        _device = "cuda" if torch.cuda.is_available() else "cpu"
         _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
+        _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME).to(_device)
     return _tokenizer, _model
+
+
+_cn_char_sets = None
+
+
+def _chinese_char_sets():
+    """Characters unique to Traditional vs Simplified, from CC-CEDICT.
+
+    CEDICT lists each word as `traditional simplified [pinyin] /defs/`. For
+    entries where the two forms differ, the characters that appear only in the
+    Traditional column (and only in the Simplified column) are reliable markers
+    of each script. Built once and cached.
+    """
+    global _cn_char_sets
+    if _cn_char_sets is None:
+        trad, simp = set(), set()
+        path = CEDICT_FULL if os.path.exists(CEDICT_FULL) else CEDICT_SEED
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("#"):
+                        continue
+                    m = re.match(r"^(\S+)\s+(\S+)\s+\[", line)
+                    if not m:
+                        continue
+                    t_form, s_form = m.group(1), m.group(2)
+                    if t_form != s_form:
+                        trad.update(t_form)
+                        simp.update(s_form)
+        _cn_char_sets = (trad - simp, simp - trad)
+    return _cn_char_sets
+
+
+def detect_chinese_script(text):
+    """Choose zho_Hant vs zho_Hans from the text itself.
+
+    The `zh` code doesn't say which script the subtitles use, and feeding
+    Simplified text to the model labelled as Traditional (or vice versa) makes
+    it hallucinate. Count script-specific characters and pick the winner,
+    defaulting to Simplified, which is far more common.
+    """
+    trad_only, simp_only = _chinese_char_sets()
+    trad_hits = sum(c in trad_only for c in text)
+    simp_hits = sum(c in simp_only for c in text)
+    return "zho_Hant" if trad_hits > simp_hits else "zho_Hans"
 
 
 def load_unambiguous_nouns():
@@ -101,17 +162,36 @@ def substitute_nouns(text, nouns):
     return text
 
 
-def translate_text(text, src_lang, tgt_lang):
+def translate_batch(texts, src_lang, tgt_lang):
+    """Translate a list of strings in one model call.
+
+    Tokenizing the whole list together (with padding + an attention mask) and
+    running a single `generate` is far cheaper than one call per line, while the
+    attention mask keeps each result identical to translating it on its own.
+    """
+    if not texts:
+        return []
     tokenizer, model = get_model()
     tokenizer.src_lang = src_lang
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+    inputs = tokenizer(
+        texts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=512,
+    ).to(_device)
     tgt_id = tokenizer.convert_tokens_to_ids(tgt_lang)
     translated = model.generate(
         **inputs,
         forced_bos_token_id=tgt_id,
         max_new_tokens=256,
+        num_beams=NUM_BEAMS,
     )
-    return tokenizer.batch_decode(translated, skip_special_tokens=True)[0]
+    return tokenizer.batch_decode(translated, skip_special_tokens=True)
+
+
+def translate_text(text, src_lang, tgt_lang):
+    return translate_batch([text], src_lang, tgt_lang)[0]
 
 
 def parse_srt(text):
@@ -127,34 +207,109 @@ def parse_srt(text):
     return entries
 
 
+def translate_srt(srt_text, from_code, to_code="en"):
+    """Translate a full SRT string and return the translated SRT string."""
+    # `zh` is script-agnostic; pick Hant/Hans from the actual text so the model
+    # isn't told the wrong script (which makes it hallucinate).
+    if from_code == "zh":
+        src_lang = detect_chinese_script(srt_text)
+    else:
+        src_lang = LANG_CODE_MAP.get(from_code)
+    tgt_lang = LANG_CODE_MAP.get(to_code, "eng_Latn")
+    if not src_lang:
+        raise ValueError(f"Unsupported source language: {from_code}")
+
+    nouns = load_unambiguous_nouns() if from_code == "zh" else {}
+
+    entries = parse_srt(srt_text)
+    texts = [
+        substitute_nouns(content, nouns) if nouns else content
+        for _idx, _timestamp, content in entries
+    ]
+
+    # Group similar-length lines together so each batch pads to a length close
+    # to its own longest line instead of the longest line in the whole file.
+    # This cuts wasted compute on padding; we translate in the sorted order and
+    # then restore the original order, so the output is unchanged.
+    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+    translations = [None] * len(texts)
+    for start in range(0, len(order), BATCH_SIZE):
+        idx_chunk = order[start : start + BATCH_SIZE]
+        out = translate_batch([texts[i] for i in idx_chunk], src_lang, tgt_lang)
+        for i, translated_text in zip(idx_chunk, out):
+            translations[i] = translated_text
+
+    return "\n\n".join(
+        f"{idx}\n{timestamp}\n{translated_text}"
+        for (idx, timestamp, _content), translated_text in zip(entries, translations)
+    )
+
+
+def serve():
+    """Long-lived worker: load the model once, then answer JSON requests.
+
+    Reads one JSON request per line from stdin ({"id", "srt", "from", "to"})
+    and writes one JSON response per line to stdout. Loading the ~600M model is
+    the slow part (~several seconds, or a download on first ever use); doing it
+    once here instead of per request is the whole point of this mode.
+    """
+    try:
+        get_model()
+    except Exception as exc:  # model download/load failure
+        sys.stdout.write(json.dumps({"ready": False, "error": str(exc)}) + "\n")
+        sys.stdout.flush()
+        return
+
+    sys.stdout.write(json.dumps({"ready": True}) + "\n")
+    sys.stdout.flush()
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rid = req.get("id")
+        try:
+            translation = translate_srt(
+                req.get("srt", ""), req.get("from", ""), req.get("to", "en")
+            )
+            resp = {"id": rid, "translation": translation}
+        except Exception as exc:  # noqa: BLE001 - report any failure to the caller
+            resp = {"id": rid, "error": str(exc)}
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("srt_file", help="Path to SRT file to translate")
-    parser.add_argument("--from", dest="from_code", required=True)
+    parser.add_argument("srt_file", nargs="?", help="Path to SRT file to translate")
+    parser.add_argument("--from", dest="from_code")
     parser.add_argument("--to", dest="to_code", default="en")
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Run as a persistent worker reading JSON requests from stdin",
+    )
     args = parser.parse_args()
 
-    src_lang = LANG_CODE_MAP.get(args.from_code)
-    tgt_lang = LANG_CODE_MAP.get(args.to_code, "eng_Latn")
-    if not src_lang:
-        print(f"Unsupported source language: {args.from_code}", file=sys.stderr)
-        sys.exit(1)
+    if args.serve:
+        serve()
+        return
+
+    if not args.srt_file or not args.from_code:
+        parser.error("srt_file and --from are required unless --serve is given")
 
     with open(args.srt_file, "r", encoding="utf-8") as f:
         srt_text = f.read()
 
-    nouns = {}
-    if args.from_code == "zh":
-        nouns = load_unambiguous_nouns()
-
-    entries = parse_srt(srt_text)
-    translated_blocks = []
-    for idx, timestamp, content in entries:
-        text = substitute_nouns(content, nouns) if nouns else content
-        translated_text = translate_text(text, src_lang, tgt_lang)
-        translated_blocks.append(f"{idx}\n{timestamp}\n{translated_text}")
-
-    print("\n\n".join(translated_blocks), flush=True)
+    try:
+        print(translate_srt(srt_text, args.from_code, args.to_code), flush=True)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
