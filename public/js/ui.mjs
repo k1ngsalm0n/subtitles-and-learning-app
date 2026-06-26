@@ -1,4 +1,4 @@
-import { state, saveCards } from "./state.mjs";
+import { state, saveCards, getCurrentReviewCard } from "./state.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
@@ -205,9 +205,11 @@ export function renderDeck(els) {
 
 export function renderReviewCard(els) {
   const e = els || _els;
-  const card = state.cards[state.reviewIndex];
+  const card = getCurrentReviewCard();
   if (!card) {
-    e.reviewCard.innerHTML = "<p>No flashcards yet.</p>";
+    e.reviewCard.innerHTML = state.cards.length
+      ? "<p>All caught up — no cards due for review.</p>"
+      : "<p>No flashcards yet.</p>";
     return;
   }
   e.reviewCard.innerHTML = state.showingBack
