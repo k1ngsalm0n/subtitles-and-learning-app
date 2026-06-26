@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --env-file-if-exists=.env server/index.mjs"
+    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=22"

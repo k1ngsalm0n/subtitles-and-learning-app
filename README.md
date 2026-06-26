@@ -43,6 +43,22 @@ Optionally set the Whisper model in `.env` (defaults to `base`):
 cp .env.example .env
 ```
 
+## Tests
+
+Unit tests cover the pure parsing/utility helpers.
+
+JavaScript (`parseSubtitle`, `parseCedictLine`, `numberedToAccent`):
+
+```bash
+npm test
+```
+
+Python (`parse_srt`), from the activated venv:
+
+```bash
+python -m unittest discover -s test -p "test_*.py"
+```
+
 ## What works now
 
 - Dark mode by default, with a light mode toggle.
