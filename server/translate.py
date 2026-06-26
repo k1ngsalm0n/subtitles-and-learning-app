@@ -22,6 +22,11 @@ BATCH_SIZE = 64
 # searching a few hypotheses avoids that. 5 is NLLB's usual default.
 NUM_BEAMS = 5
 
+# Hard stop on repetition loops, where the model gets stuck emitting the same
+# phrase over and over (seen on garbled transcription input). Forbids repeating
+# any 3-token sequence within a translation.
+NO_REPEAT_NGRAM = 3
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
 CEDICT_FULL = os.path.join(DATA_DIR, "cedict.u8")
@@ -186,6 +191,7 @@ def translate_batch(texts, src_lang, tgt_lang):
         forced_bos_token_id=tgt_id,
         max_new_tokens=256,
         num_beams=NUM_BEAMS,
+        no_repeat_ngram_size=NO_REPEAT_NGRAM,
     )
     return tokenizer.batch_decode(translated, skip_special_tokens=True)
 

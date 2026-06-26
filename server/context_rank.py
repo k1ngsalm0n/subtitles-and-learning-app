@@ -19,8 +19,10 @@ from translate import detect_chinese_script
 
 MODEL_NAME = "facebook/nllb-200-distilled-600M"
 
-# Beam search avoids the greedy hallucinations seen in the main translate path.
+# Beam search avoids the greedy hallucinations seen in the main translate path;
+# no_repeat_ngram_size hard-stops repetition loops on garbled input.
 NUM_BEAMS = 5
+NO_REPEAT_NGRAM = 3
 
 _tokenizer = None
 _model = None
@@ -40,7 +42,11 @@ def translate(text, src_lang="zho_Hant", tgt_lang="eng_Latn"):
     inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
     tgt_id = tokenizer.convert_tokens_to_ids(tgt_lang)
     translated = model.generate(
-        **inputs, forced_bos_token_id=tgt_id, max_new_tokens=256, num_beams=NUM_BEAMS
+        **inputs,
+        forced_bos_token_id=tgt_id,
+        max_new_tokens=256,
+        num_beams=NUM_BEAMS,
+        no_repeat_ngram_size=NO_REPEAT_NGRAM,
     )
     return tokenizer.batch_decode(translated, skip_special_tokens=True)[0]
 
