@@ -14,6 +14,7 @@ import {
 } from "./util.mjs";
 import { ytdlpCookieArgs } from "./cookies.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
+import { refineSegments } from "./segment.mjs";
 
 const WHISPER_MODEL = process.env.WHISPER_MODEL || "base";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -347,7 +348,7 @@ async function readFirstJson(dir) {
 }
 
 function segmentsToSrt(segments) {
-  return segments
+  return refineSegments(segments)
     .map((segment, index) =>
       [
         index + 1,
