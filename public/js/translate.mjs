@@ -1,5 +1,5 @@
 import { state } from "./state.mjs";
-import { parseSubtitle } from "./subtitle.mjs";
+import { parseSubtitle, alignTranslations } from "./subtitle.mjs";
 import { renderTranscript, renderActiveSubtitle, setElements } from "./ui.mjs";
 import { LANGUAGES, detectLanguage, languageName } from "./languages.mjs";
 
@@ -106,11 +106,10 @@ export async function runTranslation(els) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Translation failed.");
 
+    // Align by cue identity (index/timestamp), not array position, so a
+    // dropped/merged block doesn't shift every later line. See #14.
     const translated = parseSubtitle(data.translation || "");
-    state.subtitles = state.subtitles.map((line, index) => ({
-      ...line,
-      translation: translated[index]?.text || line.translation || "",
-    }));
+    state.subtitles = alignTranslations(state.subtitles, translated);
     renderTranscript(els);
     renderActiveSubtitle(els);
     setStatus(els, `Translated to ${languageName(to)}.`);
