@@ -6,9 +6,15 @@ import os
 import re
 import sys
 
+import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 MODEL_NAME = "facebook/nllb-200-distilled-600M"
+
+# Translate this many subtitle lines per model call. Batching is what makes the
+# CPU path faster; the GPU path benefits even more. Kept modest so padding waste
+# and peak memory stay bounded on low-end machines.
+BATCH_SIZE = 16
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
@@ -32,13 +38,17 @@ LANG_CODE_MAP = {
 
 _tokenizer = None
 _model = None
+_device = None
 
 
 def get_model():
-    global _tokenizer, _model
+    global _tokenizer, _model, _device
     if _tokenizer is None:
+        # Use the GPU when one is present; otherwise stay on CPU. This is purely
+        # automatic, so machines without a GPU keep working unchanged.
+        _device = "cuda" if torch.cuda.is_available() else "cpu"
         _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
+        _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME).to(_device)
     return _tokenizer, _model
 
 
@@ -101,17 +111,35 @@ def substitute_nouns(text, nouns):
     return text
 
 
-def translate_text(text, src_lang, tgt_lang):
+def translate_batch(texts, src_lang, tgt_lang):
+    """Translate a list of strings in one model call.
+
+    Tokenizing the whole list together (with padding + an attention mask) and
+    running a single `generate` is far cheaper than one call per line, while the
+    attention mask keeps each result identical to translating it on its own.
+    """
+    if not texts:
+        return []
     tokenizer, model = get_model()
     tokenizer.src_lang = src_lang
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+    inputs = tokenizer(
+        texts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=512,
+    ).to(_device)
     tgt_id = tokenizer.convert_tokens_to_ids(tgt_lang)
     translated = model.generate(
         **inputs,
         forced_bos_token_id=tgt_id,
         max_new_tokens=256,
     )
-    return tokenizer.batch_decode(translated, skip_special_tokens=True)[0]
+    return tokenizer.batch_decode(translated, skip_special_tokens=True)
+
+
+def translate_text(text, src_lang, tgt_lang):
+    return translate_batch([text], src_lang, tgt_lang)[0]
 
 
 def parse_srt(text):
@@ -148,11 +176,20 @@ def main():
         nouns = load_unambiguous_nouns()
 
     entries = parse_srt(srt_text)
-    translated_blocks = []
-    for idx, timestamp, content in entries:
-        text = substitute_nouns(content, nouns) if nouns else content
-        translated_text = translate_text(text, src_lang, tgt_lang)
-        translated_blocks.append(f"{idx}\n{timestamp}\n{translated_text}")
+    texts = [
+        substitute_nouns(content, nouns) if nouns else content
+        for _idx, _timestamp, content in entries
+    ]
+
+    translations = []
+    for start in range(0, len(texts), BATCH_SIZE):
+        chunk = texts[start : start + BATCH_SIZE]
+        translations.extend(translate_batch(chunk, src_lang, tgt_lang))
+
+    translated_blocks = [
+        f"{idx}\n{timestamp}\n{translated_text}"
+        for (idx, timestamp, _content), translated_text in zip(entries, translations)
+    ]
 
     print("\n\n".join(translated_blocks), flush=True)
 
