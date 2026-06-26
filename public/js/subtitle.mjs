@@ -28,12 +28,41 @@ export const sampleTranslation = `1
 export function loadSubtitles(originalText, translationText = "") {
   const original = parseSubtitle(originalText);
   const translated = parseSubtitle(translationText);
-  state.subtitles = original.map((line, index) => ({
-    ...line,
-    translation: translated[index]?.text || "",
-  }));
+
+  // Match translations to originals by cue identity (SRT index field, then
+  // start timestamp) rather than position in the parsed array. A dropped or
+  // merged block on either side would otherwise shift every subsequent
+  // translation by one or more lines. Positional matching is kept only as a
+  // last resort, and only when both sides parsed to the same length.
+  const byCue = new Map();
+  const byStart = new Map();
+  for (const cue of translated) {
+    if (cue.cueIndex != null && !byCue.has(cue.cueIndex)) {
+      byCue.set(cue.cueIndex, cue.text);
+    }
+    const key = startKey(cue.start);
+    if (!byStart.has(key)) byStart.set(key, cue.text);
+  }
+  const sameLength = original.length === translated.length;
+
+  state.subtitles = original.map((line, index) => {
+    let translation = "";
+    if (line.cueIndex != null && byCue.has(line.cueIndex)) {
+      translation = byCue.get(line.cueIndex);
+    } else if (byStart.has(startKey(line.start))) {
+      translation = byStart.get(startKey(line.start));
+    } else if (sameLength) {
+      translation = translated[index]?.text || "";
+    }
+    return { ...line, translation };
+  });
   state.activeIndex = 0;
   renderAll();
+}
+
+// Round start time to whole milliseconds so float drift can't break matching.
+function startKey(start) {
+  return Number.isFinite(start) ? Math.round(start * 1000) : null;
 }
 
 export function parseSubtitle(text) {
@@ -45,10 +74,15 @@ export function parseSubtitle(text) {
     .map((lines) => {
       const timeIndex = lines.findIndex((line) => line.includes("-->"));
       if (timeIndex === -1) return null;
+      // The SRT cue number is the numeric line preceding the timestamp.
+      const numberLine = lines
+        .slice(0, timeIndex)
+        .find((line) => /^\d+$/.test(line.trim()));
       const [start, end] = lines[timeIndex]
         .split("-->")
         .map((value) => parseTime(value.trim()));
       return {
+        cueIndex: numberLine ? Number(numberLine.trim()) : null,
         start,
         end,
         text: lines
