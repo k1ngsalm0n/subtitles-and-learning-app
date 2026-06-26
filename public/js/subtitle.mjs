@@ -26,14 +26,20 @@ export const sampleTranslation = `1
 每天简短复习能帮助新词变成主动语言。`;
 
 export function loadSubtitles(originalText, translationText = "") {
-  const original = parseSubtitle(originalText);
-  const translated = parseSubtitle(translationText);
+  state.subtitles = alignTranslations(
+    parseSubtitle(originalText),
+    parseSubtitle(translationText),
+  );
+  state.activeIndex = 0;
+  renderAll();
+}
 
-  // Match translations to originals by cue identity (SRT index field, then
-  // start timestamp) rather than position in the parsed array. A dropped or
-  // merged block on either side would otherwise shift every subsequent
-  // translation by one or more lines. Positional matching is kept only as a
-  // last resort, and only when both sides parsed to the same length.
+// Match translations to originals by cue identity (SRT index field, then start
+// timestamp) rather than position in the parsed array. A dropped or merged
+// block on either side would otherwise shift every subsequent translation by
+// one or more lines. Positional matching is kept only as a last resort, and
+// only when both sides parsed to the same length.
+export function alignTranslations(original, translated) {
   const byCue = new Map();
   const byStart = new Map();
   for (const cue of translated) {
@@ -45,7 +51,7 @@ export function loadSubtitles(originalText, translationText = "") {
   }
   const sameLength = original.length === translated.length;
 
-  state.subtitles = original.map((line, index) => {
+  return original.map((line, index) => {
     let translation = "";
     if (line.cueIndex != null && byCue.has(line.cueIndex)) {
       translation = byCue.get(line.cueIndex);
@@ -56,8 +62,6 @@ export function loadSubtitles(originalText, translationText = "") {
     }
     return { ...line, translation };
   });
-  state.activeIndex = 0;
-  renderAll();
 }
 
 // Round start time to whole milliseconds so float drift can't break matching.

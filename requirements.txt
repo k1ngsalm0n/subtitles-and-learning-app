@@ -1,0 +1,13 @@
+# Python dependencies for the local transcription + translation pipeline.
+# Install into a virtual environment:  pip install -r requirements.txt
+# Versions are pinned to the set this project was developed and tested against.
+
+# NLLB-200 translation (server/translate.py, server/context_rank.py).
+# Pulls in torch, tokenizers, safetensors, huggingface-hub, etc. as sub-dependencies.
+transformers==5.12.1
+
+# Tensor/math engine that runs the NLLB model.
+torch==2.12.1
+
+# Local speech-to-text used when a video has no existing subtitle track.
+openai-whisper==20250625
