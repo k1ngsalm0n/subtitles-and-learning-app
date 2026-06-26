@@ -1,4 +1,4 @@
-import { state, saveCards } from "./state.mjs";
+import { state, saveCards, getCurrentReviewCard } from "./state.mjs";
 import { renderAll, renderDeck, renderReviewCard, updateStats } from "./ui.mjs";
 
 export function addCard(front, back, example) {
@@ -25,11 +25,13 @@ export function flipReviewCard() {
 }
 
 export function gradeCard(grade) {
-  const card = state.cards[state.reviewIndex];
+  // Grade the card currently up for review (most-overdue due card). Grading
+  // pushes its due date into the future, so it leaves the queue and the next
+  // due card becomes current.
+  const card = getCurrentReviewCard();
   if (!card) return;
   card.interval = grade === "good" ? Math.min(card.interval * 2, 30) : 1;
   card.due = Date.now() + card.interval * 86400000;
-  state.reviewIndex = (state.reviewIndex + 1) % state.cards.length;
   state.showingBack = false;
   saveCards();
   renderReviewCard();
@@ -38,7 +40,6 @@ export function gradeCard(grade) {
 
 export function shuffleCards() {
   state.cards.sort(() => Math.random() - 0.5);
-  state.reviewIndex = 0;
   state.showingBack = false;
   saveCards();
   renderAll();
