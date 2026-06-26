@@ -195,7 +195,9 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
 async function rankWithContext(word, context, defs, lang) {
   if (!context || defs.length <= 1) return null;
   const cache = await loadCache();
-  const key = `nllb:${lang}:${word}:${context}`;
+  // v2: explanation format changed (was a verbose template that repeated the
+  // meaning and echoed the whole context line); bump so stale entries refresh.
+  const key = `nllb2:${lang}:${word}:${context}`;
   if (cache[key]) return cache[key];
 
   // Pass the generic code; context_rank.py detects Simplified vs Traditional
