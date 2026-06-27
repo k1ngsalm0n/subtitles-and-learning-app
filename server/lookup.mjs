@@ -124,39 +124,72 @@ async function saveCache() {
   await writeFile(CACHE_FILE, JSON.stringify(llmCache, null, 2));
 }
 
+// OpenAI-compatible LLM config. Works with OpenAI, Groq, Gemini's OpenAI shim,
+// a local Ollama (`http://localhost:11434/v1`), or anything that speaks the same
+// /chat/completions API. LLM_* vars win; OPENAI_API_KEY stays as a fallback so
+// existing setups keep working.
+const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
+const LLM_BASE_URL = (process.env.LLM_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
+
 async function lookupWithLlm(word, lang, context, dictDefs) {
-  if (!process.env.OPENAI_API_KEY) return null;
+  if (!LLM_API_KEY) return null;
   const cache = await loadCache();
-  const key = `${lang}:${word}:${context || ""}`;
+  // Include the model and prompt version in the key so switching providers or
+  // changing the prompt refreshes answers. Bump the version token on any prompt
+  // edit. v2: literal `meaning` + meaning/explanation consistency. v3: added
+  // partOfSpeech. v4: explanation is about the word only, no sentence retelling.
+  // v5: force English output.
+  const key = `${LLM_MODEL}:v5:${lang}:${word}:${context || ""}`;
   if (cache[key]) return cache[key];
+
+  // Consistency rules shared by both prompts. The `meaning` is the word's
+  // literal/dictionary sense; figurative or metaphorical use goes in the
+  // `explanation`. This stops the model from inventing a new literal meaning
+  // for money/idiom-heavy lines (e.g. 万里 = "thousands of dollars") and then
+  // contradicting itself between the two fields.
+  const rules =
+    "Write meaning, explanation, and partOfSpeech in ENGLISH, regardless of the word's language. " +
+    "meaning must be the word's literal/dictionary sense, NOT a reading of the whole sentence; " +
+    "if the word is used figuratively here, keep the literal meaning in `meaning` and explain the figurative use in `explanation`. " +
+    "The explanation must stay consistent with `meaning` — never assert a different meaning there. ";
+
+  // partOfSpeech: a single lowercase tag for the word AS USED in this sentence.
+  const posSpec =
+    'partOfSpeech: the word\'s part of speech in THIS context, as ONE short lowercase word ' +
+    '(e.g. "noun", "verb", "adjective", "adverb", "pronoun", "preposition", "conjunction", "particle", "measure word", "idiom").';
 
   const system = dictDefs?.length
     ? "You are a language tutor. Given a word, the sentence it appeared in, " +
       "and its dictionary definitions, return JSON: " +
-      '{"pronunciation": string, "meaning": string, "explanation": string}. ' +
+      '{"pronunciation": string, "meaning": string, "explanation": string, "partOfSpeech": string}. ' +
       "pronunciation: romanization (pinyin for Chinese, romaji for Japanese, else IPA). " +
-      "meaning: the ONE definition that fits THIS context (pick from the dictionary list or write your own if none fit). " +
-      "explanation: 1-2 sentences explaining why this meaning applies here, plus a brief grammar or usage note if helpful. " +
+      "meaning: the ONE dictionary definition that fits THIS context (prefer one from the list; only write your own if none fit). " +
+      rules +
+      "explanation: 1-2 sentences ABOUT THE WORD itself — what it is and what it is used for here. Do NOT paraphrase, retell, or summarize the sentence; focus only on the word's role/function (e.g. \"used as a numerical value to quantify the water volume\"). Add a brief grammar/usage note if helpful. " +
+      posSpec + " " +
       "Keep it concise — this is a subtitle popup, not an essay."
     : "You are a language tutor. Given a word and the sentence it appeared in, return JSON: " +
-      '{"pronunciation": string, "meaning": string, "explanation": string}. ' +
+      '{"pronunciation": string, "meaning": string, "explanation": string, "partOfSpeech": string}. ' +
       "pronunciation: romanization (pinyin for Chinese, romaji for Japanese, else IPA). " +
-      "meaning: short English gloss for THIS context. " +
-      "explanation: 1-2 sentences on meaning, grammar, or usage. Keep it concise.";
+      "meaning: short English gloss of the word for THIS context. " +
+      rules +
+      "explanation: 1-2 sentences ABOUT THE WORD itself — what it is and what it is used for here. Do NOT paraphrase, retell, or summarize the sentence; focus only on the word's role/function. Add a brief grammar/usage note if helpful. " +
+      posSpec + " Keep it concise.";
 
   const userParts = [`Language: ${lang}`, `Word: ${word}`, `Sentence: ${context || "(none)"}`];
   if (dictDefs?.length) {
     userParts.push(`Dictionary definitions:\n${dictDefs.map((d, i) => `${i + 1}. ${d}`).join("\n")}`);
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${LLM_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: LLM_MODEL,
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
@@ -164,9 +197,9 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
         { role: "user", content: userParts.join("\n") },
       ],
     }),
-  });
+  }).catch(() => null);
 
-  if (!response.ok) return null;
+  if (!response || !response.ok) return null;
   const payload = await response.json().catch(() => null);
   const content = payload?.choices?.[0]?.message?.content;
   if (!content) return null;
@@ -183,6 +216,7 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
     pronunciation: String(parsed.pronunciation || ""),
     meaning: String(parsed.meaning || ""),
     explanation: String(parsed.explanation || ""),
+    partOfSpeech: String(parsed.partOfSpeech || ""),
     source: "llm",
   };
   cache[key] = result;
@@ -195,9 +229,9 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
 async function rankWithContext(word, context, defs, lang) {
   if (!context || defs.length <= 1) return null;
   const cache = await loadCache();
-  // v2: explanation format changed (was a verbose template that repeated the
-  // meaning and echoed the whole context line); bump so stale entries refresh.
-  const key = `nllb2:${lang}:${word}:${context}`;
+  // v3: explanation is now a meaning-focused note about the word (was the whole
+  // sentence's translation); bump so stale entries refresh.
+  const key = `nllb3:${lang}:${word}:${context}`;
   if (cache[key]) return cache[key];
 
   // Pass the generic code; context_rank.py detects Simplified vs Traditional

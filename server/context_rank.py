@@ -119,10 +119,16 @@ def main():
 
     best = scored[0]["def"] if scored else args.defs[0]
 
-    # Contextual note = the sentence's English translation. The old template
-    # echoed the raw context sentence and restated `best`, which made the popup
-    # show the definition twice and dump the whole subtitle line.
-    explanation = f"Sentence: {full_translation}" if full_translation else ""
+    # Meaning-focused note (Miraa-style): say what the WORD means in this
+    # context instead of dumping the whole sentence's translation. We use the
+    # word-only translation, which is the model's gloss for the word as used
+    # here. If it adds nothing over the chosen definition (`best`, already shown
+    # as the bold meaning line), leave the note empty rather than repeat it.
+    word_gloss = word_translation.strip()
+    if word_gloss and word_gloss.lower() != best.strip().lower():
+        explanation = f'Here, "{args.word}" means "{word_gloss}".'
+    else:
+        explanation = ""
 
     result = {
         "meaning": best,

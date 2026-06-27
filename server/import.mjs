@@ -56,7 +56,42 @@ const WHISPER_LANG_TO_CODE = {
 };
 
 async function ytdlpBase() {
-  return ["--no-playlist", ...(await ytdlpCookieArgs())];
+  return [
+    "--no-playlist",
+    // YouTube hands out stream URLs that intermittently 403; yt-dlp's own
+    // retries recover most of those without a full re-extraction.
+    "--retries", "10",
+    "--fragment-retries", "10",
+    ...(await ytdlpCookieArgs()),
+  ];
+}
+
+// Run yt-dlp, retrying transient failures (chiefly YouTube's HTTP 403 on
+// stream/fragment URLs). Each retry re-extracts, so it gets a fresh URL —
+// which is what actually fixes the 403, not just hammering the same link.
+async function runYtdlp(args, opts, attempts = 3) {
+  let lastErr;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await runCommand(YTDLP_BIN, args, opts);
+    } catch (err) {
+      lastErr = err;
+      const transient = /403|forbidden|fragment|unable to download|timed out|connection|temporar/i.test(
+        err.message || "",
+      );
+      if (attempt === attempts && /403|forbidden/i.test(err.message || "")) {
+        throw new Error(
+          "YouTube blocked the download (HTTP 403) after several tries. " +
+            "This is usually temporary — try again in a moment. If it keeps " +
+            "happening, add your browser cookies in Settings.",
+        );
+      }
+      if (!transient || attempt === attempts) throw err;
+      console.warn(`yt-dlp attempt ${attempt} failed (${err.message.split("\n")[0]}); retrying…`);
+      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+    }
+  }
+  throw lastErr;
 }
 
 export async function handleImportUrl(req, res) {
@@ -123,8 +158,7 @@ async function downloadVideo(url) {
   await mkdir(VIDEO_DIR, { recursive: true });
   const id = crypto.randomUUID();
   const outTemplate = path.join(VIDEO_DIR, `${id}.%(ext)s`);
-  await runCommand(
-    YTDLP_BIN,
+  await runYtdlp(
     [
       ...(await ytdlpBase()),
       "-f", "best[ext=mp4]/best",
@@ -237,8 +271,7 @@ function scoreSubtitleFile(file) {
 }
 
 async function downloadAudio(url, workspace) {
-  await runCommand(
-    YTDLP_BIN,
+  await runYtdlp(
     [
       ...(await ytdlpBase()),
       "-x",
