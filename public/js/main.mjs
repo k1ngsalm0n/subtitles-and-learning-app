@@ -200,17 +200,43 @@ async function importSourceUrl() {
 
   showProgress("Connecting and looking for captions...", 10);
 
+  // The early phases are quick and roughly predictable, so show staged
+  // percentages for them.
   const steps = [
     { message: "Downloading media info...", percent: 25, delay: 2000 },
     { message: "Extracting subtitles...", percent: 50, delay: 4000 },
-    { message: "Processing audio (this may take a while)...", percent: 70, delay: 8000 },
-    { message: "Almost done...", percent: 85, delay: 15000 },
+    { message: "Downloading audio...", percent: 65, delay: 8000 },
   ];
   let stepTimer = 0;
   const stepTimeouts = steps.map((step) => {
     stepTimer += step.delay;
     return setTimeout(() => showProgress(step.message, step.percent), stepTimer);
   });
+
+  // After those, transcription + translation run for an unknown (often
+  // multi-minute) time with no way to report a real percentage. Switch to an
+  // indeterminate bar with a live elapsed timer so the import keeps showing
+  // motion instead of freezing at a fake percentage.
+  const startedAt = Date.now();
+  let elapsedTimer = 0;
+  const beginIndeterminate = setTimeout(() => {
+    const tick = () => {
+      const secs = Math.floor((Date.now() - startedAt) / 1000);
+      const mm = Math.floor(secs / 60);
+      const ss = String(secs % 60).padStart(2, "0");
+      showProgress(
+        `Transcribing & translating — long videos can take a few minutes (${mm}:${ss})`,
+      );
+    };
+    tick();
+    elapsedTimer = setInterval(tick, 1000);
+  }, stepTimer + 4000);
+
+  const clearProgressTimers = () => {
+    stepTimeouts.forEach(clearTimeout);
+    clearTimeout(beginIndeterminate);
+    if (elapsedTimer) clearInterval(elapsedTimer);
+  };
 
   try {
     const response = await fetch("/api/import-url", {
@@ -219,7 +245,7 @@ async function importSourceUrl() {
       body: JSON.stringify({ url }),
     });
 
-    stepTimeouts.forEach(clearTimeout);
+    clearProgressTimers();
     showProgress("Loading results...", 95);
 
     const result = await response.json();
@@ -252,7 +278,7 @@ async function importSourceUrl() {
     );
     setTimeout(hideProgress, 2000);
   } catch (error) {
-    stepTimeouts.forEach(clearTimeout);
+    clearProgressTimers();
     source.status = "error";
     source.error = error.message;
     setSourceStatus(error.message, els);
