@@ -4,7 +4,6 @@ export const STORAGE_KEYS = {
   cards: "miraaStudio.cards",
   sources: "miraaStudio.sources",
   theme: "miraaStudio.theme",
-  prompt: "miraaStudio.prompt",
 };
 
 export const state = {

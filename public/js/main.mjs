@@ -58,8 +58,6 @@ const els = {
   manualFront: document.querySelector("#manualFront"),
   manualBack: document.querySelector("#manualBack"),
   sourceList: document.querySelector("#sourceList"),
-  translatorPrompt: document.querySelector("#translatorPrompt"),
-  savePrompt: document.querySelector("#savePrompt"),
   cookieModeNone: document.querySelector("#cookieModeNone"),
   cookieModeBrowser: document.querySelector("#cookieModeBrowser"),
   cookieModeFile: document.querySelector("#cookieModeFile"),
@@ -84,8 +82,6 @@ init();
 function init() {
   document.documentElement.dataset.theme =
     localStorage.getItem(STORAGE_KEYS.theme) || "dark";
-  els.translatorPrompt.value =
-    localStorage.getItem(STORAGE_KEYS.prompt) || els.translatorPrompt.value;
   bindEvents();
   populateLanguageSelects(els);
   loadSubtitles(sampleOriginal, sampleTranslation);
@@ -121,9 +117,6 @@ function bindEvents() {
   els.markGood.addEventListener("click", () => gradeCard("good"));
   els.shuffleCards.addEventListener("click", shuffleCards);
   els.exportCards.addEventListener("click", exportCards);
-  els.savePrompt.addEventListener("click", () =>
-    localStorage.setItem(STORAGE_KEYS.prompt, els.translatorPrompt.value),
-  );
   els.addWordCard.addEventListener("click", () => addDialogCard(els));
 
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
