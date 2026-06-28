@@ -1,0 +1,24 @@
+[project]
+name = "subtitles-and-learning-app"
+version = "1.0.0"
+description = "Local transcription + offline translation pipeline for the Miraa-style Language Studio."
+requires-python = ">=3.10"
+
+# The Python side of the app: speech-to-text (Whisper) and offline
+# translation (NLLB-200 via transformers/torch). Versions are pinned to the
+# set this project was developed and tested against.
+dependencies = [
+    # NLLB-200 translation (server/translate.py, server/context_rank.py).
+    # Pulls in torch, tokenizers, safetensors, huggingface-hub, etc.
+    "transformers==5.12.1",
+    # Tensor/math engine that runs the NLLB model.
+    "torch==2.12.1",
+    # Local speech-to-text used when a video has no existing subtitle track.
+    "openai-whisper==20250625",
+]
+
+# yt-dlp (URL import) is deliberately NOT listed here. It lives on the nightly
+# channel because the stable release lags behind YouTube's frequent changes,
+# and pinning a nightly into uv.lock would go stale immediately. Install it
+# separately into the same venv:
+#   uv pip install -U --prerelease=allow "yt-dlp[default]"

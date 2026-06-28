@@ -26,27 +26,47 @@ explanations), `translate.py` / `translateWorker.mjs` (NLLB), `segment.mjs`,
 
 ## Fresh-machine setup (after a distro reinstall)
 
-```bash
-# 1. System tools (Arch)
-sudo pacman -S --needed nodejs npm python yt-dlp ffmpeg
+Install these with whatever your distro provides (pacman, dnf, apt, brew, …):
 
-# 2. Clone
+- **Node ≥22** and **npm**
+- **Python ≥3.10** with the `venv` module
+- **ffmpeg** — needed to mux downloaded streams and feed audio to Whisper
+
+Do **not** install `yt-dlp` from the system package manager — the app prefers
+`.venv/bin/yt-dlp` and wants it on the nightly channel (the stable release lags
+behind YouTube's frequent changes). It's installed via pip below.
+
+The Python side is a [uv](https://docs.astral.sh/uv/) project: the pinned ML
+deps (torch/transformers/whisper) live in `pyproject.toml` and are locked in
+`uv.lock`. yt-dlp is intentionally *not* in the lockfile (pinning a nightly is
+pointless) — install it separately.
+
+```bash
+# 1. Clone
 git clone https://github.com/k1ngsalm0n/subtitles-and-learning-app.git
 cd subtitles-and-learning-app
 
-# 3. Python venv for Whisper + NLLB
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# 2. Python env — Whisper/NLLB from the lock, then nightly yt-dlp for URL import
+uv sync                                                   # creates .venv; torch is large
+uv pip install -U --prerelease=allow "yt-dlp[default]"    # URL import
 
-# 4. Config
+# 3. Config
 cp .env.example .env      # then add an LLM key (see below)
 
-# 5. Run
+# 4. Run
 npm start                 # → http://localhost:3000
 ```
 
+No `uv`? Fall back to `python -m venv .venv && source .venv/bin/activate`, then
+`pip install -e .` (reads `pyproject.toml`) and `pip install -U --pre
+"yt-dlp[default]"`.
+
 `npm install` is effectively a no-op (no third-party deps), but harmless to run.
+
+The two Python pieces are independent: install only yt-dlp if you just want URL
+import, only the locked deps (`uv sync`) if you only need local files
+transcribed. Restart the server after creating the venv so it picks up
+`.venv/bin/yt-dlp` (the binary path is resolved at module load).
 
 First translation/transcription downloads models (~2.4 GB NLLB + a Whisper
 model) into `~/.cache/huggingface` and the Whisper cache. One-time, and the app
