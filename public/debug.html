@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html><head>
+<style>
+body { background: #111; color: #eee; font: 20px sans-serif; padding: 40px; }
+.word { padding: 2px 4px; border-radius: 4px; cursor: pointer; background: rgba(110,231,183,0.08); border: 1px solid rgba(110,231,183,0.2); }
+.word:hover { background: rgba(110,231,183,0.25); }
+#log { margin-top: 20px; color: #6ee7b7; font-size: 16px; white-space: pre-wrap; }
+#raw { margin-top: 20px; color: #fbbf24; font-size: 14px; white-space: pre-wrap; }
+</style>
+</head><body>
+<div id="text"></div>
+<div id="log">Click any word...</div>
+<div id="raw"></div>
+<script>
+const seg = new Intl.Segmenter(undefined, { granularity: "word" });
+const cjkRe = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const text = "花蓮萬里西上游出現面積45公頃的顏色湖出乎最大水量高達600萬例方公尺,隨著颱風環流步步逼近大家都風景神經。";
+const segments = [...seg.segment(text)];
+
+function isW(s) { return s.isWordLike || cjkRe.test(s.segment); }
+
+// Show raw segments
+document.getElementById("raw").textContent = "Segments:\n" + segments.map(s =>
+  `"${s.segment}" isWordLike=${s.isWordLike} isWord(fixed)=${isW(s)}`
+).join("\n");
+
+// Render tokenized
+document.getElementById("text").innerHTML = segments.map(s => {
+  if (isW(s)) return `<span class="word" data-word="${s.segment}">${s.segment}</span>`;
+  return s.segment;
+}).join("");
+
+// Delegated click
+document.getElementById("text").addEventListener("click", e => {
+  const w = e.target.closest(".word");
+  const log = document.getElementById("log");
+  log.textContent = `target: <${e.target.tagName} class="${e.target.className}">\n`;
+  log.textContent += `closest .word: ${w ? w.dataset.word : "null"}\n`;
+  log.textContent += `target text: "${e.target.textContent?.slice(0,20)}"`;
+});
+</script>
+</body></html>
