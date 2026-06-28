@@ -52,26 +52,6 @@ First translation/transcription downloads models (~2.4 GB NLLB + a Whisper
 model) into `~/.cache/huggingface` and the Whisper cache. One-time, and the app
 appears to pause while it happens.
 
-## Restoring local-only data (NOT in git)
-
-These are gitignored and were backed up to USB before the wipe — copy them back
-into the repo after cloning:
-
-- **`.env`** — Whisper model choice + the `LLM_*` lookup API key (Groq).
-  If the old key was exposed, rotate it at https://console.groq.com/keys.
-- **`data/videos/`** — imported video/audio + their subtitle/cache files. This is the actual study content.
-- **`data/cookies.json`** — saved cookies for authorized URL imports.
-
-Regenerable, don't need to restore:
-- `data/cedict.u8` — full CC-CEDICT dictionary. Rebuild with `node scripts/fetch-cedict.mjs`.
-- `data/lookup-cache.json` — cached word lookups; refills itself as you use the app.
-- `node_modules/`, `.venv/`, `__pycache__/` — recreated by the setup steps above.
-
-The backup archive looks like `subtitles-backup-YYYYMMDD.tar.gz`; restore with:
-```bash
-tar -xzf /path/to/subtitles-backup-*.tar.gz -C .
-```
-
 ## Tests
 
 ```bash
