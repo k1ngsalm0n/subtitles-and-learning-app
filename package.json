@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env server/index.mjs",
+    "sync": "node scripts/sync.mjs",
     "test": "node --test"
   },
   "engines": {

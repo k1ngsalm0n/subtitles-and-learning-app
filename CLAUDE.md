@@ -46,9 +46,9 @@ pointless) — install it separately.
 git clone https://github.com/k1ngsalm0n/subtitles-and-learning-app.git
 cd subtitles-and-learning-app
 
-# 2. Python env — Whisper/NLLB from the lock, then nightly yt-dlp for URL import
-uv sync                                                   # creates .venv; torch is large
-uv pip install -U --prerelease=allow "yt-dlp[default]"    # URL import
+# 2. Bootstrap the Python env in one shot: uv sync + nightly yt-dlp +
+#    the best-fit torch build for this machine's GPU (or CPU if none).
+npm run sync
 
 # 3. Config
 cp .env.example .env      # then add an LLM key (see below)
@@ -56,6 +56,13 @@ cp .env.example .env      # then add an LLM key (see below)
 # 4. Run
 npm start                 # → http://localhost:3000
 ```
+
+`npm run sync` (`scripts/sync.mjs`) is the one-command bootstrap. It runs
+`uv sync`, installs nightly yt-dlp, then detects the GPU via `nvidia-smi` and
+installs the matching CUDA torch wheel over the CPU build (see GPU section for
+the mapping). Re-runnable. Force a choice with `CUDA_BUILD=cpu npm run sync` or
+`CUDA_BUILD=cu130 npm run sync`. The manual equivalents are below if you'd
+rather run the steps yourself.
 
 No `uv`? Fall back to `python -m venv .venv && source .venv/bin/activate`, then
 `pip install -e .` (reads `pyproject.toml`) and `pip install -U --pre

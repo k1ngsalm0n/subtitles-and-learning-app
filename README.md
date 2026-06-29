@@ -23,10 +23,23 @@ sudo pacman -S --needed ffmpeg   # or: dnf install ffmpeg / apt install ffmpeg
 
 The local transcription (Whisper), translation (NLLB-200), and URL import
 (yt-dlp) steps run through Python. This project uses [uv](https://docs.astral.sh/uv/);
-the pinned ML dependencies live in `pyproject.toml` / `uv.lock`:
+the pinned ML dependencies live in `pyproject.toml` / `uv.lock`. The easiest
+setup is one command:
 
 ```bash
-uv sync                                            # creates .venv from the lock
+npm run sync
+```
+
+This runs `uv sync`, installs nightly yt-dlp, and — by inspecting your GPU with
+`nvidia-smi` — installs the best-fit CUDA torch wheel (or stays on CPU if there's
+no usable NVIDIA card). It's re-runnable; force a build with `CUDA_BUILD=cpu` or
+`CUDA_BUILD=cu130`.
+
+<details>
+<summary>What it does, step by step (run manually if you prefer)</summary>
+
+```bash
+uv sync                                                  # creates .venv from the lock (CPU torch)
 uv pip install -U --prerelease=allow "yt-dlp[default]"   # nightly; URL import
 ```
 
@@ -43,6 +56,7 @@ GPU, install a matching CUDA wheel over the top (Whisper/NLLB auto-detect it):
 uv pip install --reinstall-package torch torch==2.12.1 \
   --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
 ```
+</details>
 
 <details>
 <summary>Without uv (plain venv + pip)</summary>
