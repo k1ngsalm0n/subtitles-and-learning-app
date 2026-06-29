@@ -48,6 +48,21 @@ def fetch_whisper() -> None:
     print(f"  Whisper '{model}' ready.")
 
 
+def fetch_faster_whisper() -> None:
+    """Prefetch the faster-whisper model (the primary transcription engine)."""
+    model = os.getenv("WHISPER_MODEL", "base")
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        print("  faster-whisper not installed — skipping (CLI fallback will be used).")
+        return
+    # Instantiating downloads the model to the HF cache if absent; it's a no-op
+    # (just a quick load) once cached. CPU/int8 so the prefetch never needs the GPU.
+    print(f"  Ensuring faster-whisper '{model}' is cached…")
+    WhisperModel(model, device="cpu", compute_type="int8")
+    print(f"  faster-whisper '{model}' ready.")
+
+
 def fetch_nllb() -> None:
     model = nllb_model_name()
     from huggingface_hub import snapshot_download
@@ -64,7 +79,9 @@ def fetch_nllb() -> None:
 
 
 def main() -> int:
-    print("  Checking Whisper model…")
+    print("  Checking faster-whisper model…")
+    fetch_faster_whisper()
+    print("  Checking Whisper model (CLI fallback)…")
     fetch_whisper()
     print("  Checking NLLB model…")
     fetch_nllb()

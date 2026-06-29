@@ -2,15 +2,18 @@
 //
 //   1. `uv sync`               — install the locked Python deps (CPU torch).
 //   2. nightly yt-dlp          — URL import; kept off the lockfile on purpose.
-//   3. best-fit CUDA torch     — detect the GPU and install a matching wheel
+//   3. deno                    — JS runtime yt-dlp needs for full-quality
+//                                YouTube extraction; dropped into the venv.
+//   4. best-fit CUDA torch     — detect the GPU and install a matching wheel
 //                                over the CPU build, or stay on CPU if there's
 //                                no usable NVIDIA card.
 //
 // Stdlib only — the project has no third-party Node deps. Re-runnable: each run
-// re-syncs to the lock, then re-applies the yt-dlp and GPU overrides.
+// re-syncs to the lock, then re-applies the yt-dlp/deno and GPU overrides.
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +34,75 @@ function capture(cmd, args) {
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: "utf8" });
   if (r.error || r.status !== 0) return null;
   return (r.stdout ?? "").trim();
+}
+
+// Put deno (yt-dlp's default JS runtime) in the venv so it travels with the
+// project, mirroring how yt-dlp itself is pinned there. Best-effort: a failure
+// here must not abort the bootstrap — URL import just stays on yt-dlp's
+// degraded, no-JS-runtime fallback (lower-quality formats). Downloads a single
+// static binary from GitHub releases and unzips it with the venv's Python, so
+// it needs only curl + the Python we just installed (no unzip / shell prompts).
+function ensureDeno() {
+  const denoPath = join(ROOT, ".venv", "bin", "deno");
+  if (existsSync(denoPath)) {
+    console.log("  deno already present in .venv/bin — skipping.");
+    return;
+  }
+  if (capture("deno", ["--version"])) {
+    console.log("  deno found on PATH — yt-dlp will auto-detect it.");
+    return;
+  }
+
+  const arch =
+    process.arch === "arm64"
+      ? "aarch64"
+      : process.arch === "x64"
+        ? "x86_64"
+        : null;
+  const triple =
+    process.platform === "linux"
+      ? `${arch}-unknown-linux-gnu`
+      : process.platform === "darwin"
+        ? `${arch}-apple-darwin`
+        : null;
+  if (!arch || !triple) {
+    console.warn(
+      `  ⚠ No prebuilt deno for ${process.platform}/${process.arch}; ` +
+        "install deno manually for full-quality YouTube downloads.",
+    );
+    return;
+  }
+
+  const url = `https://github.com/denoland/deno/releases/latest/download/deno-${triple}.zip`;
+  const zip = join(ROOT, ".venv", "deno.zip");
+  const py = join(ROOT, ".venv", "bin", "python");
+  const warn = (why) =>
+    console.warn(
+      `  ⚠ deno install failed (${why}) — URL import will use yt-dlp's ` +
+        "degraded path. Install deno manually to restore full-quality downloads.",
+    );
+
+  const dl = spawnSync("curl", ["-fsSL", "-o", zip, url], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+  if (dl.error || dl.status !== 0) {
+    warn("download");
+    rmSync(zip, { force: true });
+    return;
+  }
+  const ex = spawnSync(py, ["-m", "zipfile", "-e", zip, dirname(denoPath)], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+  rmSync(zip, { force: true });
+  if (ex.error || ex.status !== 0 || !existsSync(denoPath)) {
+    warn("extract");
+    return;
+  }
+  chmodSync(denoPath, 0o755);
+  const ver = capture(denoPath, ["--version"]);
+  console.log(`  Installed ${ver ? ver.split("\n")[0] : "deno"} → .venv/bin/deno`);
 }
 
 function torchVersion() {
@@ -72,6 +144,9 @@ run("uv", ["sync"]);
 
 console.log("\n→ Installing nightly yt-dlp (URL import)…");
 run("uv", ["pip", "install", "-U", "--prerelease=allow", "yt-dlp[default]"]);
+
+console.log("\n→ Ensuring deno (yt-dlp JS runtime for full-quality YouTube)…");
+ensureDeno();
 
 console.log("\n→ Selecting torch build for this machine…");
 // CUDA_BUILD overrides detection: a `cuXXX` tag, or `cpu` to force the CPU build.

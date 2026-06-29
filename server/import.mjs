@@ -17,8 +17,19 @@ import { translateViaWorker } from "./translateWorker.mjs";
 import { refineSegments } from "./segment.mjs";
 
 const WHISPER_MODEL = process.env.WHISPER_MODEL || "base";
+// Whisper auto-selects CUDA when a GPU is present. On a small or busy GPU the
+// model load can fail with a CUDA out-of-memory error — most often because the
+// resident NLLB translation worker is already holding most of the VRAM. Set
+// WHISPER_DEVICE (e.g. "cpu" or "cuda") to force a device and skip the
+// auto-fallback; otherwise we retry on CPU when the GPU run OOMs.
+const WHISPER_DEVICE = process.env.WHISPER_DEVICE || "";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
+// Preferred transcription path: faster-whisper (CTranslate2) via transcribe.py —
+// same Whisper models, several-fold faster. Falls back to the openai-whisper CLI
+// above if faster-whisper isn't installed.
+const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
+const TRANSCRIBE_SCRIPT = path.join(__dirname, "transcribe.py");
 const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
 
 // Retention policy for the downloaded-video cache. Without this the directory
@@ -42,6 +53,16 @@ const VIDEO_CACHE_MAX_AGE_MS =
 const VENV_YTDLP = path.join(__dirname, "..", ".venv", "bin", "yt-dlp");
 const YTDLP_BIN = existsSync(VENV_YTDLP) ? VENV_YTDLP : "yt-dlp";
 
+// yt-dlp's YouTube extractor now needs a JavaScript runtime; without one it
+// falls back to degraded player clients and lower-quality (or missing) formats.
+// deno is yt-dlp's default runtime — point it at the copy `npm run sync` drops
+// in the venv. If that's absent we pass nothing: yt-dlp auto-detects a `deno`
+// on PATH, and otherwise stays on the (working but degraded) fallback path.
+const VENV_DENO = path.join(__dirname, "..", ".venv", "bin", "deno");
+const DENO_JS_RUNTIME = existsSync(VENV_DENO)
+  ? ["--js-runtimes", `deno:${VENV_DENO}`]
+  : [];
+
 const WHISPER_LANG_TO_CODE = {
   afrikaans: "af", arabic: "ar", azerbaijani: "az", bengali: "bn",
   bulgarian: "bg", catalan: "ca", chinese: "zh", czech: "cs", danish: "da",
@@ -57,6 +78,7 @@ const WHISPER_LANG_TO_CODE = {
 
 async function ytdlpBase() {
   return [
+    ...DENO_JS_RUNTIME,
     "--no-playlist",
     // YouTube hands out stream URLs that intermittently 403; yt-dlp's own
     // retries recover most of those without a full re-extraction.
@@ -110,7 +132,8 @@ export async function handleImportUrl(req, res) {
     );
 
     const title = await getMediaTitle(url.href);
-    const videoUrl = await downloadVideo(url.href);
+    const videoPath = await downloadVideo(url.href);
+    const videoUrl = videoPath ? `/videos/${path.basename(videoPath)}` : "";
     const subtitle = await getExistingSubtitle(url.href, workspace);
 
     if (subtitle) {
@@ -129,7 +152,12 @@ export async function handleImportUrl(req, res) {
       return;
     }
 
-    const audioPath = await downloadAudio(url.href, workspace);
+    // Extract audio from the already-downloaded video instead of fetching the
+    // stream a second time; fall back to a direct audio download if the video
+    // grab produced nothing.
+    const audioPath = videoPath
+      ? await extractAudio(videoPath, workspace)
+      : await downloadAudio(url.href, workspace);
     const whisperResult = await transcribeWithWhisper(audioPath, workspace);
     sendJson(res, 200, {
       title,
@@ -172,7 +200,18 @@ async function downloadVideo(url) {
   const video = files.find((f) => f.includes(id));
   if (!video) return "";
   await pruneVideoCache(id);
-  return `/videos/${path.basename(video)}`;
+  return video;
+}
+
+// Pull a Whisper-ready audio track (mono 16 kHz) out of a local video file.
+async function extractAudio(videoPath, workspace) {
+  const compactAudio = path.join(workspace, "whisper-audio.mp3");
+  await runCommand(
+    "ffmpeg",
+    ["-y", "-i", videoPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", compactAudio],
+    { timeoutMs: 10 * 60_000 },
+  );
+  return compactAudio;
 }
 
 // Enforce the cache retention policy: drop files older than the age limit,
@@ -302,7 +341,61 @@ async function downloadAudio(url, workspace) {
   return compactAudio;
 }
 
+// Run the whisper CLI, falling back to CPU if the (auto-selected) GPU run dies
+// with a CUDA out-of-memory error. A pinned WHISPER_DEVICE is honoured as-is.
+async function runWhisper(baseArgs, opts) {
+  const withDevice = (device) => [...baseArgs, "--device", device];
+  if (WHISPER_DEVICE) {
+    return runCommand(WHISPER_BIN, withDevice(WHISPER_DEVICE), opts);
+  }
+  try {
+    return await runCommand(WHISPER_BIN, baseArgs, opts);
+  } catch (err) {
+    if (/out of memory|cuda|outofmemory/i.test(err.message || "")) {
+      console.warn("Whisper GPU run failed (CUDA out of memory); retrying on CPU…");
+      return runCommand(WHISPER_BIN, withDevice("cpu"), opts);
+    }
+    throw err;
+  }
+}
+
+// Transcribe `audioPath` to an SRT plus an English translation. Prefer
+// faster-whisper (same Whisper models, several-fold faster); fall back to the
+// openai-whisper CLI only if faster-whisper isn't installed.
 async function transcribeWithWhisper(audioPath, workspace) {
+  try {
+    return await transcribeFast(audioPath);
+  } catch (err) {
+    const missing =
+      /No module named ['"]?faster_whisper|ModuleNotFoundError|faster[-_]whisper/i.test(
+        err.message || "",
+      );
+    if (!missing) throw err; // a genuine transcription failure — surface it
+    console.warn(
+      "faster-whisper unavailable; falling back to the openai-whisper CLI.",
+    );
+    return transcribeWithWhisperCli(audioPath, workspace);
+  }
+}
+
+// faster-whisper path: one Python process, one pass (language detected up front
+// so the Traditional-Chinese prompt is applied without a second pass), JSON out.
+async function transcribeFast(audioPath) {
+  const result = await runCommand(PYTHON_BIN, [TRANSCRIBE_SCRIPT, audioPath], {
+    timeoutMs: 30 * 60_000,
+  });
+  const line = result.stdout.trim().split("\n").filter(Boolean).at(-1);
+  if (!line) throw new Error("faster-whisper produced no output.");
+  const data = JSON.parse(line);
+  const language = data.language || "unknown";
+  const subtitles = segmentsToSrt(data.segments || []);
+  const lowerLang = language.toLowerCase();
+  const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
+  const translation = await translateSrt(subtitles, langCode);
+  return { language, subtitles, translation };
+}
+
+async function transcribeWithWhisperCli(audioPath, workspace) {
   const check = await runCommand(WHISPER_BIN, ["--help"], {
     timeoutMs: 10_000,
     allowFailure: true,
@@ -316,8 +409,7 @@ async function transcribeWithWhisper(audioPath, workspace) {
   const transcribeDir = path.join(workspace, "transcribe");
 
   // Transcribe in original language (auto-detect)
-  await runCommand(
-    WHISPER_BIN,
+  await runWhisper(
     [
       audioPath,
       "--model", WHISPER_MODEL,
@@ -334,8 +426,7 @@ async function transcribeWithWhisper(audioPath, workspace) {
   if (language === "zh" || language.toLowerCase() === "chinese") {
     // Re-run with Traditional Chinese prompt to bias output
     const zhDir = path.join(workspace, "transcribe-zh");
-    await runCommand(
-      WHISPER_BIN,
+    await runWhisper(
       [
         audioPath,
         "--model", WHISPER_MODEL,
