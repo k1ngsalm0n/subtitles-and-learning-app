@@ -7,6 +7,11 @@ import os
 import re
 import sys
 
+# Reduce CUDA memory fragmentation. Without this, an over-large batch that OOMs
+# leaves the allocator fragmented and even much smaller retries fail — taking
+# the GPU path down entirely. Must be set before torch initialises CUDA.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
@@ -15,7 +20,11 @@ MODEL_NAME = "facebook/nllb-200-distilled-600M"
 # Translate this many subtitle lines per model call. Batching is what makes the
 # CPU path faster; the GPU path benefits even more. Sized for the GPU path while
 # staying safe on CPU thanks to length-sorting (below) keeping padding small.
-BATCH_SIZE = 64
+# This is the *starting* size: on a small/busy GPU a batch can exceed free VRAM,
+# so translate_batch halves it on out-of-memory and remembers the smaller value
+# in _safe_batch (below) for the rest of the run. 32 is a safe start for a ~6GB
+# card with beam search; bigger GPUs are barely affected at subtitle volumes.
+BATCH_SIZE = 32
 
 # Beam search instead of greedy decoding. Greedy occasionally collapses into a
 # confident hallucination (e.g. a "你好…" line rendered as unrelated text);
@@ -50,6 +59,22 @@ LANG_CODE_MAP = {
 _tokenizer = None
 _model = None
 _device = None
+# Largest batch known to fit in VRAM right now. Starts at BATCH_SIZE and only
+# shrinks (when a batch OOMs on the GPU), so once the worker finds a size that
+# fits it stops wasting time on doomed oversized attempts.
+_safe_batch = BATCH_SIZE
+
+
+def _select_device():
+    """Pick the device for the model. TRANSLATE_DEVICE forces a choice."""
+    forced = os.environ.get("TRANSLATE_DEVICE")
+    if forced:
+        return forced
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _is_oom(exc):
+    return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
 
 
 def get_model():
@@ -57,9 +82,21 @@ def get_model():
     if _tokenizer is None:
         # Use the GPU when one is present; otherwise stay on CPU. This is purely
         # automatic, so machines without a GPU keep working unchanged.
-        _device = "cuda" if torch.cuda.is_available() else "cpu"
+        _device = _select_device()
         _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME).to(_device)
+        try:
+            _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME).to(_device)
+        except RuntimeError as exc:
+            # A small/busy GPU (e.g. Whisper already resident) can OOM on load.
+            # CPU is slower but always works, so fall back rather than fail.
+            if _device == "cpu" or not _is_oom(exc):
+                raise
+            sys.stderr.write("NLLB model load hit CUDA OOM; falling back to CPU.\n")
+            sys.stderr.flush()
+            _device = "cpu"
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME).to(_device)
     return _tokenizer, _model
 
 
@@ -167,6 +204,26 @@ def substitute_nouns(text, nouns):
     return text
 
 
+# Free VRAM (MiB) needed, beyond the resident model, for each batch size —
+# measured for NLLB-600M with beam search on subtitle-length lines, plus
+# headroom. We pick the largest batch that fits the *current* free VRAM up front
+# so we avoid OOM-ing at all; the halve-on-OOM path in translate_batch is only a
+# backstop for an under-estimate.
+_BATCH_VRAM_MIB = ((32, 2300), (16, 1300), (8, 750), (4, 450))
+
+
+def _plan_batch():
+    """Largest safe batch for the current device and free VRAM (≤ BATCH_SIZE)."""
+    if _device != "cuda" or not torch.cuda.is_available():
+        return BATCH_SIZE  # CPU has no such limit; length-sorting keeps it cheap
+    torch.cuda.empty_cache()  # release cached-but-unused blocks before measuring
+    free_mib = torch.cuda.mem_get_info()[0] / (1024 * 1024)
+    for size, need in _BATCH_VRAM_MIB:
+        if size <= BATCH_SIZE and free_mib >= need:
+            return size
+    return 2
+
+
 def translate_batch(texts, src_lang, tgt_lang):
     """Translate a list of strings in one model call.
 
@@ -176,24 +233,60 @@ def translate_batch(texts, src_lang, tgt_lang):
     """
     if not texts:
         return []
-    tokenizer, model = get_model()
+    tokenizer, _ = get_model()
     tokenizer.src_lang = src_lang
-    inputs = tokenizer(
-        texts,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=512,
-    ).to(_device)
     tgt_id = tokenizer.convert_tokens_to_ids(tgt_lang)
-    translated = model.generate(
-        **inputs,
-        forced_bos_token_id=tgt_id,
-        max_new_tokens=256,
-        num_beams=NUM_BEAMS,
-        no_repeat_ngram_size=NO_REPEAT_NGRAM,
-    )
-    return tokenizer.batch_decode(translated, skip_special_tokens=True)
+
+    def run(batch):
+        inputs = tokenizer(
+            batch,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512,
+        ).to(_device)
+        translated = _model.generate(
+            **inputs,
+            forced_bos_token_id=tgt_id,
+            max_new_tokens=256,
+            num_beams=NUM_BEAMS,
+            no_repeat_ngram_size=NO_REPEAT_NGRAM,
+        )
+        return tokenizer.batch_decode(translated, skip_special_tokens=True)
+
+    def attempt(batch):
+        global _model, _device, _safe_batch
+        try:
+            return run(batch)
+        except RuntimeError as exc:
+            if not _is_oom(exc):
+                raise
+            # Release whatever the failed attempt reserved before retrying.
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            # Too big for the free VRAM: halve and retry on the GPU rather than
+            # abandoning it (the GPU is far faster than CPU even at a small
+            # batch). Remember the smaller size so later chunks start there
+            # instead of OOM-ing again.
+            if _device != "cpu" and len(batch) > 1:
+                _safe_batch = max(1, len(batch) // 2)
+                mid = len(batch) // 2
+                return attempt(batch[:mid]) + attempt(batch[mid:])
+            # A single line still won't fit on the GPU — only now give up on it
+            # and move the whole model to CPU so the translation still finishes.
+            if _device != "cpu":
+                sys.stderr.write(
+                    "NLLB out of memory even at batch size 1; falling back to CPU.\n"
+                )
+                sys.stderr.flush()
+                _device = "cpu"
+                _model = _model.to("cpu")
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                return run(batch)
+            raise
+
+    return attempt(texts)
 
 
 def translate_text(text, src_lang, tgt_lang):
@@ -239,11 +332,20 @@ def translate_srt(srt_text, from_code, to_code="en"):
     # then restore the original order, so the output is unchanged.
     order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
     translations = [None] * len(texts)
-    for start in range(0, len(order), BATCH_SIZE):
-        idx_chunk = order[start : start + BATCH_SIZE]
+    # Size the batch to the VRAM free right now (recomputed per request, so it
+    # adapts as other GPU users — e.g. a game — come and go).
+    global _safe_batch
+    _safe_batch = _plan_batch()
+    # Read _safe_batch fresh each iteration: if a chunk OOMs and shrinks it,
+    # the remaining chunks immediately use the smaller, known-good size.
+    start = 0
+    while start < len(order):
+        size = max(1, _safe_batch)
+        idx_chunk = order[start : start + size]
         out = translate_batch([texts[i] for i in idx_chunk], src_lang, tgt_lang)
         for i, translated_text in zip(idx_chunk, out):
             translations[i] = translated_text
+        start += len(idx_chunk)
 
     return "\n\n".join(
         f"{idx}\n{timestamp}\n{translated_text}"
