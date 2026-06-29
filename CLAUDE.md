@@ -19,9 +19,11 @@ lifting — speech-to-text and offline translation — runs through Python.
 - **Transcription:** OpenAI Whisper (local) when a video has no subtitle track.
 - **Translation:** offline NLLB-200 (`facebook/nllb-200-distilled-600M`) via `transformers`/`torch`.
 - **Word lookups:** any OpenAI-compatible chat API (currently free Groq), falls back to NLLB. Configured in `.env`.
+- **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
 
-Key server modules: `import.mjs` (URL import via yt-dlp), `lookup.mjs` (word
-explanations), `translate.py` / `translateWorker.mjs` (NLLB), `segment.mjs`,
+Key server modules: `import.mjs` (URL import via yt-dlp), `transcribe.py`
+(faster-whisper), `lookup.mjs` (word explanations), `translate.py` /
+`translateWorker.mjs` (NLLB), `romanize.py` (pronunciation), `segment.mjs`,
 `cookies.mjs`. Python tests in `test/`, JS tests run via `node --test`.
 
 ## Fresh-machine setup (after a distro reinstall)

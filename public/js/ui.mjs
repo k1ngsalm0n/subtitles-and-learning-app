@@ -34,10 +34,14 @@ export function renderTranscript(els) {
     )
     .map(({ line, index }) => {
       const translation = getTranslation(line);
+      const original =
+        line.tokens && line.tokens.length
+          ? renderRubyTranscript(line.tokens, line.text)
+          : tokenize(line.text);
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${formatTime(line.start)}</span>
         <div>
-          <div class="original">${tokenize(line.text)}</div>
+          <div class="original">${original}</div>
           <p class="translation">${escapeHtml(translation)}</p>
         </div>
       </article>`;
@@ -111,6 +115,87 @@ function splitIntoTokens(text) {
   return raw.map((seg) => ({ text: seg.segment, isWord: isWord(seg) }));
 }
 
+// ---- Ruby (pronunciation stacked over each character) ----------------------
+// `tokens` is [[base, pron], ...] from /api/romanize. We render each as a
+// <ruby> so the reading sits in its own box directly above the base, and can't
+// drift away from the character it belongs to.
+
+function rubyUnit(base, pron) {
+  const b = escapeHtml(base);
+  return pron ? `<ruby>${b}<rt>${escapeHtml(pron)}</rt></ruby>` : b;
+}
+
+// Char-aligned (Chinese): every pronounced token is a single character, so we
+// can keep word-level click targets while stacking pinyin over each character.
+function isCharAligned(tokens) {
+  return tokens.every(([base, pron]) => !pron || [...base].length === 1);
+}
+
+// Map a token's UTF-16 start offset -> its pronunciation, for char-aligned text.
+function pronByOffset(tokens) {
+  const map = new Map();
+  let pos = 0;
+  for (const [base, pron] of tokens) {
+    map.set(pos, pron);
+    pos += base.length;
+  }
+  return map;
+}
+
+// Transcript: clickable words, pinyin stacked over each character.
+function renderRubyTranscript(tokens, text) {
+  if (isCharAligned(tokens)) {
+    const pron = pronByOffset(tokens);
+    let html = "";
+    for (const seg of _segmenter.segment(text)) {
+      if (!isWord(seg)) {
+        html += escapeHtml(seg.segment);
+        continue;
+      }
+      let inner = "";
+      let off = seg.index;
+      for (const ch of seg.segment) {
+        inner += rubyUnit(ch, pron.get(off) || "");
+        off += ch.length;
+      }
+      html += `<span class="word" data-word="${escapeHtml(seg.segment)}">${inner}</span>`;
+    }
+    return html;
+  }
+  // Chunk-based (Japanese, etc.): each token is one clickable unit.
+  return tokens
+    .map(([base, pron]) =>
+      pron
+        ? `<span class="word" data-word="${escapeHtml(base)}">${rubyUnit(base, pron)}</span>`
+        : escapeHtml(base),
+    )
+    .join("");
+}
+
+// Stage: pinyin stacked over each unit. data-len carries the base length so the
+// karaoke highlight measures the character, not the ruby annotation text.
+function renderRubyStage(tokens, text) {
+  let units;
+  if (isCharAligned(tokens)) {
+    const pron = pronByOffset(tokens);
+    units = [];
+    let off = 0;
+    for (const ch of text) {
+      units.push([ch, pron.get(off) || ""]);
+      off += ch.length;
+    }
+  } else {
+    units = tokens;
+  }
+  return units
+    .map(([base, pron]) =>
+      pron
+        ? `<span class="stage-word" data-len="${[...base].length}">${rubyUnit(base, pron)}</span>`
+        : escapeHtml(base),
+    )
+    .join("");
+}
+
 export function renderActiveSubtitle(els) {
   const e = els || _els;
   const line = state.subtitles[state.activeIndex];
@@ -119,14 +204,18 @@ export function renderActiveSubtitle(els) {
     e.activeTranslation.textContent = "";
     return;
   }
-  const tokens = splitIntoTokens(line.text);
-  e.activeOriginal.innerHTML = tokens
-    .map((t) =>
-      t.isWord
-        ? `<span class="stage-word">${escapeHtml(t.text)}</span>`
-        : escapeHtml(t.text),
-    )
-    .join("");
+  if (line.tokens && line.tokens.length) {
+    e.activeOriginal.innerHTML = renderRubyStage(line.tokens, line.text);
+  } else {
+    const tokens = splitIntoTokens(line.text);
+    e.activeOriginal.innerHTML = tokens
+      .map((t) =>
+        t.isWord
+          ? `<span class="stage-word">${escapeHtml(t.text)}</span>`
+          : escapeHtml(t.text),
+      )
+      .join("");
+  }
   e.activeTranslation.textContent = getTranslation(line);
 }
 
@@ -154,7 +243,12 @@ export function startHighlightLoop(els) {
     const wordEls = e.activeOriginal.querySelectorAll(".stage-word");
     if (!wordEls.length) return;
 
-    const lengths = Array.from(wordEls, (el) => el.textContent.length);
+    // Prefer data-len (set when ruby is present) so the pinyin annotation text
+    // inside <rt> doesn't inflate the character count and skew the highlight.
+    const lengths = Array.from(
+      wordEls,
+      (el) => Number(el.dataset.len) || el.textContent.length,
+    );
     const totalChars = lengths.reduce((a, b) => a + b, 0) || 1;
     let acc = 0;
     let idx = wordEls.length - 1;

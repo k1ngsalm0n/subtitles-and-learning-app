@@ -19,6 +19,11 @@ dependencies = [
     # Fallback speech-to-text (server/import.mjs uses it if faster-whisper is
     # missing). Kept for resilience and to share the Whisper model cache.
     "openai-whisper==20250625",
+    # Pronunciation guides shown above the source subtitles (server/romanize.py):
+    # pinyin for Chinese, romaji for Japanese, transliteration for other scripts.
+    "pypinyin==0.55.0",
+    "pykakasi==2.3.0",
+    "Unidecode==1.4.0",
 ]
 
 # yt-dlp (URL import) is deliberately NOT listed here. It lives on the nightly

@@ -1,5 +1,6 @@
 import { state } from "./state.mjs";
 import { renderAll } from "./ui.mjs";
+import { romanizeSubtitles } from "./romanize.mjs";
 
 export const sampleOriginal = `1
 00:00:00,000 --> 00:00:03,200
@@ -32,6 +33,9 @@ export function loadSubtitles(originalText, translationText = "") {
   );
   state.activeIndex = 0;
   renderAll();
+  // Fill in a pronunciation guide in the background (pinyin/romaji/etc.);
+  // re-renders itself when ready and is a no-op for Latin-script languages.
+  romanizeSubtitles();
 }
 
 // Match translations to originals by cue identity (SRT index field, then start
