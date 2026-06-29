@@ -26,31 +26,80 @@ explanations), `translate.py` / `translateWorker.mjs` (NLLB), `segment.mjs`,
 
 ## Fresh-machine setup (after a distro reinstall)
 
-```bash
-# 1. System tools (Arch)
-sudo pacman -S --needed nodejs npm python yt-dlp ffmpeg
+Install these with whatever your distro provides (pacman, dnf, apt, brew, …):
 
-# 2. Clone
+- **Node ≥22** and **npm**
+- **Python ≥3.10** with the `venv` module
+- **ffmpeg** — needed to mux downloaded streams and feed audio to Whisper
+
+Do **not** install `yt-dlp` from the system package manager — the app prefers
+`.venv/bin/yt-dlp` and wants it on the nightly channel (the stable release lags
+behind YouTube's frequent changes). It's installed via pip below.
+
+The Python side is a [uv](https://docs.astral.sh/uv/) project: the pinned ML
+deps (torch/transformers/whisper) live in `pyproject.toml` and are locked in
+`uv.lock`. yt-dlp is intentionally *not* in the lockfile (pinning a nightly is
+pointless) — install it separately.
+
+```bash
+# 1. Clone
 git clone https://github.com/k1ngsalm0n/subtitles-and-learning-app.git
 cd subtitles-and-learning-app
 
-# 3. Python venv for Whisper + NLLB
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# 2. Bootstrap the Python env in one shot: uv sync + nightly yt-dlp +
+#    the best-fit torch build for this machine's GPU (or CPU if none).
+npm run sync
 
-# 4. Config
+# 3. Config
 cp .env.example .env      # then add an LLM key (see below)
 
-# 5. Run
+# 4. Run
 npm start                 # → http://localhost:3000
 ```
 
+`npm run sync` (`scripts/sync.mjs`) is the one-command bootstrap. It runs
+`uv sync`, installs nightly yt-dlp, detects the GPU via `nvidia-smi` and installs
+the matching CUDA torch wheel over the CPU build (see GPU section for the
+mapping), then prefetches the Whisper + NLLB models so the first run doesn't
+stall on a multi-GB download (`scripts/prefetch_models.py`). Re-runnable and
+idempotent. Force a torch choice with `CUDA_BUILD=cpu npm run sync` or
+`CUDA_BUILD=cu130 npm run sync`; skip the model download with
+`SKIP_MODELS=1 npm run sync`. The manual equivalents are below if you'd rather
+run the steps yourself.
+
+No `uv`? Fall back to `python -m venv .venv && source .venv/bin/activate`, then
+`pip install -e .` (reads `pyproject.toml`) and `pip install -U --pre
+"yt-dlp[default]"`.
+
+### GPU (optional)
+
+torch is locked to the **CPU** build so the lockfile runs anywhere — the default
+PyPI wheel is a CUDA build that bloats CPU-only boxes and, on older GPUs, fails
+at runtime. Whisper and `translate.py` auto-select CUDA when it's available, so
+to use an NVIDIA GPU just install a matching CUDA wheel over the top after `uv
+sync` (this is a local override; leave the lockfile on CPU):
+
+```bash
+uv pip install --reinstall-package torch torch==2.12.1 \
+  --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
+```
+
+Pick the CUDA build for your card. Note the **default `cu130` wheel drops older
+archs** (min sm_75); a GTX 10-series (Pascal, sm_61) needs the **cu126** wheel,
+whose bundled PTX JIT-compiles to sm_61 at runtime — verified working on a GTX
+1060. Check with `python -c "import torch; print(torch.cuda.is_available())"`.
+
 `npm install` is effectively a no-op (no third-party deps), but harmless to run.
 
-First translation/transcription downloads models (~2.4 GB NLLB + a Whisper
-model) into `~/.cache/huggingface` and the Whisper cache. One-time, and the app
-appears to pause while it happens.
+The two Python pieces are independent: install only yt-dlp if you just want URL
+import, only the locked deps (`uv sync`) if you only need local files
+transcribed. Restart the server after creating the venv so it picks up
+`.venv/bin/yt-dlp` (the binary path is resolved at module load).
+
+The models (~2.4 GB NLLB + a Whisper model) live in `~/.cache/huggingface` and
+the Whisper cache. `npm run sync` prefetches them up front; if you skipped that,
+the first translation/transcription downloads them instead and the app appears
+to pause while it happens.
 
 ## Tests
 

@@ -12,22 +12,63 @@ Then open `http://localhost:3000`.
 
 ### System tools
 
-URL import needs `yt-dlp` and `ffmpeg` on your PATH:
+`ffmpeg` is needed to mux downloaded streams and feed audio to Whisper. Install
+it with your distro's package manager (`pacman`, `dnf`, `apt`, `brew`, …), e.g.:
 
 ```bash
-sudo pacman -S --needed yt-dlp ffmpeg
+sudo pacman -S --needed ffmpeg   # or: dnf install ffmpeg / apt install ffmpeg
 ```
 
-### Python environment (transcription + translation)
+### Python environment (transcription + translation + URL import)
 
-The local transcription (Whisper) and translation (NLLB-200) steps run through
-Python. Create a virtual environment and install the pinned dependencies:
+The local transcription (Whisper), translation (NLLB-200), and URL import
+(yt-dlp) steps run through Python. This project uses [uv](https://docs.astral.sh/uv/);
+the pinned ML dependencies live in `pyproject.toml` / `uv.lock`. The easiest
+setup is one command:
+
+```bash
+npm run sync
+```
+
+This runs `uv sync`, installs nightly yt-dlp, installs the best-fit CUDA torch
+wheel for your GPU (via `nvidia-smi`, or stays on CPU if there's no usable NVIDIA
+card), and prefetches the Whisper + NLLB models so the first run doesn't stall on
+a multi-GB download. It's re-runnable; force a torch build with `CUDA_BUILD=cpu`
+or `CUDA_BUILD=cu130`, or skip the model download with `SKIP_MODELS=1`.
+
+<details>
+<summary>What it does, step by step (run manually if you prefer)</summary>
+
+```bash
+uv sync                                                  # creates .venv from the lock (CPU torch)
+uv pip install -U --prerelease=allow "yt-dlp[default]"   # nightly; URL import
+```
+
+`uv sync` installs torch, which is large. yt-dlp is installed separately because
+it's kept on the nightly channel (the stable release lags behind YouTube's
+frequent changes), so it's deliberately not pinned in the lockfile.
+
+torch is locked to the **CPU** build so it runs on any machine. To use an NVIDIA
+GPU, install a matching CUDA wheel over the top (Whisper/NLLB auto-detect it):
+
+```bash
+# e.g. GTX 10-series (sm_61) — the cu126 wheel JITs correctly; the default
+# cu130 wheel drops older GPUs. Pick the CUDA build that fits your card.
+uv pip install --reinstall-package torch torch==2.12.1 \
+  --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
+```
+</details>
+
+<details>
+<summary>Without uv (plain venv + pip)</summary>
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .                                   # reads pyproject.toml
+pip install -U --pre "yt-dlp[default]"
 ```
+</details>
 
 > **First run downloads a ~2.4GB model.** The first time a translation runs,
 > `transformers` downloads the `facebook/nllb-200-distilled-600M` model from
