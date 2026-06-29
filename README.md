@@ -30,10 +30,11 @@ setup is one command:
 npm run sync
 ```
 
-This runs `uv sync`, installs nightly yt-dlp, and — by inspecting your GPU with
-`nvidia-smi` — installs the best-fit CUDA torch wheel (or stays on CPU if there's
-no usable NVIDIA card). It's re-runnable; force a build with `CUDA_BUILD=cpu` or
-`CUDA_BUILD=cu130`.
+This runs `uv sync`, installs nightly yt-dlp, installs the best-fit CUDA torch
+wheel for your GPU (via `nvidia-smi`, or stays on CPU if there's no usable NVIDIA
+card), and prefetches the Whisper + NLLB models so the first run doesn't stall on
+a multi-GB download. It's re-runnable; force a torch build with `CUDA_BUILD=cpu`
+or `CUDA_BUILD=cu130`, or skip the model download with `SKIP_MODELS=1`.
 
 <details>
 <summary>What it does, step by step (run manually if you prefer)</summary>

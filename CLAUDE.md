@@ -58,11 +58,14 @@ npm start                 # → http://localhost:3000
 ```
 
 `npm run sync` (`scripts/sync.mjs`) is the one-command bootstrap. It runs
-`uv sync`, installs nightly yt-dlp, then detects the GPU via `nvidia-smi` and
-installs the matching CUDA torch wheel over the CPU build (see GPU section for
-the mapping). Re-runnable. Force a choice with `CUDA_BUILD=cpu npm run sync` or
-`CUDA_BUILD=cu130 npm run sync`. The manual equivalents are below if you'd
-rather run the steps yourself.
+`uv sync`, installs nightly yt-dlp, detects the GPU via `nvidia-smi` and installs
+the matching CUDA torch wheel over the CPU build (see GPU section for the
+mapping), then prefetches the Whisper + NLLB models so the first run doesn't
+stall on a multi-GB download (`scripts/prefetch_models.py`). Re-runnable and
+idempotent. Force a torch choice with `CUDA_BUILD=cpu npm run sync` or
+`CUDA_BUILD=cu130 npm run sync`; skip the model download with
+`SKIP_MODELS=1 npm run sync`. The manual equivalents are below if you'd rather
+run the steps yourself.
 
 No `uv`? Fall back to `python -m venv .venv && source .venv/bin/activate`, then
 `pip install -e .` (reads `pyproject.toml`) and `pip install -U --pre
@@ -93,9 +96,10 @@ import, only the locked deps (`uv sync`) if you only need local files
 transcribed. Restart the server after creating the venv so it picks up
 `.venv/bin/yt-dlp` (the binary path is resolved at module load).
 
-First translation/transcription downloads models (~2.4 GB NLLB + a Whisper
-model) into `~/.cache/huggingface` and the Whisper cache. One-time, and the app
-appears to pause while it happens.
+The models (~2.4 GB NLLB + a Whisper model) live in `~/.cache/huggingface` and
+the Whisper cache. `npm run sync` prefetches them up front; if you skipped that,
+the first translation/transcription downloads them instead and the app appears
+to pause while it happens.
 
 ## Tests
 

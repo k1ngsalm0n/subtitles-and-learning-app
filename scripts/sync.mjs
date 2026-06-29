@@ -106,4 +106,13 @@ if (build) {
   console.log("\n→ Keeping the locked CPU torch build.");
 }
 
+if (process.env.SKIP_MODELS) {
+  console.log("\n→ SKIP_MODELS set — not prefetching Whisper/NLLB.");
+} else {
+  console.log("\n→ Prefetching Whisper + NLLB models (skips if cached)…");
+  // --no-sync so uv doesn't re-resolve the env back to the locked CPU torch and
+  // undo the GPU build installed above.
+  run("uv", ["run", "--no-sync", "python", "scripts/prefetch_models.py"]);
+}
+
 console.log("\n✓ Done. Start the app with: npm start");
