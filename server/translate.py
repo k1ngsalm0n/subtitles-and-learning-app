@@ -66,11 +66,20 @@ _safe_batch = BATCH_SIZE
 
 
 def _select_device():
-    """Pick the device for the model. TRANSLATE_DEVICE forces a choice."""
+    """Pick the device for the model. TRANSLATE_DEVICE forces a choice.
+
+    Defaults to CPU even when a GPU is present. This worker is long-lived and
+    loads ~4 GB of NLLB weights; left on the GPU it stays resident and starves
+    Whisper — the far heavier job — into an out-of-memory CPU fallback on every
+    import after the first (seen on a 6 GB GTX 1060). Whisper is the interactive
+    bottleneck, so it gets the GPU; translating a few dozen subtitle lines on CPU
+    only costs seconds. Set TRANSLATE_DEVICE=cuda to run translation on the GPU
+    too, if you have VRAM to spare for both.
+    """
     forced = os.environ.get("TRANSLATE_DEVICE")
     if forced:
         return forced
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    return "cpu"
 
 
 def _is_oom(exc):

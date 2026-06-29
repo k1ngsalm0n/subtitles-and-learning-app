@@ -17,7 +17,13 @@ import { translateViaWorker } from "./translateWorker.mjs";
 import { refineSegments } from "./segment.mjs";
 import { cleanCaptions, alignTranslationByTime } from "./captions.mjs";
 
-const WHISPER_MODEL = process.env.WHISPER_MODEL || "base";
+// Concrete model for the openai-whisper CLI fallback only (the primary
+// faster-whisper path resolves "auto" itself, per device). The CLI has no "auto",
+// so map an unset/"auto" value to a safe default it understands.
+const WHISPER_MODEL =
+  process.env.WHISPER_MODEL && process.env.WHISPER_MODEL !== "auto"
+    ? process.env.WHISPER_MODEL
+    : "small";
 // Whisper auto-selects CUDA when a GPU is present. On a small or busy GPU the
 // model load can fail with a CUDA out-of-memory error — most often because the
 // resident NLLB translation worker is already holding most of the VRAM. Set

@@ -15,7 +15,11 @@ import json
 import os
 import sys
 
-MODEL = os.environ.get("WHISPER_MODEL", "base")
+# Which Whisper model to load. "auto" (the default) sizes the model to the
+# machine so the app runs well out of the box on anyone's hardware — see
+# _resolve_model(). Set WHISPER_MODEL to a concrete name (tiny/base/small/
+# medium/large-v3) to force one regardless of device.
+MODEL = os.environ.get("WHISPER_MODEL", "auto")
 # Bias Chinese output toward Traditional characters (Taiwan/HK content), matching
 # the old two-pass pipeline — but applied in a single pass here.
 ZH_PROMPT = "以下是繁體中文的內容。"
@@ -51,6 +55,47 @@ def _compute_type():
     return os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
 
 
+def _free_vram_mib():
+    """Best-effort free VRAM in MiB via nvidia-smi, or None if undeterminable."""
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return int(out.stdout.strip().split("\n")[0])
+    except Exception:
+        return None
+
+
+def _resolve_model(device):
+    """Resolve the model name, expanding "auto" to fit the actual device.
+
+    The goal is a good experience on any machine without manual tuning:
+      * CPU-only  -> "small": light (~0.5 GB) and quick enough to be usable;
+                     bigger models are punishingly slow without a GPU.
+      * GPU       -> "large-v3" when there's VRAM for it (best accuracy, and the
+                     GPU keeps it fast), stepping down to medium/small on smaller
+                     cards. VRAM is checked live so a busy GPU doesn't OOM.
+    A concrete WHISPER_MODEL always wins over this.
+    """
+    requested = os.environ.get("WHISPER_MODEL", "auto")
+    if requested and requested != "auto":
+        return requested
+    if device != "cuda":
+        return "small"
+    free = _free_vram_mib()
+    if free is None:
+        return "medium"  # GPU present but VRAM unknown: safe middle ground
+    if free >= 4000:
+        return "large-v3"
+    if free >= 2200:
+        return "medium"
+    return "small"
+
+
 def _decode_audio(path):
     try:
         from faster_whisper import decode_audio
@@ -62,7 +107,12 @@ def _decode_audio(path):
 def _transcribe_on(device, audio):
     from faster_whisper import WhisperModel
 
-    model = WhisperModel(MODEL, device=device, compute_type=_compute_type())
+    # Resolve "auto" against the *actual* device, so a GPU->CPU OOM retry also
+    # drops to a CPU-appropriate (smaller) model instead of re-loading the big one.
+    model_name = _resolve_model(device)
+    sys.stderr.write(f"transcribing with model={model_name} on {device}\n")
+    sys.stderr.flush()
+    model = WhisperModel(model_name, device=device, compute_type=_compute_type())
     # Detect the language up front so we can transcribe ONCE with the right
     # prompt, instead of the old detect-then-re-run-for-Traditional two passes.
     language, _prob, _all = model.detect_language(audio)
@@ -76,6 +126,31 @@ def _transcribe_on(device, audio):
         language="zh",
         initial_prompt=ZH_PROMPT,
         beam_size=5,
+        # --- Anti-hallucination settings ---
+        # Whisper's worst failure mode on short clips (news intros, music stings,
+        # silence) is inventing fluent text that has nothing to do with the audio
+        # — and, crucially, fixating on it: with condition_on_previous_text the
+        # model feeds its own last output forward, so one wrong phrase ("South
+        # Korea") gets echoed across every later segment. Turning that off makes
+        # each window independent, so a stray hallucination can't snowball.
+        condition_on_previous_text=False,
+        # NOTE: deliberately NOT using vad_filter. Silero VAD treats a music bed
+        # under speech (news-broadcast intros, on-screen segues) as non-speech and
+        # drops the narration with it — that swallowed this video's whole intro
+        # and stamped the first surviving line at 0.00, desyncing everything after.
+        # The thresholds below suppress silence/music hallucinations without VAD.
+        # Temperature fallback: when a window decodes as low-confidence or
+        # repetitive garbage, retry hotter, then drop it instead of emitting it.
+        temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        compression_ratio_threshold=2.4,  # repetitive output -> treat as failed
+        log_prob_threshold=-1.0,          # very low-confidence -> treat as failed
+        no_speech_threshold=0.6,          # likely-silence window -> emit nothing
+        # Derive timings from word-level alignment, not Whisper's coarse timestamp
+        # tokens. Without this, the first 30 s window of a broadcast collapses into
+        # one giant segment stamped from 0.00 (e.g. the opening line lands at 0.00
+        # instead of ~17 s), which desyncs the whole transcript against the video.
+        # Alignment pins each segment to when its words are actually spoken.
+        word_timestamps=True,
     )
     # --- General multi-language path (restore when re-enabling, see #65): ---
     # prompt = ZH_PROMPT if language == "zh" else None
