@@ -172,22 +172,33 @@ function renderRubyTranscript(tokens, text) {
     .join("");
 }
 
-// Stage: pinyin stacked over each unit. data-len carries the base length so the
-// karaoke highlight measures the character, not the ruby annotation text.
+// Stage: pinyin stacked over each character, but the karaoke unit is a whole
+// word so the highlight advances word by word (not character by character).
+// data-len carries the base character count so the ruby annotation text inside
+// <rt> doesn't inflate the count and skew the highlight.
 function renderRubyStage(tokens, text) {
-  let units;
+  // Char-aligned (Chinese): group characters into segmenter words, stacking
+  // pinyin over each character inside a single per-word highlight unit.
   if (isCharAligned(tokens)) {
     const pron = pronByOffset(tokens);
-    units = [];
-    let off = 0;
-    for (const ch of text) {
-      units.push([ch, pron.get(off) || ""]);
-      off += ch.length;
+    let html = "";
+    for (const seg of _segmenter.segment(text)) {
+      if (!isWord(seg)) {
+        html += escapeHtml(seg.segment);
+        continue;
+      }
+      let inner = "";
+      let off = seg.index;
+      for (const ch of seg.segment) {
+        inner += rubyUnit(ch, pron.get(off) || "");
+        off += ch.length;
+      }
+      html += `<span class="stage-word" data-len="${[...seg.segment].length}">${inner}</span>`;
     }
-  } else {
-    units = tokens;
+    return html;
   }
-  return units
+  // Chunk-based (Japanese, etc.): each token is already one word-level unit.
+  return tokens
     .map(([base, pron]) =>
       pron
         ? `<span class="stage-word" data-len="${[...base].length}">${rubyUnit(base, pron)}</span>`

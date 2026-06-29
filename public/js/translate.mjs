@@ -35,15 +35,21 @@ export function populateLanguageSelects(els) {
   els.translateFrom.innerHTML =
     `<option value="${AUTO}">Detect language</option>` + optionsHtml;
   els.translateTo.innerHTML = optionsHtml;
+  // A freshly-populated <select> adopts its first <option> as its value
+  // (Afrikaans, alphabetically first), so set the real default explicitly
+  // instead of relying on the empty-value guard in syncTranslateLangs.
+  els.translateTo.value = "en";
   syncTranslateLangs(els);
 }
 
 // Keep the bar in step with the imported subtitles: source follows the
-// detected learning language, target defaults to English.
+// detected learning language once something is loaded, but defaults to
+// "Detect language" on a fresh page (no subtitles yet). Target defaults to
+// English.
 export function syncTranslateLangs(els) {
   if (!els.translateFrom) return;
   const learning = state.learningLang;
-  const known = LANGUAGES.some((l) => l.code === learning);
+  const known = state.subtitles.length && LANGUAGES.some((l) => l.code === learning);
   els.translateFrom.value = known ? learning : AUTO;
   if (!els.translateTo.value) els.translateTo.value = "en";
 }

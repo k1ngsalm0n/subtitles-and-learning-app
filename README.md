@@ -2,6 +2,14 @@
 
 A dependency-free personal web app for bilingual subtitle study, media playback, AI-translation workflow testing, and flashcards.
 
+> **⚠️ Currently Chinese-only (temporary).** To focus development, the app is
+> scoped to **Chinese → English** for now: audio transcription only handles
+> Chinese, and the translate bar lists just Chinese and English. Videos that
+> already have subtitles still load in any language; only audio transcription is
+> gated. Multi-language support is paused but the code is preserved behind
+> comments — tracking re-enablement in
+> [issue #65](https://github.com/k1ngsalm0n/subtitles-and-learning-app/issues/65).
+
 ## Run
 
 ```bash
@@ -76,7 +84,7 @@ pip install -U --pre "yt-dlp[default]"
 > download; the app will appear to pause while it completes. Whisper similarly
 > downloads its speech model on first use.
 
-When no existing subtitles are found, Whisper transcribes the audio locally, auto-detects the language, and translates to English. Chinese audio is output in Traditional Chinese.
+When no existing subtitles are found, Whisper transcribes the audio locally and translates to English. Chinese audio is output in Traditional Chinese. While the app is Chinese-only (see the note at the top), audio that isn't Chinese is rejected with a clear message instead of being transcribed.
 
 Optionally set the Whisper model in `.env` (defaults to `base`):
 
@@ -106,9 +114,9 @@ python -m unittest discover -s test -p "test_*.py"
 - Local video file playback.
 - SRT/VTT subtitle import for original and translated lines.
 - URL import through the local server for authorized website media.
-- Existing subtitle tracks are loaded first; if none are available, audio is transcribed with OpenAI Whisper.
+- Existing subtitle tracks are loaded first; if none are available, audio is transcribed with OpenAI Whisper (Chinese only for now — see the note at the top).
 - Bilingual transcript synced to video time.
-- Language bar above the subtitles: pick the source and target language (or let it auto-detect the source) and re-translate the loaded subtitles on demand with the offline NLLB model.
+- Language bar above the subtitles: pick the source and target language (or let it auto-detect the source) and re-translate the loaded subtitles on demand with the offline NLLB model. (Currently limited to Chinese ↔ English.)
 - Clickable words that can be saved as flashcards.
 - Manual flashcard creation, review, simple spaced repetition, shuffle, delete, and JSON export.
 - AI translation mode placeholder for testing the workflow locally.
