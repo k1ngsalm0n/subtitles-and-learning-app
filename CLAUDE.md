@@ -61,6 +61,24 @@ No `uv`? Fall back to `python -m venv .venv && source .venv/bin/activate`, then
 `pip install -e .` (reads `pyproject.toml`) and `pip install -U --pre
 "yt-dlp[default]"`.
 
+### GPU (optional)
+
+torch is locked to the **CPU** build so the lockfile runs anywhere — the default
+PyPI wheel is a CUDA build that bloats CPU-only boxes and, on older GPUs, fails
+at runtime. Whisper and `translate.py` auto-select CUDA when it's available, so
+to use an NVIDIA GPU just install a matching CUDA wheel over the top after `uv
+sync` (this is a local override; leave the lockfile on CPU):
+
+```bash
+uv pip install --reinstall-package torch torch==2.12.1 \
+  --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
+```
+
+Pick the CUDA build for your card. Note the **default `cu130` wheel drops older
+archs** (min sm_75); a GTX 10-series (Pascal, sm_61) needs the **cu126** wheel,
+whose bundled PTX JIT-compiles to sm_61 at runtime — verified working on a GTX
+1060. Check with `python -c "import torch; print(torch.cuda.is_available())"`.
+
 `npm install` is effectively a no-op (no third-party deps), but harmless to run.
 
 The two Python pieces are independent: install only yt-dlp if you just want URL

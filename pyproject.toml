@@ -22,3 +22,18 @@ dependencies = [
 # and pinning a nightly into uv.lock would go stale immediately. Install it
 # separately into the same venv:
 #   uv pip install -U --prerelease=allow "yt-dlp[default]"
+
+# Torch is locked to the CPU build so the lockfile resolves and runs on any
+# machine (the default PyPI wheel is a CUDA build that bloats CPU-only boxes and,
+# on older GPUs like Pascal/GTX 10-series, fails with "no kernel image available").
+# To use an NVIDIA GPU, install a matching CUDA build over the top after syncing,
+# e.g. for a GTX 10-series (sm_61) the CUDA 12.6 wheel JITs correctly:
+#   uv pip install --reinstall-package torch torch==2.12.1 \
+#     --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

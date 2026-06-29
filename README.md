@@ -34,6 +34,16 @@ uv pip install -U --prerelease=allow "yt-dlp[default]"   # nightly; URL import
 it's kept on the nightly channel (the stable release lags behind YouTube's
 frequent changes), so it's deliberately not pinned in the lockfile.
 
+torch is locked to the **CPU** build so it runs on any machine. To use an NVIDIA
+GPU, install a matching CUDA wheel over the top (Whisper/NLLB auto-detect it):
+
+```bash
+# e.g. GTX 10-series (sm_61) — the cu126 wheel JITs correctly; the default
+# cu130 wheel drops older GPUs. Pick the CUDA build that fits your card.
+uv pip install --reinstall-package torch torch==2.12.1 \
+  --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
+```
+
 <details>
 <summary>Without uv (plain venv + pip)</summary>
 
