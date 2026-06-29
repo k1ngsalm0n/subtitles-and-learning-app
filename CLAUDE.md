@@ -58,14 +58,23 @@ npm start                 # → http://localhost:3000
 ```
 
 `npm run sync` (`scripts/sync.mjs`) is the one-command bootstrap. It runs
-`uv sync`, installs nightly yt-dlp, detects the GPU via `nvidia-smi` and installs
-the matching CUDA torch wheel over the CPU build (see GPU section for the
-mapping), then prefetches the Whisper + NLLB models so the first run doesn't
-stall on a multi-GB download (`scripts/prefetch_models.py`). Re-runnable and
-idempotent. Force a torch choice with `CUDA_BUILD=cpu npm run sync` or
-`CUDA_BUILD=cu130 npm run sync`; skip the model download with
-`SKIP_MODELS=1 npm run sync`. The manual equivalents are below if you'd rather
-run the steps yourself.
+`uv sync`, installs nightly yt-dlp, drops **deno** into the venv (see below),
+detects the GPU via `nvidia-smi` and installs the matching CUDA torch wheel over
+the CPU build (see GPU section for the mapping), then prefetches the Whisper +
+NLLB models so the first run doesn't stall on a multi-GB download
+(`scripts/prefetch_models.py`). Re-runnable and idempotent. Force a torch choice
+with `CUDA_BUILD=cpu npm run sync` or `CUDA_BUILD=cu130 npm run sync`; skip the
+model download with `SKIP_MODELS=1 npm run sync`. The manual equivalents are
+below if you'd rather run the steps yourself.
+
+**deno** is yt-dlp's JavaScript runtime. YouTube extraction without one is
+deprecated and degrades to low-quality formats (capped ~144p) with a
+`No supported JavaScript runtime` warning. `npm run sync` downloads the static
+deno binary into `.venv/bin/deno`, and `import.mjs` points yt-dlp at it via
+`--js-runtimes`. It falls back to any `deno` on `PATH`, then to the degraded
+path if neither exists — so the deno step is best-effort and never aborts the
+bootstrap. To install it by hand, use the official installer
+(`curl -fsSL https://deno.land/install.sh | sh`) or your package manager.
 
 No `uv`? Fall back to `python -m venv .venv && source .venv/bin/activate`, then
 `pip install -e .` (reads `pyproject.toml`) and `pip install -U --pre

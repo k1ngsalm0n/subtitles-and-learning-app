@@ -13,7 +13,11 @@ dependencies = [
     "transformers==5.12.1",
     # Tensor/math engine that runs the NLLB model.
     "torch==2.12.1",
-    # Local speech-to-text used when a video has no existing subtitle track.
+    # Primary speech-to-text: same Whisper models as openai-whisper but a much
+    # faster engine (CTranslate2). server/transcribe.py uses this.
+    "faster-whisper==1.2.1",
+    # Fallback speech-to-text (server/import.mjs uses it if faster-whisper is
+    # missing). Kept for resilience and to share the Whisper model cache.
     "openai-whisper==20250625",
 ]
 
