@@ -21,6 +21,16 @@ MODEL = os.environ.get("WHISPER_MODEL", "base")
 ZH_PROMPT = "以下是繁體中文的內容。"
 
 
+# CHINESE-ONLY (temporary): the app is scoped to Chinese for now, so audio in
+# any other language is rejected rather than transcribed. Remove this guard and
+# restore the general transcription path when re-enabling other languages.
+# See https://github.com/k1ngsalm0n/subtitles-and-learning-app/issues/65
+class UnsupportedLanguage(Exception):
+    def __init__(self, language):
+        self.language = language
+        super().__init__(f"unsupported transcription language: {language}")
+
+
 def _select_device():
     forced = os.environ.get("WHISPER_DEVICE")
     if forced:
@@ -56,13 +66,22 @@ def _transcribe_on(device, audio):
     # Detect the language up front so we can transcribe ONCE with the right
     # prompt, instead of the old detect-then-re-run-for-Traditional two passes.
     language, _prob, _all = model.detect_language(audio)
-    prompt = ZH_PROMPT if language == "zh" else None
+
+    # CHINESE-ONLY (temporary): reject non-Chinese audio so we don't emit a
+    # garbage transcript in a language we aren't focusing on yet. See issue #65.
+    if language != "zh":
+        raise UnsupportedLanguage(language)
     segments, info = model.transcribe(
         audio,
-        language=language,
-        initial_prompt=prompt,
+        language="zh",
+        initial_prompt=ZH_PROMPT,
         beam_size=5,
     )
+    # --- General multi-language path (restore when re-enabling, see #65): ---
+    # prompt = ZH_PROMPT if language == "zh" else None
+    # segments, info = model.transcribe(
+    #     audio, language=language, initial_prompt=prompt, beam_size=5,
+    # )
     segs = [
         {"start": float(s.start), "end": float(s.end), "text": s.text}
         for s in segments
@@ -76,7 +95,9 @@ def transcribe(audio_path):
     if device != "cpu":
         try:
             return _transcribe_on(device, audio)
-        except Exception as exc:  # OOM / driver / unsupported — CPU still works
+        except UnsupportedLanguage:
+            raise  # not a device problem — CPU wouldn't help, and #65 gates it
+        except Exception as exc:  # OOM / driver — CPU still works
             sys.stderr.write(
                 f"faster-whisper on {device} failed ({exc}); retrying on CPU.\n"
             )
@@ -88,7 +109,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", help="path to an audio file")
     args = ap.parse_args()
-    json.dump(transcribe(args.audio), sys.stdout, ensure_ascii=False)
+    try:
+        result = transcribe(args.audio)
+    except UnsupportedLanguage as exc:
+        # Structured, machine-readable signal for server/import.mjs (see #65).
+        json.dump(
+            {"error": "unsupported_language", "language": exc.language},
+            sys.stdout,
+            ensure_ascii=False,
+        )
+        sys.stdout.write("\n")
+        return
+    json.dump(result, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
 
 
