@@ -67,8 +67,7 @@ button:hover,
   border-color: var(--accent);
 }
 
-button.active,
-.segmented button.active {
+button.active {
   background: var(--accent);
   color: #07110e;
   border-color: transparent;
@@ -182,19 +181,6 @@ h2 {
 .icon-button {
   width: 38px;
   padding: 0;
-}
-
-.segmented {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 4px;
-  background: var(--surface-2);
-  border-radius: 8px;
-}
-
-.segmented button {
-  min-height: 32px;
 }
 
 .stat-grid {

@@ -73,13 +73,8 @@ function parseTime(value) {
 }
 
 export function getTranslation(line) {
-  // A human-provided translation always wins; AI only fills the gaps.
+  // Best available: a human-provided translation wins, AI fills the gaps.
   if (line.translation) return line.translation;
-  if (state.translationMode === "ai") {
-    if (line.aiTranslation) return line.aiTranslation;
-    return state.aiTranslating
-      ? "Translating…"
-      : "No AI translation yet (check the API key).";
-  }
-  return "No translation loaded.";
+  if (line.aiTranslation) return line.aiTranslation;
+  return state.aiTranslating ? "Translating…" : "No translation available.";
 }

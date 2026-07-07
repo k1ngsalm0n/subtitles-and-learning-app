@@ -33,7 +33,7 @@ cp .env.example .env
 - Bilingual transcript synced to video time.
 - Clickable words. Clicking a word opens a bubble with the word, pronunciation, and meaning, and saves it as a flashcard in one tap.
 - Manual flashcard creation, review, simple spaced repetition, shuffle, delete, and JSON export.
-- AI translation mode: switching to "AI" translates untranslated lines with OpenAI, guided by the editable prompt in the Library tab. Human translations are never overwritten — AI only fills the gaps. Needs `OPENAI_API_KEY`.
+- Automatic translation: any line without a human translation is translated with OpenAI as soon as subtitles load, guided by the editable prompt in the Library tab. Human translations always win — AI only fills the gaps. Needs `OPENAI_API_KEY`.
 
 ## Word lookups (pronunciation + meaning)
 

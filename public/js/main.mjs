@@ -36,8 +36,6 @@ const els = {
   loopLine: document.querySelector("#loopLine"),
   saveLine: document.querySelector("#saveLine"),
   themeToggle: document.querySelector("#themeToggle"),
-  modeHuman: document.querySelector("#modeHuman"),
-  modeAI: document.querySelector("#modeAI"),
   deckList: document.querySelector("#deckList"),
   reviewCard: document.querySelector("#reviewCard"),
   flipCard: document.querySelector("#flipCard"),
@@ -70,6 +68,7 @@ function init() {
   bindEvents();
   loadSubtitles(sampleOriginal, sampleTranslation, state.learningLang);
   renderAll(els);
+  translateMissingLines();
 }
 
 function bindEvents() {
@@ -90,6 +89,7 @@ function bindEvents() {
     // The sample lesson is Chinese, so switch the app (and dropdown) to zh.
     els.langSelect.value = "zh";
     loadSubtitles(sampleOriginal, sampleTranslation, "zh");
+    translateMissingLines();
   });
   els.videoInput.addEventListener("change", handleVideoInput);
   els.originalInput.addEventListener("change", () => readSubtitleInputs());
@@ -99,8 +99,6 @@ function bindEvents() {
   els.loopLine.addEventListener("click", () => loopActiveLine(els));
   els.saveLine.addEventListener("click", () => saveActiveLine(els));
   els.queueUrl.addEventListener("click", () => importSourceUrl());
-  els.modeHuman.addEventListener("click", () => setTranslationMode("human"));
-  els.modeAI.addEventListener("click", () => setTranslationMode("ai"));
   els.manualCardForm.addEventListener("submit", addManualCard);
   els.flipCard.addEventListener("click", flipReviewCard);
   els.markHard.addEventListener("click", () => gradeCard("hard"));
@@ -146,20 +144,12 @@ async function readSubtitleInputs() {
   const translation = translationFile ? await translationFile.text() : "";
   setSourceBadge("Imported files");
   loadSubtitles(original, translation, state.learningLang);
+  translateMissingLines();
 }
 
 function setSourceBadge(text) {
   els.sourceBadge.textContent = text;
   els.sourceBadge.hidden = !text;
-}
-
-function setTranslationMode(mode) {
-  state.translationMode = mode;
-  els.modeHuman.classList.toggle("active", mode === "human");
-  els.modeAI.classList.toggle("active", mode === "ai");
-  renderTranscript(els);
-  renderActiveSubtitle(els);
-  if (mode === "ai") translateMissingLines();
 }
 
 async function translateMissingLines() {
@@ -237,6 +227,7 @@ async function importSourceUrl() {
     }
 
     loadSubtitles(result.subtitles || "", "", state.learningLang);
+    translateMissingLines();
     const sourceLabels = {
       subtitles: "Human captions",
       "auto-subtitles": "Auto captions",
