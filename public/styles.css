@@ -297,6 +297,28 @@ video {
   display: none;
 }
 
+.lang-select {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  padding: 0 10px 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.lang-select select {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
 .learning-pane {
   display: grid;
   grid-template-rows: auto auto 1fr;

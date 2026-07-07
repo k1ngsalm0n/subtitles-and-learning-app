@@ -1,13 +1,15 @@
 // Language provider registry. Each provider implements segment(text) -> [{text,isWord}].
-// To support a new language, add a module here — the UI and lookup stay unchanged.
+// Spaceless languages share the Intl.Segmenter factory; everything else uses
+// the space/punctuation splitter. To support a new spaceless language, add its
+// code to SEGMENTED — the UI and lookup stay unchanged.
 import { generic } from "./generic.mjs";
-import { zh } from "./zh.mjs";
+import { makeSegmentedProvider } from "./segmented.mjs";
 
-const providers = {
-  zh,
-  // Japanese/Korean/Thai also work well with Intl.Segmenter; add modules as needed.
-};
+const SEGMENTED = ["zh", "ja", "ko", "th"];
+const cache = new Map();
 
 export function getProvider(lang) {
-  return providers[lang] || generic;
+  if (!SEGMENTED.includes(lang)) return generic;
+  if (!cache.has(lang)) cache.set(lang, makeSegmentedProvider(lang));
+  return cache.get(lang);
 }

@@ -1,4 +1,4 @@
-import { state, saveSources, STORAGE_KEYS } from "./state.mjs";
+import { state, saveSources, saveLearningLang, STORAGE_KEYS } from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import { addCard, flipReviewCard, gradeCard, shuffleCards, exportCards } from "./flashcards.mjs";
 import { syncToVideo, loopActiveLine, saveActiveLine } from "./player.mjs";
@@ -18,6 +18,7 @@ const els = {
   video: document.querySelector("#video"),
   emptyPlayer: document.querySelector("#emptyPlayer"),
   videoInput: document.querySelector("#videoInput"),
+  langSelect: document.querySelector("#langSelect"),
   originalInput: document.querySelector("#originalInput"),
   translationInput: document.querySelector("#translationInput"),
   sampleButton: document.querySelector("#sampleButton"),
@@ -65,8 +66,9 @@ function init() {
     localStorage.getItem(STORAGE_KEYS.theme) || "dark";
   els.translatorPrompt.value =
     localStorage.getItem(STORAGE_KEYS.prompt) || els.translatorPrompt.value;
+  els.langSelect.value = state.learningLang;
   bindEvents();
-  loadSubtitles(sampleOriginal, sampleTranslation, "zh");
+  loadSubtitles(sampleOriginal, sampleTranslation, state.learningLang);
   renderAll(els);
 }
 
@@ -76,8 +78,17 @@ function bindEvents() {
   });
 
   els.themeToggle.addEventListener("click", toggleTheme);
+  els.langSelect.addEventListener("change", () => {
+    state.learningLang = els.langSelect.value;
+    saveLearningLang();
+    // Re-segment the transcript: word boundaries depend on the language.
+    renderTranscript(els);
+    renderActiveSubtitle(els);
+  });
   els.sampleButton.addEventListener("click", () => {
     setSourceBadge("Sample lesson");
+    // The sample lesson is Chinese, so switch the app (and dropdown) to zh.
+    els.langSelect.value = "zh";
     loadSubtitles(sampleOriginal, sampleTranslation, "zh");
   });
   els.videoInput.addEventListener("change", handleVideoInput);
@@ -134,7 +145,7 @@ async function readSubtitleInputs() {
   const original = await originalFile.text();
   const translation = translationFile ? await translationFile.text() : "";
   setSourceBadge("Imported files");
-  loadSubtitles(original, translation);
+  loadSubtitles(original, translation, state.learningLang);
 }
 
 function setSourceBadge(text) {

@@ -5,6 +5,7 @@ export const STORAGE_KEYS = {
   sources: "miraaStudio.sources",
   theme: "miraaStudio.theme",
   prompt: "miraaStudio.prompt",
+  lang: "miraaStudio.lang",
 };
 
 export const state = {
@@ -16,8 +17,12 @@ export const state = {
   showingBack: false,
   translationMode: "human",
   selectedWord: "",
-  learningLang: "zh",
+  learningLang: localStorage.getItem(STORAGE_KEYS.lang) || "zh",
 };
+
+export function saveLearningLang() {
+  localStorage.setItem(STORAGE_KEYS.lang, state.learningLang);
+}
 
 export function saveCards() {
   localStorage.setItem(STORAGE_KEYS.cards, JSON.stringify(state.cards));
