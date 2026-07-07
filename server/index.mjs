@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleImportUrl } from "./import.mjs";
 import { handleLookup } from "./lookup.mjs";
+import { handleTranslate } from "./translate.mjs";
 import { serveStatic } from "./static.mjs";
 import { sendJson } from "./util.mjs";
 
@@ -19,6 +20,11 @@ createServer(async (req, res) => {
 
     if (req.method === "GET" && req.url.startsWith("/api/lookup")) {
       await handleLookup(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/translate") {
+      await handleTranslate(req, res);
       return;
     }
 

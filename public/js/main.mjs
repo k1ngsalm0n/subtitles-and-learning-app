@@ -159,6 +159,44 @@ function setTranslationMode(mode) {
   els.modeAI.classList.toggle("active", mode === "ai");
   renderTranscript(els);
   renderActiveSubtitle(els);
+  if (mode === "ai") translateMissingLines();
+}
+
+async function translateMissingLines() {
+  const missing = state.subtitles.filter(
+    (line) => !line.translation && !line.aiTranslation,
+  );
+  if (!missing.length || state.aiTranslating) return;
+
+  state.aiTranslating = true;
+  setSourceStatus(`Translating ${missing.length} lines with AI...`, els);
+  renderTranscript(els);
+  renderActiveSubtitle(els);
+
+  try {
+    const response = await fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lines: missing.map((line) => line.text),
+        target: "English",
+        prompt: els.translatorPrompt.value,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Translation failed.");
+
+    missing.forEach((line, index) => {
+      line.aiTranslation = result.translations[index] || "";
+    });
+    setSourceStatus("AI translation ready.", els);
+  } catch (error) {
+    setSourceStatus(error.message, els);
+  } finally {
+    state.aiTranslating = false;
+    renderTranscript(els);
+    renderActiveSubtitle(els);
+  }
 }
 
 function addManualCard(event) {

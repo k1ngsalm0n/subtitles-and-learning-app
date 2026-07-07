@@ -16,6 +16,7 @@ export const state = {
   reviewIndex: 0,
   showingBack: false,
   translationMode: "human",
+  aiTranslating: false,
   selectedWord: "",
   learningLang: localStorage.getItem(STORAGE_KEYS.lang) || "zh",
 };

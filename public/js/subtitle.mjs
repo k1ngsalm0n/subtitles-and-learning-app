@@ -73,12 +73,13 @@ function parseTime(value) {
 }
 
 export function getTranslation(line) {
-  if (state.translationMode === "human")
-    return line.translation || "No translation loaded.";
-  return line.translation || draftTranslation(line.text);
-}
-
-function draftTranslation(text) {
-  const words = text.split(/\s+/).slice(0, 12).join(" ");
-  return `AI draft: ${words}`;
+  // A human-provided translation always wins; AI only fills the gaps.
+  if (line.translation) return line.translation;
+  if (state.translationMode === "ai") {
+    if (line.aiTranslation) return line.aiTranslation;
+    return state.aiTranslating
+      ? "Translating…"
+      : "No AI translation yet (check the API key).";
+  }
+  return "No translation loaded.";
 }
