@@ -31,6 +31,7 @@ const els = {
   cardCount: document.querySelector("#cardCount"),
   reviewDue: document.querySelector("#reviewDue"),
   searchInput: document.querySelector("#searchInput"),
+  sourceBadge: document.querySelector("#sourceBadge"),
   loopLine: document.querySelector("#loopLine"),
   saveLine: document.querySelector("#saveLine"),
   themeToggle: document.querySelector("#themeToggle"),
@@ -75,9 +76,10 @@ function bindEvents() {
   });
 
   els.themeToggle.addEventListener("click", toggleTheme);
-  els.sampleButton.addEventListener("click", () =>
-    loadSubtitles(sampleOriginal, sampleTranslation, "zh"),
-  );
+  els.sampleButton.addEventListener("click", () => {
+    setSourceBadge("Sample lesson");
+    loadSubtitles(sampleOriginal, sampleTranslation, "zh");
+  });
   els.videoInput.addEventListener("change", handleVideoInput);
   els.originalInput.addEventListener("change", () => readSubtitleInputs());
   els.translationInput.addEventListener("change", () => readSubtitleInputs());
@@ -131,7 +133,13 @@ async function readSubtitleInputs() {
   if (!originalFile) return;
   const original = await originalFile.text();
   const translation = translationFile ? await translationFile.text() : "";
+  setSourceBadge("Imported files");
   loadSubtitles(original, translation);
+}
+
+function setSourceBadge(text) {
+  els.sourceBadge.textContent = text;
+  els.sourceBadge.hidden = !text;
 }
 
 function setTranslationMode(mode) {
@@ -168,7 +176,7 @@ async function importSourceUrl() {
     const response = await fetch("/api/import-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, lang: state.learningLang }),
     });
 
     const result = await response.json();
@@ -179,7 +187,13 @@ async function importSourceUrl() {
       els.emptyPlayer.classList.add("hidden");
     }
 
-    loadSubtitles(result.subtitles || "");
+    loadSubtitles(result.subtitles || "", "", state.learningLang);
+    const sourceLabels = {
+      subtitles: "Human captions",
+      "auto-subtitles": "Auto captions",
+      whisper: "AI transcription",
+    };
+    setSourceBadge(sourceLabels[result.source] || "");
     source.status =
       result.source === "whisper" ? "transcribed" : "captions loaded";
     source.title = result.title || "";

@@ -16,6 +16,7 @@ const MAX_AUDIO_BYTES = 24 * 1024 * 1024;
 export async function handleImportUrl(req, res) {
   const body = await readJsonBody(req);
   const url = normalizeExternalUrl(body.url);
+  const lang = normalizeLang(body.lang);
   await rejectPrivateHost(url);
 
   const workspace = await mkdtemp(path.join(tmpdir(), "miraa-import-"));
@@ -30,7 +31,7 @@ export async function handleImportUrl(req, res) {
 
     const title = await getMediaTitle(url.href);
     const videoUrl = await getPlayableVideoUrl(url.href);
-    const subtitle = await getExistingSubtitle(url.href, workspace);
+    const subtitle = await getExistingSubtitle(url.href, workspace, lang);
 
     if (subtitle) {
       sendJson(res, 200, {
@@ -50,7 +51,7 @@ export async function handleImportUrl(req, res) {
       );
     }
 
-    const subtitles = await transcribeWithWhisper(audioPath);
+    const subtitles = await transcribeWithWhisper(audioPath, lang);
     sendJson(res, 200, {
       title,
       videoUrl,
@@ -80,7 +81,14 @@ async function getPlayableVideoUrl(url) {
   return result.stdout.trim().split("\n")[0] || "";
 }
 
-async function getExistingSubtitle(url, workspace) {
+// Only ISO-style language codes ("zh", "en", "pt-BR") are accepted; anything
+// else falls back to "en" so user input can never inject yt-dlp arguments.
+function normalizeLang(value) {
+  const lang = String(value || "").trim();
+  return /^[a-z]{2,3}(-[A-Za-z]{2,8})?$/.test(lang) ? lang : "en";
+}
+
+async function getExistingSubtitle(url, workspace, lang) {
   await runCommand(
     "yt-dlp",
     [
@@ -89,7 +97,7 @@ async function getExistingSubtitle(url, workspace) {
       "--write-subs",
       "--write-auto-subs",
       "--sub-langs",
-      "en.*,en",
+      `${lang}.*,${lang}`,
       "--convert-subs",
       "srt",
       "-o",
@@ -103,7 +111,7 @@ async function getExistingSubtitle(url, workspace) {
   const subtitleFiles = files
     .filter((file) => /\.(srt|vtt)$/i.test(file))
     .filter((file) => !/live_chat/i.test(file))
-    .sort((a, b) => scoreSubtitleFile(b) - scoreSubtitleFile(a));
+    .sort((a, b) => scoreSubtitleFile(b, lang) - scoreSubtitleFile(a, lang));
 
   if (!subtitleFiles.length) return null;
 
@@ -114,10 +122,11 @@ async function getExistingSubtitle(url, workspace) {
   };
 }
 
-function scoreSubtitleFile(file) {
+function scoreSubtitleFile(file, lang) {
   let score = 0;
-  if (/\.en(\.|-|_)/i.test(file)) score += 4;
+  if (new RegExp(`\\.${lang}(\\.|-|_)`, "i").test(file)) score += 4;
   if (/\.srt$/i.test(file)) score += 2;
+  // Human-made captions beat auto-generated ones.
   if (!/\.auto\./i.test(file)) score += 1;
   return score;
 }
@@ -155,7 +164,7 @@ async function downloadAudio(url, workspace) {
   return compactAudio;
 }
 
-async function transcribeWithWhisper(audioPath) {
+async function transcribeWithWhisper(audioPath, lang) {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error(
       "OPENAI_API_KEY is required when no subtitle track is available.",
@@ -172,6 +181,9 @@ async function transcribeWithWhisper(audioPath) {
   form.append("model", "whisper-1");
   form.append("response_format", "verbose_json");
   form.append("timestamp_granularities[]", "segment");
+  // Telling Whisper the language up front skips its language-detection guess.
+  // The API expects a bare ISO-639-1 code, so "zh-CN" becomes "zh".
+  form.append("language", lang.split("-")[0]);
 
   const response = await fetch(
     "https://api.openai.com/v1/audio/transcriptions",

@@ -367,6 +367,16 @@ video {
   background: rgba(95, 214, 180, 0.18);
 }
 
+.source-badge {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  align-self: center;
+}
+
 .word-bubble {
   position: absolute;
   z-index: 1000;
