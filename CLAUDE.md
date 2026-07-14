@@ -17,7 +17,10 @@ lifting — speech-to-text and offline translation — runs through Python.
 - **Server:** Node ≥22, `server/index.mjs`, plain stdlib HTTP. Entry: `npm start` → http://localhost:3000
 - **Frontend:** static files in `public/`, no build step.
 - **Transcription:** OpenAI Whisper (local) when a video has no subtitle track.
-- **Translation:** offline NLLB-200 (`facebook/nllb-200-distilled-600M`) via `transformers`/`torch`.
+- **Translation:** offline, routed per pair — Marian Opus-MT
+  (`Helsinki-NLP/opus-mt-zh-en` / `opus-mt-en-zh`, ~310 MB each, fast on CPU)
+  for the app's zh↔en pairs, NLLB-200 (`facebook/nllb-200-distilled-600M`) as
+  the fallback for other languages. All via `transformers`/`torch`.
 - **Word lookups:** any OpenAI-compatible chat API (currently free Groq), falls back to NLLB. Configured in `.env`.
 - **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
 

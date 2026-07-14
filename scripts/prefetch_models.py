@@ -25,6 +25,29 @@ def nllb_model_name() -> str:
     return m.group(1) if m else "facebook/nllb-200-distilled-600M"
 
 
+def opus_model_names() -> list:
+    """Read the Opus-MT model names straight from translate.py."""
+    path = os.path.join(HERE, "..", "server", "translate.py")
+    with open(path, encoding="utf-8") as f:
+        return sorted(set(re.findall(r'"(Helsinki-NLP/[^"]+)"', f.read())))
+
+
+def fetch_opus() -> None:
+    """Prefetch the Opus-MT models (~310 MB each, the primary translators)."""
+    from huggingface_hub import snapshot_download
+
+    for model in opus_model_names():
+        try:
+            snapshot_download(model, local_files_only=True)
+            print(f"  Opus-MT '{model}' already cached.")
+            continue
+        except Exception:
+            pass
+        print(f"  Downloading Opus-MT '{model}' (one-time)…")
+        snapshot_download(model)
+        print(f"  Opus-MT '{model}' ready.")
+
+
 def whisper_cache_root() -> str:
     base = os.getenv("XDG_CACHE_HOME") or os.path.join(
         os.path.expanduser("~"), ".cache"
@@ -111,7 +134,9 @@ def main() -> int:
     fetch_whisper()
     print("  Checking RapidOCR models…")
     fetch_rapidocr()
-    print("  Checking NLLB model…")
+    print("  Checking Opus-MT models…")
+    fetch_opus()
+    print("  Checking NLLB model (fallback for non-zh/en pairs)…")
     fetch_nllb()
     return 0
 
