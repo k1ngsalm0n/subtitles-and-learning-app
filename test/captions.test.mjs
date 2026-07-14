@@ -395,3 +395,22 @@ test("a genuinely short caption is never absorbed", () => {
   assert.ok(out[0].text.includes("巨浪拍向窗戶"));
   assert.equal(out[1].text, "屋頂也全是海水");
 });
+
+test("placeholders never displace captions nor sway the coverage decision", () => {
+  // A long low-confidence stretch became a 19 s placeholder spanning real
+  // captions; it must clip to the free time and leave the captions intact —
+  // and its 19 s must not count as "speech coverage" (which once flipped a
+  // caption-led video to speech-led).
+  const captions = [
+    { start: 14, end: 19, text: "颱風登陸浙江後帶來強勁風雨" },
+    { start: 19, end: 26, text: "掀起超過十公尺高的巨浪" },
+  ];
+  const speech = [{ start: 10.8, end: 29.9, text: UNINTELLIGIBLE }];
+  const merged = mergeCaptionSpeech(captions, speech);
+  assert.ok(merged.some((s) => s.text === "颱風登陸浙江後帶來強勁風雨"));
+  assert.ok(merged.some((s) => s.text === "掀起超過十公尺高的巨浪"));
+  const ph = merged.find((s) => s.text === UNINTELLIGIBLE);
+  assert.ok(ph, "placeholder survives in the free stretch");
+  assert.equal(ph.start, 26);
+  assert.ok(Math.abs(ph.end - 29.9) < 1e-9);
+});

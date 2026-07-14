@@ -194,7 +194,7 @@ const MIN_SPEECH_CPS = 0.8;
 // invented ("优优独播剧场——YoYo Television Series Exclusive" appeared across
 // 22 s of storm noise). Deliberately specific — no single common word.
 const HALLUCINATION_RE =
-  /独播剧场|獨播劇場|YoYo Television|中文字幕|字幕组|字幕組|字幕志愿者|字幕由|字幕提供|点赞订阅|按讚訂閱|謝謝觀看|谢谢观看|谢谢收看|明镜需要您的支持/;
+  /独播剧场|獨播劇場|YoYo Television|中文字幕|字幕组|字幕組|字幕志愿者|字幕由|字幕提供|点赞订阅|點贊訂閱|不吝点赞|不吝點贊|按讚訂閱|打赏支持|打賞支持|謝謝觀看|谢谢观看|谢谢收看|明镜|明鏡|點點欄目/;
 // Speech transcription covering at least this fraction of the video means the
 // audio carries the story (a narrated news piece), not the on-screen text.
 const SPEECH_LED_COVERAGE = 0.5;
@@ -264,11 +264,15 @@ const MIN_GAP_FILL_SECONDS = 1;
 // pollute the output nor sway the coverage decision. Both inputs and the
 // result are [{start, end, text}] sorted by start.
 export function mergeCaptionSpeech(captionSegments, speechSegments) {
+  // Unintelligible placeholders are filler, not content: they must neither
+  // sway the who-leads decision nor ever displace a caption — they only claim
+  // time that nothing else does, at the very end.
+  const placeholders = speechSegments.filter(
+    (seg) => String(seg.text || "").trim() === UNINTELLIGIBLE,
+  );
   const speech = speechSegments.filter((seg) => {
     const text = String(seg.text || "").trim();
-    // Placeholders were already adjudicated (real speech, unintelligible);
-    // the plausibility filters below would misread their fixed text as slow.
-    if (text === UNINTELLIGIBLE) return true;
+    if (text === UNINTELLIGIBLE) return false;
     const duration = Math.max(seg.end - seg.start, 0.01);
     const cjk = [...text].filter((ch) => ch >= "㐀" && ch <= "鿿").length;
     return (
@@ -292,7 +296,11 @@ export function mergeCaptionSpeech(captionSegments, speechSegments) {
   const gapFill = secondary
     .map((seg) => clipToLargestGap(seg, primary))
     .filter(Boolean);
-  return [...primary, ...gapFill].sort((a, b) => a.start - b.start);
+  const base = [...primary, ...gapFill];
+  const placeholderFill = placeholders
+    .map((seg) => clipToLargestGap(seg, base))
+    .filter(Boolean);
+  return [...base, ...placeholderFill].sort((a, b) => a.start - b.start);
 }
 
 // A caption block shorter than this reads fine as one unit; only long static

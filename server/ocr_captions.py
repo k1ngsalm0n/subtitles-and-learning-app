@@ -85,6 +85,12 @@ TAG_MIN_CONTAINED_RUNS = 2
 # its equal-span partners and can be misclassified as a tag. Two consecutive
 # missed frames end the run.
 RUN_GAP_TOLERANCE = 2.5
+# OCR now runs automatically on every URL import, so videos without burned-in
+# text must bail out cheaply: probe this many frames spread across the video
+# and only do the full pass when at least PROBE_MIN_HITS of them show Chinese
+# text (~a few seconds instead of the full per-frame pass).
+PROBE_FRAMES = 8
+PROBE_MIN_HITS = 2
 
 
 def _extract_frames(video_path, workspace):
@@ -446,6 +452,61 @@ def cjk_ratio(segments):
     return cjk / len(text)
 
 
+def _video_duration(video_path):
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", video_path],
+            capture_output=True, text=True, timeout=60,
+        )
+        return float(out.stdout.strip())
+    except (subprocess.SubprocessError, ValueError):
+        return 0.0
+
+
+def _probe_finds_text(engine, video_path, workspace):
+    """OCR a handful of frames spread across the video: is there Chinese text?
+
+    Counts a frame as a hit when any line has two or more CJK characters
+    (captions and news furniture both qualify — the point is only to skip
+    videos with no burned-in text at all, e.g. vlogs and lectures).
+    """
+    import cv2
+
+    duration = _video_duration(video_path)
+    if duration <= 0:
+        return True  # can't probe; assume text and let the full pass decide
+    # Probe frames live in their own directory: the full pass globs the
+    # workspace for *.jpg and infers each frame's timestamp from its position,
+    # so stray probe files would resurface as phantom segments past the end
+    # of the video.
+    probe_dir = os.path.join(workspace, "probe")
+    os.makedirs(probe_dir, exist_ok=True)
+    hits = 0
+    for k in range(PROBE_FRAMES):
+        t = duration * (k + 0.5) / PROBE_FRAMES
+        frame = os.path.join(probe_dir, f"{k}.jpg")
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", video_path,
+             "-frames:v", "1", frame],
+            capture_output=True, timeout=60,
+        )
+        if proc.returncode != 0 or not os.path.exists(frame):
+            continue
+        img = cv2.imread(frame)
+        if img is None:
+            continue
+        cjk_line = any(
+            sum(1 for ch in text if "㐀" <= ch <= "鿿") >= 2
+            for _y, text, _s in _read_lines(engine, img)
+        )
+        if cjk_line:
+            hits += 1
+            if hits >= PROBE_MIN_HITS:
+                return True
+    return False
+
+
 def read_captions(video_path):
     import cv2
     from rapidocr import RapidOCR
@@ -453,6 +514,11 @@ def read_captions(video_path):
     engine = RapidOCR()
     workspace = tempfile.mkdtemp(prefix="miraa-ocr-")
     try:
+        if not _probe_finds_text(engine, video_path, workspace):
+            sys.stderr.write(
+                "OCR: probe found no on-screen Chinese text; skipping full pass\n"
+            )
+            return []
         frames = _extract_frames(video_path, workspace)
         sys.stderr.write(f"OCR: reading {len(frames)} frames at {FPS} fps\n")
         raw = []

@@ -31,7 +31,6 @@ const els = {
   sampleButton: document.querySelector("#sampleButton"),
   sourceUrl: document.querySelector("#sourceUrl"),
   queueUrl: document.querySelector("#queueUrl"),
-  ocrToggle: document.querySelector("#ocrToggle"),
   sourceStatus: document.querySelector("#sourceStatus"),
   transcript: document.querySelector("#transcript"),
   activeOriginal: document.querySelector("#activeOriginal"),
@@ -243,7 +242,7 @@ async function importSourceUrl() {
     const response = await fetch("/api/import-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, ocr: els.ocrToggle.checked }),
+      body: JSON.stringify({ url }),
     });
 
     clearProgressTimers();

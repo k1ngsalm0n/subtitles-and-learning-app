@@ -45,6 +45,30 @@ const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
 const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const TRANSCRIBE_SCRIPT = path.join(__dirname, "transcribe.py");
 const OCR_SCRIPT = path.join(__dirname, "ocr_captions.py");
+const ZH_CONVERT_SCRIPT = path.join(__dirname, "zh_convert.py");
+// Subtitles are normalised to Traditional characters by default (the app's
+// current focus is Taiwanese content, and mixed-script sources — Simplified
+// clips embedded in Traditional broadcasts — read jarringly otherwise). Set
+// ZH_SCRIPT=off to keep each source's original script.
+const ZH_SCRIPT = process.env.ZH_SCRIPT || "trad";
+
+// Convert subtitle text to Traditional Chinese via OpenCC (zh_convert.py).
+// Best-effort: any failure returns the text unchanged.
+async function toTraditional(srt) {
+  if (ZH_SCRIPT !== "trad" || !srt) return srt;
+  try {
+    const result = await runCommand(PYTHON_BIN, [ZH_CONVERT_SCRIPT], {
+      timeoutMs: 60_000,
+      input: srt,
+    });
+    return result.stdout || srt;
+  } catch (err) {
+    console.warn(
+      `Traditional conversion skipped (${String(err.message || err).split("\n")[0]})`,
+    );
+    return srt;
+  }
+}
 const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
 
 // Retention policy for the downloaded-video cache. Without this the directory
@@ -155,11 +179,37 @@ export async function handleImportUrl(req, res) {
     const videoPath = await downloadVideo(url.href);
     const videoUrl = videoPath ? `/videos/${path.basename(videoPath)}` : "";
 
-    // Explicit user request: read burned-in captions off the frames (news
-    // clips often write their commentary on screen instead of speaking it).
-    // Falls through to the normal subtitle/transcription path when the video
-    // turns out to have no legible on-screen captions.
-    if (body.ocr === true && videoPath) {
+    // A subtitle track from the platform is the best source when it exists —
+    // human-made, correctly timed, and free. Everything below is fallback.
+    const subtitle = await getExistingSubtitle(url.href, workspace, meta, origBase);
+
+    if (subtitle) {
+      const subtitles = await toTraditional(subtitle.text);
+      // A creator-provided translation (subtitle.translation) is already aligned
+      // to the source and is more accurate than machine translation — use it as
+      // is. Otherwise fall back to machine translation on the clean source text.
+      let translation = subtitle.translation || "";
+      if (!translation && subtitle.lang && subtitle.lang !== "en") {
+        translation = await translateSrt(subtitles, subtitle.lang);
+      }
+      sendJson(res, 200, {
+        title: meta.title,
+        videoUrl,
+        source: subtitle.source,
+        language: subtitle.lang || "",
+        subtitles,
+        translation,
+      });
+      return;
+    }
+
+    // No subtitle track: read burned-in captions off the frames (news clips
+    // often write their commentary on screen instead of speaking it). This
+    // runs automatically — ocr_captions.py probes a few frames first and
+    // bails out cheaply when the video has no on-screen text, so imports of
+    // caption-less videos fall through to transcription without paying for a
+    // full OCR pass.
+    if (videoPath) {
       const ocr = await ocrCaptions(videoPath);
       if (ocr) {
         // Captions only cover what's written on screen; many news videos also
@@ -199,7 +249,7 @@ export async function handleImportUrl(req, res) {
         // No refine pass here: speech was already refined, and caption blocks
         // were paced within their real display windows — a character-count
         // re-timing on top would fabricate different boundaries again.
-        const subtitles = segmentsToSrt(segments, { refine: false });
+        const subtitles = await toTraditional(segmentsToSrt(segments, { refine: false }));
         const translation = await translateSrt(subtitles, "zh");
         sendJson(res, 200, {
           title: meta.title,
@@ -211,27 +261,6 @@ export async function handleImportUrl(req, res) {
         });
         return;
       }
-    }
-
-    const subtitle = await getExistingSubtitle(url.href, workspace, meta, origBase);
-
-    if (subtitle) {
-      // A creator-provided translation (subtitle.translation) is already aligned
-      // to the source and is more accurate than machine translation — use it as
-      // is. Otherwise fall back to NLLB on the clean source text.
-      let translation = subtitle.translation || "";
-      if (!translation && subtitle.lang && subtitle.lang !== "en") {
-        translation = await translateSrt(subtitle.text, subtitle.lang);
-      }
-      sendJson(res, 200, {
-        title: meta.title,
-        videoUrl,
-        source: subtitle.source,
-        language: subtitle.lang || "",
-        subtitles: subtitle.text,
-        translation,
-      });
-      return;
     }
 
     // Extract audio from the already-downloaded video instead of fetching the
@@ -584,15 +613,14 @@ async function ocrCaptions(videoPath) {
   if (!line) throw new Error("caption OCR produced no output.");
   const data = JSON.parse(line);
   if (data.error === "no_captions") return null;
-  // CHINESE-ONLY (temporary, #65): same scope gate as transcription.
+  // CHINESE-ONLY (temporary, #65). OCR now runs automatically on every URL
+  // import, so non-Chinese on-screen text (a watermark on an otherwise
+  // Chinese video, or a foreign video Whisper will reject anyway) must not
+  // hard-fail the import — treat it as "no captions" and fall through to
+  // transcription, which has its own language gate.
   if (data.language !== "zh") {
-    const err = new Error(
-      "Only Chinese is supported right now — this video's on-screen captions " +
-        "don't look Chinese. (Multi-language support is paused; see #65.)",
-    );
-    err.code = "UNSUPPORTED_LANGUAGE";
-    err.status = 422;
-    throw err;
+    console.warn("OCR captions don't look Chinese; falling back to transcription.");
+    return null;
   }
   return data;
 }
@@ -617,7 +645,9 @@ async function transcribeFastSegments(audioPath) {
 
 async function transcribeFast(audioPath) {
   const { language, segments } = await transcribeFastSegments(audioPath);
-  const subtitles = segmentsToSrt(segments);
+  const subtitles = await toTraditional(
+    segmentsToSrt(markUnintelligible(segments)),
+  );
   const lowerLang = language.toLowerCase();
   const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
   const translation = await translateSrt(subtitles, langCode);
