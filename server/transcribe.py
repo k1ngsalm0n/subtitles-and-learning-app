@@ -104,6 +104,56 @@ def _decode_audio(path):
     return decode_audio(path, sampling_rate=16000)
 
 
+SAMPLE_RATE = 16000
+DETECT_WINDOW = 30 * SAMPLE_RATE  # Whisper's detector only ever sees 30 s
+# Language detection always runs on the small model, even when transcription
+# uses a bigger one. large-v3's language ID is unreliable on noisy audio (it
+# called a Chinese typhoon report "en"/"tr" from the storm bed, where small
+# scored zh 0.74–0.85 on the same windows) — and small's detection is cheap.
+DETECT_MODEL = "small"
+# A clip counts as Chinese if zh wins the vote outright, or holds at least this
+# averaged probability while the winner is a low-confidence guess. Genuine
+# foreign-language audio scores zh well under 0.1; Chinese speech behind a
+# noisy window still averages above this.
+ZH_ACCEPT_PROB = 0.25
+# …or if any single window is confidently Chinese. A clip whose speech sits in
+# the middle of long ambience (a typhoon report: storm noise, speech, storm
+# noise) averages low overall, but the speech window itself is unambiguous —
+# and non-Chinese audio essentially never scores zh this high on any window.
+ZH_WINDOW_PROB = 0.5
+
+
+def _detect_language(model, audio):
+    """Detect the clip's language from several windows, not just the opening.
+
+    Whisper's detect_language samples only the first 30 seconds, and clips
+    often open with a music bed or ambience (news intros, storm footage) that
+    detects as a random low-confidence language. Probe up to three windows —
+    start, middle, end — and average per-language probabilities so a noisy
+    opening can't outvote the actual speech.
+
+    Returns (language, averaged_probability, averaged_zh_probability,
+    max_single_window_zh_probability).
+    """
+    starts = {0}
+    if len(audio) > DETECT_WINDOW:
+        starts.add(max(0, (len(audio) - DETECT_WINDOW) // 2))
+        starts.add(len(audio) - DETECT_WINDOW)
+    totals = {}
+    zh_max = 0.0
+    for start in sorted(starts):
+        _lang, _prob, all_probs = model.detect_language(
+            audio[start : start + DETECT_WINDOW]
+        )
+        for lang, prob in all_probs:
+            totals[lang] = totals.get(lang, 0.0) + prob
+            if lang == "zh":
+                zh_max = max(zh_max, prob)
+    best = max(totals, key=totals.get)
+    n = len(starts)
+    return best, totals[best] / n, totals.get("zh", 0.0) / n, zh_max
+
+
 def _transcribe_on(device, audio):
     from faster_whisper import WhisperModel
 
@@ -112,15 +162,29 @@ def _transcribe_on(device, audio):
     model_name = _resolve_model(device)
     sys.stderr.write(f"transcribing with model={model_name} on {device}\n")
     sys.stderr.flush()
-    model = WhisperModel(model_name, device=device, compute_type=_compute_type())
     # Detect the language up front so we can transcribe ONCE with the right
     # prompt, instead of the old detect-then-re-run-for-Traditional two passes.
-    language, _prob, _all = model.detect_language(audio)
+    # Detection runs on DETECT_MODEL (see above) and, when the audio is
+    # rejected, the transcription model is never loaded at all.
+    detector = WhisperModel(
+        DETECT_MODEL, device=device, compute_type=_compute_type()
+    )
+    language, prob, zh_avg, zh_max = _detect_language(detector, audio)
+    sys.stderr.write(
+        f"language vote: {language} p={prob:.2f} "
+        f"(zh avg={zh_avg:.2f} max={zh_max:.2f})\n"
+    )
+    sys.stderr.flush()
 
     # CHINESE-ONLY (temporary): reject non-Chinese audio so we don't emit a
     # garbage transcript in a language we aren't focusing on yet. See issue #65.
-    if language != "zh":
+    if language != "zh" and zh_avg < ZH_ACCEPT_PROB and zh_max < ZH_WINDOW_PROB:
         raise UnsupportedLanguage(language)
+    model = (
+        detector
+        if model_name == DETECT_MODEL
+        else WhisperModel(model_name, device=device, compute_type=_compute_type())
+    )
     segments, info = model.transcribe(
         audio,
         language="zh",
