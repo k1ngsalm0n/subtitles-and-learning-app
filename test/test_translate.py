@@ -55,3 +55,27 @@ class ParseSrtTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpusRoutingTest(unittest.TestCase):
+    def test_app_pairs_route_to_opus(self):
+        from translate import OPUS_MODELS
+
+        self.assertIn(("zh", "en"), OPUS_MODELS)
+        self.assertIn(("en", "zh"), OPUS_MODELS)
+        # Other pairs stay on the NLLB path.
+        self.assertNotIn(("ja", "en"), OPUS_MODELS)
+
+
+class ToSimplifiedTest(unittest.TestCase):
+    def test_traditional_converts_via_cedict_pairs(self):
+        from translate import to_simplified
+
+        # 學習/学习 is in the bundled seed dictionary, so this holds even
+        # without the full CC-CEDICT download.
+        self.assertEqual(to_simplified("學習"), "学习")
+
+    def test_simplified_and_non_chinese_pass_through(self):
+        from translate import to_simplified
+
+        self.assertEqual(to_simplified("学习 abc 123"), "学习 abc 123")

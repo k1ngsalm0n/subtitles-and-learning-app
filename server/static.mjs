@@ -53,6 +53,12 @@ function parseRange(header, total) {
   return { start, end };
 }
 
+// The app's HTML/JS/CSS change between server restarts, and responses carry no
+// validators (no ETag/Last-Modified), so a browser could keep rendering a stale
+// UI after an update with no way to notice. Force revalidation on the small
+// text assets; media files keep default handling (range requests dominate).
+const NO_CACHE_EXTS = new Set([".html", ".js", ".mjs", ".css", ".json"]);
+
 export async function serveStatic(req, res, publicDir) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = decodeURIComponent(url.pathname);
@@ -72,8 +78,11 @@ export async function serveStatic(req, res, publicDir) {
     const fileStats = await stat(filePath);
     if (!fileStats.isFile()) throw new Error("Not a file");
 
-    const contentType =
-      MIME_TYPES[path.extname(filePath)] || "application/octet-stream";
+    const ext = path.extname(filePath);
+    const contentType = MIME_TYPES[ext] || "application/octet-stream";
+    const cacheHeaders = NO_CACHE_EXTS.has(ext)
+      ? { "Cache-Control": "no-cache" }
+      : {};
     const total = fileStats.size;
     const range = parseRange(req.headers.range, total);
 
@@ -94,6 +103,7 @@ export async function serveStatic(req, res, publicDir) {
         "Content-Length": end - start + 1,
         "Content-Range": `bytes ${start}-${end}/${total}`,
         "Accept-Ranges": "bytes",
+        ...cacheHeaders,
       });
 
       if (req.method === "HEAD") {
@@ -109,6 +119,7 @@ export async function serveStatic(req, res, publicDir) {
       "Content-Type": contentType,
       "Content-Length": total,
       "Accept-Ranges": "bytes",
+      ...cacheHeaders,
     });
 
     if (req.method === "HEAD") {

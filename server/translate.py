@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Translate an SRT file line-by-line using Facebook NLLB-200 (offline)."""
+"""Translate an SRT file line-by-line, fully offline.
+
+Two engines, routed per language pair:
+  * Marian Opus-MT for the pairs the app actually uses (zh<->en) — a dedicated
+    bilingual model beats the multilingual NLLB on its own pair while being a
+    fraction of the size (~310 MB vs ~2.4 GB) and several times faster on CPU.
+    NLLB notably misrendered proper nouns (Taizhou as "Taichung", Zhejiang as
+    "the Yangtze River") that Opus-MT gets right.
+  * NLLB-200 as the fallback for every other pair, kept intact for when
+    multi-language support returns (#65).
+"""
 
 import argparse
 import json
@@ -13,9 +23,21 @@ import sys
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import (
+    AutoModelForSeq2SeqLM,
+    AutoTokenizer,
+    MarianMTModel,
+    MarianTokenizer,
+)
 
 MODEL_NAME = "facebook/nllb-200-distilled-600M"
+
+# Dedicated Marian models for the app's main pairs. Loaded via the explicit
+# Marian classes: transformers v5 dropped Marian from the AutoTokenizer
+# mapping, so AutoTokenizer.from_pretrained() fails on these.
+OPUS_ZH_EN = "Helsinki-NLP/opus-mt-zh-en"
+OPUS_EN_ZH = "Helsinki-NLP/opus-mt-en-zh"
+OPUS_MODELS = {("zh", "en"): OPUS_ZH_EN, ("en", "zh"): OPUS_EN_ZH}
 
 # Translate this many subtitle lines per model call. Batching is what makes the
 # CPU path faster; the GPU path benefits even more. Sized for the GPU path while
@@ -66,11 +88,20 @@ _safe_batch = BATCH_SIZE
 
 
 def _select_device():
-    """Pick the device for the model. TRANSLATE_DEVICE forces a choice."""
+    """Pick the device for the model. TRANSLATE_DEVICE forces a choice.
+
+    Defaults to CPU even when a GPU is present. This worker is long-lived and
+    loads ~4 GB of NLLB weights; left on the GPU it stays resident and starves
+    Whisper — the far heavier job — into an out-of-memory CPU fallback on every
+    import after the first (seen on a 6 GB GTX 1060). Whisper is the interactive
+    bottleneck, so it gets the GPU; translating a few dozen subtitle lines on CPU
+    only costs seconds. Set TRANSLATE_DEVICE=cuda to run translation on the GPU
+    too, if you have VRAM to spare for both.
+    """
     forced = os.environ.get("TRANSLATE_DEVICE")
     if forced:
         return forced
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    return "cpu"
 
 
 def _is_oom(exc):
@@ -98,6 +129,58 @@ def get_model():
                 torch.cuda.empty_cache()
             _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME).to(_device)
     return _tokenizer, _model
+
+
+# Opus-MT loader. One cache slot per model name; each entry is
+# (tokenizer, model, device). Same load-time OOM fallback as NLLB's get_model.
+_opus_cache = {}
+
+
+def get_opus(model_name):
+    cached = _opus_cache.get(model_name)
+    if cached:
+        return cached
+    device = _select_device()
+    tokenizer = MarianTokenizer.from_pretrained(model_name)
+    try:
+        model = MarianMTModel.from_pretrained(model_name).to(device)
+    except RuntimeError as exc:
+        if device == "cpu" or not _is_oom(exc):
+            raise
+        sys.stderr.write(f"{model_name} load hit CUDA OOM; falling back to CPU.\n")
+        sys.stderr.flush()
+        device = "cpu"
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        model = MarianMTModel.from_pretrained(model_name).to(device)
+    _opus_cache[model_name] = (tokenizer, model, device)
+    return _opus_cache[model_name]
+
+
+def translate_batch_opus(texts, model_name):
+    """Translate a list of strings with a bilingual Marian model.
+
+    No source/target language plumbing: the model only knows one pair. The
+    models are small enough (~310 MB) that the NLLB-style VRAM planning and
+    halve-on-OOM machinery isn't needed.
+    """
+    if not texts:
+        return []
+    tokenizer, model, device = get_opus(model_name)
+    inputs = tokenizer(
+        texts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=512,
+    ).to(device)
+    translated = model.generate(
+        **inputs,
+        max_new_tokens=256,
+        num_beams=NUM_BEAMS,
+        no_repeat_ngram_size=NO_REPEAT_NGRAM,
+    )
+    return tokenizer.batch_decode(translated, skip_special_tokens=True)
 
 
 _cn_char_sets = None
@@ -143,6 +226,49 @@ def detect_chinese_script(text):
     trad_hits = sum(c in trad_only for c in text)
     simp_hits = sum(c in simp_only for c in text)
     return "zho_Hant" if trad_hits > simp_hits else "zho_Hans"
+
+
+_t2s_map = None
+
+
+def _trad_to_simp_map():
+    """Traditional→Simplified character map, from CC-CEDICT entry pairs.
+
+    Every CEDICT entry lists both forms; equal-length pairs give per-character
+    correspondences (學習/学习 → 學→学, 習→习). Best-effort like the other
+    CEDICT features: the bundled seed covers little — run
+    `node scripts/fetch-cedict.mjs` for the full dictionary (~26k mappings).
+    """
+    global _t2s_map
+    if _t2s_map is None:
+        mapping = {}
+        path = CEDICT_FULL if os.path.exists(CEDICT_FULL) else CEDICT_SEED
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("#"):
+                        continue
+                    m = re.match(r"^(\S+)\s+(\S+)\s+\[", line)
+                    if not m:
+                        continue
+                    trad, simp = m.group(1), m.group(2)
+                    if trad != simp and len(trad) == len(simp):
+                        for t, s in zip(trad, simp):
+                            if t != s:
+                                mapping.setdefault(t, s)
+        _t2s_map = mapping
+    return _t2s_map
+
+
+def to_simplified(text):
+    """Convert Traditional characters to Simplified for the Opus models.
+
+    Opus-MT zh models are trained overwhelmingly on Simplified text; fed
+    Traditional they miss even common words (颱風 came out "storm", 轎車
+    "limo"). The same sentences converted first translate correctly.
+    """
+    mapping = _trad_to_simp_map()
+    return "".join(mapping.get(ch, ch) for ch in text)
 
 
 def load_unambiguous_nouns():
@@ -308,15 +434,19 @@ def parse_srt(text):
 
 def translate_srt(srt_text, from_code, to_code="en"):
     """Translate a full SRT string and return the translated SRT string."""
-    # `zh` is script-agnostic; pick Hant/Hans from the actual text so the model
-    # isn't told the wrong script (which makes it hallucinate).
-    if from_code == "zh":
-        src_lang = detect_chinese_script(srt_text)
-    else:
-        src_lang = LANG_CODE_MAP.get(from_code)
-    tgt_lang = LANG_CODE_MAP.get(to_code, "eng_Latn")
-    if not src_lang:
-        raise ValueError(f"Unsupported source language: {from_code}")
+    # Dedicated bilingual model for the app's main pairs; NLLB for the rest.
+    opus_name = OPUS_MODELS.get((from_code, to_code))
+    src_lang = tgt_lang = None
+    if opus_name is None:
+        # `zh` is script-agnostic; pick Hant/Hans from the actual text so the
+        # model isn't told the wrong script (which makes it hallucinate).
+        if from_code == "zh":
+            src_lang = detect_chinese_script(srt_text)
+        else:
+            src_lang = LANG_CODE_MAP.get(from_code)
+        tgt_lang = LANG_CODE_MAP.get(to_code, "eng_Latn")
+        if not src_lang:
+            raise ValueError(f"Unsupported source language: {from_code}")
 
     nouns = load_unambiguous_nouns() if from_code == "zh" else {}
 
@@ -325,6 +455,10 @@ def translate_srt(srt_text, from_code, to_code="en"):
         substitute_nouns(content, nouns) if nouns else content
         for _idx, _timestamp, content in entries
     ]
+    if opus_name and from_code == "zh":
+        # Noun substitution first (the CEDICT keys cover both scripts), then
+        # normalise the remaining text to Simplified for the Opus model.
+        texts = [to_simplified(t) for t in texts]
 
     # Group similar-length lines together so each batch pads to a length close
     # to its own longest line instead of the longest line in the whole file.
@@ -333,16 +467,22 @@ def translate_srt(srt_text, from_code, to_code="en"):
     order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
     translations = [None] * len(texts)
     # Size the batch to the VRAM free right now (recomputed per request, so it
-    # adapts as other GPU users — e.g. a game — come and go).
+    # adapts as other GPU users — e.g. a game — come and go). The small Opus
+    # models don't need the planning; a full batch always fits.
     global _safe_batch
-    _safe_batch = _plan_batch()
+    _safe_batch = BATCH_SIZE if opus_name else _plan_batch()
     # Read _safe_batch fresh each iteration: if a chunk OOMs and shrinks it,
     # the remaining chunks immediately use the smaller, known-good size.
     start = 0
     while start < len(order):
         size = max(1, _safe_batch)
         idx_chunk = order[start : start + size]
-        out = translate_batch([texts[i] for i in idx_chunk], src_lang, tgt_lang)
+        chunk = [texts[i] for i in idx_chunk]
+        out = (
+            translate_batch_opus(chunk, opus_name)
+            if opus_name
+            else translate_batch(chunk, src_lang, tgt_lang)
+        )
         for i, translated_text in zip(idx_chunk, out):
             translations[i] = translated_text
         start += len(idx_chunk)
@@ -357,12 +497,16 @@ def serve():
     """Long-lived worker: load the model once, then answer JSON requests.
 
     Reads one JSON request per line from stdin ({"id", "srt", "from", "to"})
-    and writes one JSON response per line to stdout. Loading the ~600M model is
-    the slow part (~several seconds, or a download on first ever use); doing it
-    once here instead of per request is the whole point of this mode.
+    and writes one JSON response per line to stdout. Loading a model is the
+    slow part (seconds, or a download on first ever use); doing it once here
+    instead of per request is the whole point of this mode.
     """
     try:
-        get_model()
+        # Warm the model for the pair the app actually uses (zh→en; the app is
+        # Chinese-scoped for now, #65). NLLB — the 2.4 GB many-language
+        # fallback — loads lazily on the first request that needs it, so most
+        # sessions never pay its load time or memory.
+        get_opus(OPUS_ZH_EN)
     except Exception as exc:  # model download/load failure
         sys.stdout.write(json.dumps({"ready": False, "error": str(exc)}) + "\n")
         sys.stdout.flush()

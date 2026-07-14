@@ -265,7 +265,11 @@ async function importSourceUrl() {
       syncTranslateLangs(els);
     }
     source.status =
-      result.source === "whisper" ? "transcribed" : "captions loaded";
+      result.source === "whisper"
+        ? "transcribed"
+        : result.source?.startsWith("ocr")
+          ? "on-screen captions read"
+          : "captions loaded";
     source.title = result.title || "";
     els.sourceUrl.value = "";
     showProgress("", 100);
@@ -273,7 +277,11 @@ async function importSourceUrl() {
     setSourceStatus(
       result.source === "whisper"
         ? `Transcribed with Whisper${langNote}.`
-        : "Loaded existing subtitles.",
+        : result.source === "ocr+whisper"
+          ? "Read the on-screen captions and transcribed the speech between them."
+          : result.source === "ocr"
+            ? "Read the on-screen captions with OCR."
+            : "Loaded existing subtitles.",
       els,
     );
     setTimeout(hideProgress, 2000);

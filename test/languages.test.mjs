@@ -20,13 +20,18 @@ function pythonLangCodes() {
   return [...block[1].matchAll(/"([a-z]{2,3})"\s*:/g)].map((m) => m[1]);
 }
 
-test("client LANGUAGES list matches the server LANG_CODE_MAP (#32)", () => {
-  const jsCodes = [...LANGUAGES.map((l) => l.code)].sort();
-  const pyCodes = [...pythonLangCodes()].sort();
+test("every client LANGUAGE is supported by the server LANG_CODE_MAP (#32)", () => {
+  // CHINESE-ONLY (temporary, #65): the client list is trimmed to a subset while
+  // the server keeps the full set, so the invariant is now "the UI never offers
+  // a language the server can't translate" rather than exact equality. Restore
+  // the deepEqual check when the full LANGUAGES list comes back.
+  const jsCodes = LANGUAGES.map((l) => l.code);
+  const pyCodes = new Set(pythonLangCodes());
+  const unsupported = jsCodes.filter((code) => !pyCodes.has(code));
   assert.deepEqual(
-    jsCodes,
-    pyCodes,
-    "public/js/languages.mjs and server/translate.py language codes are out of sync",
+    unsupported,
+    [],
+    "public/js/languages.mjs offers languages missing from server/translate.py",
   );
 });
 
