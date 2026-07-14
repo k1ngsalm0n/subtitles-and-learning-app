@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   cleanCaptions,
   alignTranslationByTime,
+  dedupeContinuationLines,
   mergeCaptionSpeech,
   paceCaptionLines,
 } from "../server/captions.mjs";
@@ -290,4 +291,34 @@ test("mergeCaptionSpeech drops known Whisper hallucination phrases", () => {
   const merged = mergeCaptionSpeech(captions, speech);
   assert.ok(!merged.some((s) => s.text.includes("独播剧场")));
   assert.ok(merged.some((s) => s.text === "這句是真的有人在說話"));
+});
+
+test("dedupeContinuationLines shows repeated static lines only once", () => {
+  const block =
+    "台风“巴威”逼近浙江临海车主自发\n把车开上还未通车的立交桥避险\n这是迎战“利奇马”换来的生存智慧";
+  const segments = [
+    { start: 6, end: 8, caption: true, text: `${block}\n颱風巴威逼近浙江台州臨海` },
+    // OCR jitter: 、 appears in one reading of the repeated line.
+    { start: 8, end: 10, caption: true, text: `${block.replace("台风“巴威”", "台风、“巴威”")}\n車主們自發集體把車開上高架橋避險` },
+    { start: 10, end: 12, caption: true, text: `${block}\n車輛沿道路兩側整齊停放` },
+  ];
+  const out = dedupeContinuationLines(segments);
+  assert.equal(out[0].text.split("\n").length, 4); // first block complete
+  assert.equal(out[1].text, "車主們自發集體把車開上高架橋避險");
+  assert.equal(out[2].text, "車輛沿道路兩側整齊停放");
+});
+
+test("dedupeContinuationLines: gaps reset, speech untouched, empty repeats vanish", () => {
+  const segments = [
+    { start: 0, end: 4, caption: true, text: "字幕的第一句話\n持續顯示的標題" },
+    { start: 4, end: 6, text: "主播說話的內容不參與去重" }, // whisper, no caption flag
+    { start: 6, end: 8, caption: true, text: "持續顯示的標題" }, // nothing new -> dropped
+    { start: 20, end: 24, caption: true, text: "持續顯示的標題" }, // after a gap -> kept
+  ];
+  const out = dedupeContinuationLines(segments);
+  assert.deepEqual(
+    out.map((s) => s.text),
+    ["字幕的第一句話\n持續顯示的標題", "主播說話的內容不參與去重", "持續顯showing".replace("showing", "示的標題")],
+  );
+  assert.equal(out.at(-1).start, 20);
 });

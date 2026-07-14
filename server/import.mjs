@@ -18,6 +18,7 @@ import { refineSegments } from "./segment.mjs";
 import {
   cleanCaptions,
   alignTranslationByTime,
+  dedupeContinuationLines,
   mergeCaptionSpeech,
   paceCaptionLines,
 } from "./captions.mjs";
@@ -184,7 +185,9 @@ export async function handleImportUrl(req, res) {
             `OCR import: speech gap-fill skipped (${String(err.message || err).split("\n")[0]})`,
           );
         }
-        segments = segments.flatMap((s) =>
+        // A static summary block stays on screen while short captions rotate
+        // beneath it — repeat only what changed, then pace long blocks.
+        segments = dedupeContinuationLines(segments).flatMap((s) =>
           s.caption ? paceCaptionLines(s) : [s],
         );
         // No refine pass here: speech was already refined, and caption blocks

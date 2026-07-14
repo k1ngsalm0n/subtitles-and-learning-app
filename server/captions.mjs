@@ -315,3 +315,67 @@ function clipToLargestGap(seg, primary) {
   if (end - start < MIN_GAP_FILL_SECONDS) return null;
   return { ...seg, start, end };
 }
+
+// Character-bigram Dice similarity — a cheap stand-in for difflib ratios, good
+// enough to recognise the same caption line across one-character OCR jitter.
+function diceSimilarity(a, b) {
+  a = [...String(a).replace(/\s+/g, "")];
+  b = [...String(b).replace(/\s+/g, "")];
+  if (a.length < 2 || b.length < 2) return a.join("") === b.join("") ? 1 : 0;
+  const grams = new Map();
+  for (let i = 0; i < a.length - 1; i++) {
+    const g = a[i] + a[i + 1];
+    grams.set(g, (grams.get(g) || 0) + 1);
+  }
+  let hits = 0;
+  for (let i = 0; i < b.length - 1; i++) {
+    const g = b[i] + b[i + 1];
+    const n = grams.get(g) || 0;
+    if (n > 0) {
+      hits++;
+      grams.set(g, n - 1);
+    }
+  }
+  return (2 * hits) / (a.length - 1 + (b.length - 1));
+}
+
+const CONTINUATION_LINE_SIMILARITY = 0.75;
+const CONTINUATION_MAX_GAP = 1.5;
+
+// News clips often keep a static multi-line summary on screen while a caption
+// rotates beneath it. Emitting the full display state per segment repeats the
+// summary in every block — the transcript reads as the same wall of text over
+// and over with one line changing. Show each line only when it's new: a
+// caption segment drops the lines its predecessor already displayed, and a
+// segment left with nothing new disappears (its content is still on screen,
+// just already read). Only caption-tagged segments participate; an
+// interleaved speech line doesn't reset the memory.
+export function dedupeContinuationLines(segments) {
+  let prevLines = null;
+  let prevEnd = -Infinity;
+  const out = [];
+  for (const seg of segments) {
+    if (!seg.caption) {
+      // Speech in between doesn't reset the on-screen memory, but it keeps
+      // the timeline contiguous — the static block is still displayed while
+      // the narrator talks.
+      prevEnd = Math.max(prevEnd, seg.end);
+      out.push(seg);
+      continue;
+    }
+    const lines = String(seg.text || "").split("\n").filter(Boolean);
+    const contiguous = prevLines && seg.start - prevEnd <= CONTINUATION_MAX_GAP;
+    const fresh = contiguous
+      ? lines.filter(
+          (line) =>
+            !prevLines.some(
+              (p) => diceSimilarity(line, p) >= CONTINUATION_LINE_SIMILARITY,
+            ),
+        )
+      : lines;
+    if (fresh.length) out.push({ ...seg, text: fresh.join("\n") });
+    prevLines = lines; // the full on-screen state, not the deduped view
+    prevEnd = seg.end;
+  }
+  return out;
+}
