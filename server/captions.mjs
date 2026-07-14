@@ -198,6 +198,45 @@ const HALLUCINATION_RE =
 // Speech transcription covering at least this fraction of the video means the
 // audio carries the story (a narrated news piece), not the on-screen text.
 const SPEECH_LED_COVERAGE = 0.5;
+
+// Shown instead of Whisper's garbled guesses at speech it can't actually make
+// out (dialect shouted over a storm). Translates cleanly ("(INDISTINCT
+// VOICE)"), so it needs no special-casing downstream.
+export const UNINTELLIGIBLE = "（聽不清楚的聲音）";
+// Whisper's per-segment confidence (avg_logprob): clean Chinese speech scores
+// around -0.1 to -0.4; garbled attempts at unintelligible audio score below
+// -1. Measured on the two test videos, the gap is wide — -0.8 splits it.
+const MIN_SPEECH_LOGPROB = -0.8;
+// Adjacent unintelligible stretches closer than this merge into one
+// placeholder instead of a stutter of identical lines.
+const UNINTELLIGIBLE_JOIN_GAP = 2;
+
+// Replace low-confidence speech segments with the UNINTELLIGIBLE placeholder
+// and merge adjacent placeholders. Runs on Whisper's raw segments (before
+// refineSegments, which strips the logprob field). Segments without a logprob
+// (the openai-whisper CLI fallback) pass through untouched.
+export function markUnintelligible(segments) {
+  const out = [];
+  for (const seg of segments) {
+    const garbled =
+      typeof seg.logprob === "number" && seg.logprob < MIN_SPEECH_LOGPROB;
+    if (!garbled) {
+      out.push(seg);
+      continue;
+    }
+    const prev = out[out.length - 1];
+    if (
+      prev &&
+      prev.text === UNINTELLIGIBLE &&
+      seg.start - prev.end <= UNINTELLIGIBLE_JOIN_GAP
+    ) {
+      prev.end = seg.end;
+    } else {
+      out.push({ start: seg.start, end: seg.end, text: UNINTELLIGIBLE });
+    }
+  }
+  return out;
+}
 // A secondary segment survives the merge while less than half of it overlaps
 // primary segments.
 const GAP_FILL_MAX_OVERLAP = 0.5;
@@ -232,6 +271,9 @@ export function mergeCaptionSpeech(captionSegments, speechSegments) {
   };
   const speech = speechSegments.filter((seg) => {
     const text = String(seg.text || "").trim();
+    // Placeholders were already adjudicated (real speech, unintelligible);
+    // the plausibility filters below would misread their fixed text as slow.
+    if (text === UNINTELLIGIBLE) return true;
     const duration = Math.max(seg.end - seg.start, 0.01);
     const cjk = [...text].filter((ch) => ch >= "㐀" && ch <= "鿿").length;
     return (

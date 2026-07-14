@@ -5,8 +5,10 @@ import {
   cleanCaptions,
   alignTranslationByTime,
   dedupeContinuationLines,
+  markUnintelligible,
   mergeCaptionSpeech,
   paceCaptionLines,
+  UNINTELLIGIBLE,
 } from "../server/captions.mjs";
 
 // A trimmed slice of a real YouTube auto-caption VTT (rolling format). Built
@@ -321,4 +323,30 @@ test("dedupeContinuationLines: gaps reset, speech untouched, empty repeats vanis
     ["字幕的第一句話\n持續顯示的標題", "主播說話的內容不參與去重", "持續顯showing".replace("showing", "示的標題")],
   );
   assert.equal(out.at(-1).start, 20);
+});
+
+test("markUnintelligible replaces garbled speech and merges neighbours", () => {
+  const segments = [
+    { start: 0, end: 4.6, text: "高架橋上停滿轎車", logprob: -0.16 },
+    { start: 47.1, end: 48.9, text: "这种感情没有顿顿的", logprob: -1.23 },
+    { start: 49.8, end: 54.3, text: "我都要去拿裤子", logprob: -1.23 },
+    { start: 58.6, end: 59.9, text: "还给你一个", logprob: -1.23 },
+    { start: 70, end: 72, text: "沒有信心分數的舊格式" }, // no logprob -> untouched
+  ];
+  const out = markUnintelligible(segments);
+  assert.deepEqual(
+    out.map((s) => [s.start, s.end, s.text]),
+    [
+      [0, 4.6, "高架橋上停滿轎車"],
+      [47.1, 54.3, UNINTELLIGIBLE], // 47.1-48.9 and 49.8-54.3 merged
+      [58.6, 59.9, UNINTELLIGIBLE], // 4.3 s gap -> separate
+      [70, 72, "沒有信心分數的舊格式"],
+    ],
+  );
+});
+
+test("mergeCaptionSpeech keeps unintelligible placeholders despite slow cps", () => {
+  const speech = [{ start: 47.1, end: 63.4, text: UNINTELLIGIBLE }];
+  const merged = mergeCaptionSpeech([], speech);
+  assert.deepEqual(merged, speech);
 });

@@ -222,7 +222,15 @@ def _transcribe_on(device, audio):
     #     audio, language=language, initial_prompt=prompt, beam_size=5,
     # )
     segs = [
-        {"start": float(s.start), "end": float(s.end), "text": s.text}
+        {
+            "start": float(s.start),
+            "end": float(s.end),
+            "text": s.text,
+            # The decoder's own confidence; the caller uses it to tell garbled
+            # attempts at unintelligible speech (dialect under storm noise)
+            # from clean transcription, and shows a placeholder instead.
+            "logprob": float(s.avg_logprob),
+        }
         for s in segments
     ]
     return {"language": info.language, "segments": segs}

@@ -19,6 +19,7 @@ import {
   cleanCaptions,
   alignTranslationByTime,
   dedupeContinuationLines,
+  markUnintelligible,
   mergeCaptionSpeech,
   paceCaptionLines,
 } from "./captions.mjs";
@@ -174,10 +175,15 @@ export async function handleImportUrl(req, res) {
         try {
           const audioPath = await extractAudio(videoPath, workspace);
           const speech = await transcribeFastSegments(audioPath);
-          // Refine (split) the speech utterances before merging so overlap
-          // decisions run on clause-sized pieces; caption segments are left
-          // untouched — their times were measured off the screen.
-          const merged = mergeCaptionSpeech(segments, refineSegments(speech.segments));
+          // Replace low-confidence transcription with the neutral
+          // "(indistinct voice)" placeholder before refining — refine strips
+          // the logprob field. Then refine (split) the speech utterances so
+          // overlap decisions run on clause-sized pieces; caption segments
+          // are left untouched — their times were measured off the screen.
+          const merged = mergeCaptionSpeech(
+            segments,
+            refineSegments(markUnintelligible(speech.segments)),
+          );
           if (merged.length !== segments.length) source = "ocr+whisper";
           segments = merged;
         } catch (err) {
