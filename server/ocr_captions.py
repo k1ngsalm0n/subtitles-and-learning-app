@@ -3,9 +3,10 @@
 
 Used by server/import.mjs when the user asks to read on-screen captions —
 common for news clips whose commentary is written on the video instead of
-spoken. Frames are sampled across the whole picture, OCR runs only when the
-frame's bright "text pixels" actually change, and each text line is tracked
-over time so screen furniture can be told apart from captions:
+spoken. Frames are sampled across the whole picture (every frame is OCR'd —
+a cheap change-detection pass was tried and silently missed captions whose
+strokes barely moved the pixel mask), and each text line is tracked over time
+so screen furniture can be told apart from captions:
 
   * Furniture (station logos, tickers, headline strips, location tags) sits on
     screen for tens of seconds to the whole video — any text line whose dwell
@@ -28,8 +29,10 @@ import sys
 import tempfile
 from difflib import SequenceMatcher
 
-# Frames sampled per second. 1 fps keeps an old laptop comfortable (captions
-# persist for seconds, so finer sampling buys little).
+# Frames sampled per second — every sampled frame is OCR'd. 1 fps is roughly
+# 0.5 s of CPU per video-second on a modest machine; set OCR_FPS=0.5 to halve
+# that on a weak laptop (captions persist for seconds, so timing barely
+# coarsens).
 FPS = float(os.environ.get("OCR_FPS", "1"))
 # Fraction of the frame height, measured up from the bottom, to scan. Default
 # is the whole frame — the dwell filter below removes non-caption text, so no
@@ -39,11 +42,12 @@ CAPTION_BAND = float(os.environ.get("OCR_CAPTION_BAND", "1"))
 MIN_SCORE = 0.7
 # Two frames' captions are "the same caption" above this similarity.
 SIMILARITY = 0.6
-# Bright-mask change ratio that triggers a fresh OCR pass (see _mask_changed).
-CHANGE_RATIO = 0.35
-# Always re-OCR after this many samples even if the frame looks unchanged, so a
-# missed change can't stretch one caption over the whole video.
-FORCE_OCR_EVERY = 5
+# Stricter bar for reuniting adjacent segments after a line-set split: a small
+# watermark flickering in and out of OCR readability shouldn't cut a stable
+# caption into pieces (texts nearly identical -> reunite), but a caption
+# disappearing from under a persistent attribution tag is a real change
+# (texts clearly differ -> stay split).
+MERGE_SIMILARITY = 0.75
 # Furniture cutoffs: a text line is dropped as screen furniture when it stays
 # up longer than this in one stretch (speech captions run 3–15 s; headline
 # strips and tickers run 20 s to minutes)…
@@ -80,31 +84,13 @@ def _extract_frames(video_path, workspace):
     )
 
 
-def _bright_mask(img):
-    """Downscaled mask of caption-ish pixels (bright text on dark outline)."""
-    import cv2
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    small = cv2.resize(gray, (160, 96), interpolation=cv2.INTER_AREA)
-    return small > 210
-
-
-def _mask_changed(prev, cur):
-    """True when the bright pixels moved enough to suggest new text.
-
-    Ratio of changed bright pixels to all bright pixels involved; moving video
-    changes gradually, while a caption swap flips its crisp strokes at once.
-    """
-    union = (prev | cur).sum()
-    if union == 0:
-        return prev.sum() != cur.sum()
-    return (prev ^ cur).sum() / union > CHANGE_RATIO
-
-
 def _is_caption_line(text):
-    """Filter OCR noise: a stray pole/edge often reads as '1' or '|'. Real
-    caption lines either contain CJK or are long enough to be words."""
-    return any("㐀" <= ch <= "鿿" for ch in text) or len(text) >= 3
+    """Filter OCR noise. A stray pole/edge reads as '1' or '|', and a half-read
+    watermark ('我们' logo) as a lone character — every single-character line
+    observed in practice was junk, so captions need at least two CJK
+    characters, or three characters otherwise."""
+    cjk = sum(1 for ch in text if "㐀" <= ch <= "鿿")
+    return cjk >= 2 or len(text) >= 3
 
 
 def _read_lines(engine, img):
@@ -120,12 +106,12 @@ def _read_lines(engine, img):
     return sorted(lines)
 
 
-def is_similar(a, b):
+def is_similar(a, b, threshold=SIMILARITY):
     """Same caption modulo per-frame OCR jitter?"""
     a, b = "".join(a.split()), "".join(b.split())
     if not a or not b:
         return a == b
-    return SequenceMatcher(None, a, b).ratio() >= SIMILARITY
+    return SequenceMatcher(None, a, b).ratio() >= threshold
 
 
 def pick_text(variants):
@@ -194,42 +180,54 @@ def filter_furniture(raw, interval):
 
     samples = []
     for time, row in assigned:
-        kept = [(y, text, score) for y, text, score, ci in row if ci not in banned]
+        kept = [(y, text, score, ci) for y, text, score, ci in row if ci not in banned]
         if kept and len(kept) <= MAX_LINES:
-            text = "\n".join(t for _y, t, _s in sorted(kept))
-            score = sum(s for _y, _t, s in kept) / len(kept)
-            samples.append((time, text, score))
+            text = "\n".join(t for _y, t, _s, _ci in sorted(kept))
+            score = sum(s for _y, _t, s, _ci in kept) / len(kept)
+            ids = frozenset(ci for _y, _t, _s, ci in kept)
+            samples.append((time, text, score, ids))
         else:
-            samples.append((time, "", 0.0))
+            samples.append((time, "", 0.0, frozenset()))
     return samples
 
 
 def samples_to_segments(samples, interval):
-    """Merge per-frame readings [(time, text, score)] into timed segments.
+    """Merge per-frame readings into timed segments.
 
-    Consecutive similar readings extend one segment; an empty reading closes
-    it. Each segment's text is the majority vote across its frames.
+    Each sample is (time, text, score) or (time, text, score, line_ids). When
+    line_ids (the frame's set of line clusters, from filter_furniture) are
+    present they define segment boundaries exactly: the segment extends while
+    the same lines are on screen and splits the moment the set changes. This
+    matters when a persistent tag shares the screen with a caption — judged by
+    text similarity alone, "tag + caption" and "tag" chain into one segment
+    and the majority vote can erase the caption entirely. Without ids the old
+    text-similarity rule applies. A post-pass reunites adjacent segments whose
+    texts are nearly identical, so a small watermark flickering in and out of
+    OCR readability can't shred a stable caption. Each segment's text is the
+    majority vote across its frames.
     """
-    segments = []
-    current = None  # {"start", "end", "variants": [(text, score)]}
+    runs = []
+    current = None  # {"start", "end", "variants": [(text, score)], "ids"}
 
     def close():
         nonlocal current
         if current:
-            segments.append(
-                {
-                    "start": current["start"],
-                    "end": current["end"],
-                    "text": pick_text(current["variants"]),
-                }
-            )
+            runs.append(current)
             current = None
 
-    for time, text, score in samples:
+    for sample in samples:
+        time, text, score = sample[0], sample[1], sample[2]
+        ids = sample[3] if len(sample) > 3 else None
         if not text:
             close()
             continue
-        if current and is_similar(current["variants"][-1][0], text):
+        if current is None:
+            same = False
+        elif current["ids"] is not None and ids is not None:
+            same = ids == current["ids"]
+        else:
+            same = is_similar(current["variants"][-1][0], text)
+        if same:
             current["end"] = time + interval
             current["variants"].append((text, score))
         else:
@@ -238,9 +236,30 @@ def samples_to_segments(samples, interval):
                 "start": time,
                 "end": time + interval,
                 "variants": [(text, score)],
+                "ids": ids,
             }
     close()
-    return segments
+
+    merged = []
+    for run in runs:
+        prev = merged[-1] if merged else None
+        if (
+            prev
+            and abs(run["start"] - prev["end"]) < interval / 2
+            and is_similar(
+                pick_text(prev["variants"]),
+                pick_text(run["variants"]),
+                MERGE_SIMILARITY,
+            )
+        ):
+            prev["end"] = run["end"]
+            prev["variants"].extend(run["variants"])
+        else:
+            merged.append(run)
+    return [
+        {"start": r["start"], "end": r["end"], "text": pick_text(r["variants"])}
+        for r in merged
+    ]
 
 
 def cjk_ratio(segments):
@@ -260,29 +279,13 @@ def read_captions(video_path):
     workspace = tempfile.mkdtemp(prefix="miraa-ocr-")
     try:
         frames = _extract_frames(video_path, workspace)
-        sys.stderr.write(f"OCR: sampled {len(frames)} frames at {FPS} fps\n")
+        sys.stderr.write(f"OCR: reading {len(frames)} frames at {FPS} fps\n")
         raw = []
-        prev_mask = None
-        last = []
-        since_ocr = FORCE_OCR_EVERY  # always OCR the first frame
-        ocr_calls = 0
         for idx, frame_path in enumerate(frames):
             img = cv2.imread(frame_path)
             if img is None:
                 continue
-            mask = _bright_mask(img)
-            since_ocr += 1
-            if (
-                prev_mask is None
-                or since_ocr >= FORCE_OCR_EVERY
-                or _mask_changed(prev_mask, mask)
-            ):
-                last = _read_lines(engine, img)
-                ocr_calls += 1
-                since_ocr = 0
-            prev_mask = mask
-            raw.append((idx / FPS, last))
-        sys.stderr.write(f"OCR: ran the engine on {ocr_calls} frames\n")
+            raw.append((idx / FPS, _read_lines(engine, img)))
         samples = filter_furniture(raw, 1 / FPS)
         return samples_to_segments(samples, 1 / FPS)
     finally:
