@@ -48,9 +48,21 @@ def fetch_whisper() -> None:
     print(f"  Whisper '{model}' ready.")
 
 
+def whisper_detect_model() -> str:
+    """Read DETECT_MODEL straight from transcribe.py to stay in sync."""
+    path = os.path.join(HERE, "..", "server", "transcribe.py")
+    with open(path, encoding="utf-8") as f:
+        m = re.search(r'DETECT_MODEL\s*=\s*"([^"]+)"', f.read())
+    return m.group(1) if m else "small"
+
+
 def fetch_faster_whisper() -> None:
-    """Prefetch the faster-whisper model (the primary transcription engine)."""
-    model = os.getenv("WHISPER_MODEL", "base")
+    """Prefetch the faster-whisper models (the primary transcription engine).
+
+    Two models: the transcription model, and the (usually smaller) one
+    transcribe.py uses for language detection.
+    """
+    models = {os.getenv("WHISPER_MODEL", "base"), whisper_detect_model()}
     try:
         from faster_whisper import WhisperModel
     except ImportError:
@@ -58,9 +70,23 @@ def fetch_faster_whisper() -> None:
         return
     # Instantiating downloads the model to the HF cache if absent; it's a no-op
     # (just a quick load) once cached. CPU/int8 so the prefetch never needs the GPU.
-    print(f"  Ensuring faster-whisper '{model}' is cached…")
-    WhisperModel(model, device="cpu", compute_type="int8")
-    print(f"  faster-whisper '{model}' ready.")
+    for model in sorted(models):
+        print(f"  Ensuring faster-whisper '{model}' is cached…")
+        WhisperModel(model, device="cpu", compute_type="int8")
+        print(f"  faster-whisper '{model}' ready.")
+
+
+def fetch_rapidocr() -> None:
+    """Prefetch the RapidOCR models (burned-in caption reading, ~15 MB)."""
+    try:
+        from rapidocr import RapidOCR
+    except ImportError:
+        print("  rapidocr not installed — skipping (on-screen caption OCR disabled).")
+        return
+    # Instantiating downloads any missing ONNX models next to the package.
+    print("  Ensuring RapidOCR models are cached…")
+    RapidOCR()
+    print("  RapidOCR ready.")
 
 
 def fetch_nllb() -> None:
@@ -83,6 +109,8 @@ def main() -> int:
     fetch_faster_whisper()
     print("  Checking Whisper model (CLI fallback)…")
     fetch_whisper()
+    print("  Checking RapidOCR models…")
+    fetch_rapidocr()
     print("  Checking NLLB model…")
     fetch_nllb()
     return 0

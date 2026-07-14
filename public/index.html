@@ -188,6 +188,9 @@ video { width: 100%; height: 100%; display: block; }
   flex-wrap: wrap;
 }
 .url-row input, .search-box { flex: 1 1 180px; }
+/* The OCR toggle is a .file-button (checkbox hidden by the .file-button rule)
+   so it matches the import bar; checked = the button.active look. */
+.ocr-toggle:has(input:checked) { background: var(--accent); color: #000; border-color: transparent; font-weight: 600; }
 .source-status { flex: 1 1 100%; color: var(--muted); min-height: 18px; font-size: 13px; }
 .progress-wrap { flex: 1 1 100%; display: none; }
 .progress-wrap.visible { display: block; }
@@ -546,6 +549,10 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
             <div class="url-row">
               <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
               <button id="queueUrl" type="button">Import</button>
+              <label class="file-button ocr-toggle" title="For videos whose captions are burned into the picture (common in news clips): read them off the frames with OCR instead of transcribing the audio.">
+                <input id="ocrToggle" type="checkbox" />
+                <span>Read on-screen captions</span>
+              </label>
               <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
               <div id="progressWrap" class="progress-wrap">
                 <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>

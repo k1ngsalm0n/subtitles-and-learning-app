@@ -22,9 +22,11 @@ lifting — speech-to-text and offline translation — runs through Python.
 - **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
 
 Key server modules: `import.mjs` (URL import via yt-dlp), `transcribe.py`
-(faster-whisper), `lookup.mjs` (word explanations), `translate.py` /
-`translateWorker.mjs` (NLLB), `romanize.py` (pronunciation), `segment.mjs`,
-`cookies.mjs`. Python tests in `test/`, JS tests run via `node --test`.
+(faster-whisper), `ocr_captions.py` (burned-in caption OCR via RapidOCR, used
+when the "Read on-screen captions" import toggle is set), `lookup.mjs` (word
+explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
+(pronunciation), `segment.mjs`, `cookies.mjs`. Python tests in `test/`, JS
+tests run via `node --test`.
 
 ## Fresh-machine setup (after a distro reinstall)
 

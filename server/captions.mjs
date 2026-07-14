@@ -183,3 +183,120 @@ export function alignTranslationByTime(sourceSrt, translationSrt) {
   }));
   return toSrt(entries);
 }
+
+// Real speech is never slower than this (CJK runs ~3–8 characters/second).
+// Whisper's silence hallucinations are the opposite shape: a few invented
+// characters stretched over tens of seconds ("中文字幕 李宗盛" across 23 s).
+const MIN_SPEECH_CPS = 0.8;
+// Speech transcription covering at least this fraction of the video means the
+// audio carries the story (a narrated news piece), not the on-screen text.
+const SPEECH_LED_COVERAGE = 0.5;
+// A secondary segment survives the merge while less than half of it overlaps
+// primary segments.
+const GAP_FILL_MAX_OVERLAP = 0.5;
+// After clipping to a gap, anything shorter than this isn't worth showing.
+const MIN_GAP_FILL_SECONDS = 0.5;
+
+// Merge burned-in caption segments with Whisper speech segments for videos
+// that have both. Which source leads depends on the video:
+//
+//   * Narrated news: an anchor talks continuously while muted clips play on
+//     screen — the captions transcribe the *clips*, not the audible speech,
+//     so showing them against the anchor's voice reads as out-of-sync
+//     gibberish. When plausible speech covers most of the runtime, speech is
+//     primary and captions only fill the stretches Whisper couldn't hear
+//     (interviews and location sound the captions do transcribe).
+//   * Raw/captioned footage: little intelligible speech (storm ambience,
+//     shouting) but broadcaster-written captions — captions are primary and
+//     speech fills their gaps.
+//
+// Impossibly slow speech segments are dropped first (see MIN_SPEECH_CPS) so a
+// long silence hallucination can neither pollute the output nor sway the
+// coverage decision. Both inputs and the result are [{start, end, text}]
+// sorted by start.
+export function mergeCaptionSpeech(captionSegments, speechSegments) {
+  const overlap = (a, b) =>
+    Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start));
+  const coveredFraction = (seg, others) => {
+    const duration = Math.max(seg.end - seg.start, 0.01);
+    return others.reduce((sum, o) => sum + overlap(seg, o), 0) / duration;
+  };
+  const speech = speechSegments.filter((seg) => {
+    const duration = Math.max(seg.end - seg.start, 0.01);
+    return [...String(seg.text || "").trim()].length / duration >= MIN_SPEECH_CPS;
+  });
+
+  const span = Math.max(
+    0,
+    ...captionSegments.map((s) => s.end),
+    ...speech.map((s) => s.end),
+  );
+  const speechTime = speech.reduce((sum, s) => sum + (s.end - s.start), 0);
+  const speechLed = span > 0 && speechTime / span >= SPEECH_LED_COVERAGE;
+
+  const [primary, secondary] = speechLed
+    ? [speech, captionSegments]
+    : [captionSegments, speech];
+  const gapFill = secondary
+    .filter((seg) => coveredFraction(seg, primary) < GAP_FILL_MAX_OVERLAP)
+    .map((seg) => clipToLargestGap(seg, primary))
+    .filter(Boolean);
+  return [...primary, ...gapFill].sort((a, b) => a.start - b.start);
+}
+
+// A caption block shorter than this reads fine as one unit; only long static
+// blocks get paced out line by line.
+const PACE_MIN_SECONDS = 6;
+
+// Reveal a long multi-line caption block line by line across its display
+// window. News clips often show a static multi-sentence summary while someone
+// speaks (dialect speech the captions paraphrase); highlighted all at once it
+// runs far ahead of the voice. The lines are in reading order — which is
+// speech order — so dividing the block's real on-screen window across them in
+// proportion to length approximates the speaker's pace without inventing
+// timing outside the window. Short or single-line blocks pass through as-is.
+export function paceCaptionLines(seg) {
+  const lines = String(seg.text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const duration = seg.end - seg.start;
+  if (lines.length < 2 || duration <= PACE_MIN_SECONDS) return [seg];
+  const total = lines.reduce((n, l) => n + [...l].length, 0) || 1;
+  let cursor = seg.start;
+  return lines.map((line, i) => {
+    const end =
+      i === lines.length - 1
+        ? seg.end
+        : cursor + (duration * [...line].length) / total;
+    const piece = { ...seg, start: cursor, end, text: line };
+    cursor = end;
+    return piece;
+  });
+}
+
+// Shrink a gap-fill segment to the largest stretch of it that no primary
+// segment covers. The subtitle timeline must not overlap: the display can only
+// highlight one line at a time, so a caption spanning 0–12 s next to narration
+// lines at 0–4.6 s would fight them for the highlight — clipped to 4.6–12 s,
+// each moment has exactly one owner. Returns null when nothing usable remains.
+function clipToLargestGap(seg, primary) {
+  let gaps = [[seg.start, seg.end]];
+  for (const p of primary) {
+    gaps = gaps.flatMap(([a, b]) => {
+      const s = Math.max(a, p.start);
+      const e = Math.min(b, p.end);
+      if (s >= e) return [[a, b]]; // no overlap with this primary
+      const rest = [];
+      if (a < s) rest.push([a, s]);
+      if (e < b) rest.push([e, b]);
+      return rest;
+    });
+  }
+  if (!gaps.length) return null;
+  const [start, end] = gaps.reduce((best, cur) =>
+    cur[1] - cur[0] > best[1] - best[0] ? cur : best,
+  );
+  if (end - start < MIN_GAP_FILL_SECONDS) return null;
+  return { ...seg, start, end };
+}

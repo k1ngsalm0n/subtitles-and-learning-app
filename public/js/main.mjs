@@ -31,6 +31,7 @@ const els = {
   sampleButton: document.querySelector("#sampleButton"),
   sourceUrl: document.querySelector("#sourceUrl"),
   queueUrl: document.querySelector("#queueUrl"),
+  ocrToggle: document.querySelector("#ocrToggle"),
   sourceStatus: document.querySelector("#sourceStatus"),
   transcript: document.querySelector("#transcript"),
   activeOriginal: document.querySelector("#activeOriginal"),
@@ -242,7 +243,7 @@ async function importSourceUrl() {
     const response = await fetch("/api/import-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, ocr: els.ocrToggle.checked }),
     });
 
     clearProgressTimers();
@@ -265,7 +266,11 @@ async function importSourceUrl() {
       syncTranslateLangs(els);
     }
     source.status =
-      result.source === "whisper" ? "transcribed" : "captions loaded";
+      result.source === "whisper"
+        ? "transcribed"
+        : result.source?.startsWith("ocr")
+          ? "on-screen captions read"
+          : "captions loaded";
     source.title = result.title || "";
     els.sourceUrl.value = "";
     showProgress("", 100);
@@ -273,7 +278,11 @@ async function importSourceUrl() {
     setSourceStatus(
       result.source === "whisper"
         ? `Transcribed with Whisper${langNote}.`
-        : "Loaded existing subtitles.",
+        : result.source === "ocr+whisper"
+          ? "Read the on-screen captions and transcribed the speech between them."
+          : result.source === "ocr"
+            ? "Read the on-screen captions with OCR."
+            : "Loaded existing subtitles.",
       els,
     );
     setTimeout(hideProgress, 2000);

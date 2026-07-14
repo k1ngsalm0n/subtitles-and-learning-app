@@ -15,7 +15,12 @@ import {
 import { ytdlpCookieArgs } from "./cookies.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
 import { refineSegments } from "./segment.mjs";
-import { cleanCaptions, alignTranslationByTime } from "./captions.mjs";
+import {
+  cleanCaptions,
+  alignTranslationByTime,
+  mergeCaptionSpeech,
+  paceCaptionLines,
+} from "./captions.mjs";
 
 // Concrete model for the openai-whisper CLI fallback only (the primary
 // faster-whisper path resolves "auto" itself, per device). The CLI has no "auto",
@@ -37,6 +42,7 @@ const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
 // above if faster-whisper isn't installed.
 const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const TRANSCRIBE_SCRIPT = path.join(__dirname, "transcribe.py");
+const OCR_SCRIPT = path.join(__dirname, "ocr_captions.py");
 const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
 
 // Retention policy for the downloaded-video cache. Without this the directory
@@ -146,6 +152,58 @@ export async function handleImportUrl(req, res) {
     const origBase = baseLang(meta.language);
     const videoPath = await downloadVideo(url.href);
     const videoUrl = videoPath ? `/videos/${path.basename(videoPath)}` : "";
+
+    // Explicit user request: read burned-in captions off the frames (news
+    // clips often write their commentary on screen instead of speaking it).
+    // Falls through to the normal subtitle/transcription path when the video
+    // turns out to have no legible on-screen captions.
+    if (body.ocr === true && videoPath) {
+      const ocr = await ocrCaptions(videoPath);
+      if (ocr) {
+        // Captions only cover what's written on screen; many news videos also
+        // have uncaptioned speech (an anchor narrating between captioned
+        // clips). Fill those gaps with Whisper — captions win where the two
+        // overlap. Best-effort: a transcription failure (non-Chinese audio,
+        // missing model) never sinks an import whose captions already worked.
+        // Tag caption segments so they can be paced after the merge (the
+        // merge may clip them to the narration gaps first; pacing must run on
+        // the clipped window, or paced lines would collide with speech).
+        let segments = (ocr.segments || []).map((s) => ({ ...s, caption: true }));
+        let source = "ocr";
+        try {
+          const audioPath = await extractAudio(videoPath, workspace);
+          const speech = await transcribeFastSegments(audioPath);
+          // Refine (split) the speech utterances before merging so overlap
+          // decisions run on clause-sized pieces; caption segments are left
+          // untouched — their times were measured off the screen.
+          const merged = mergeCaptionSpeech(segments, refineSegments(speech.segments));
+          if (merged.length !== segments.length) source = "ocr+whisper";
+          segments = merged;
+        } catch (err) {
+          console.warn(
+            `OCR import: speech gap-fill skipped (${String(err.message || err).split("\n")[0]})`,
+          );
+        }
+        segments = segments.flatMap((s) =>
+          s.caption ? paceCaptionLines(s) : [s],
+        );
+        // No refine pass here: speech was already refined, and caption blocks
+        // were paced within their real display windows — a character-count
+        // re-timing on top would fabricate different boundaries again.
+        const subtitles = segmentsToSrt(segments, { refine: false });
+        const translation = await translateSrt(subtitles, "zh");
+        sendJson(res, 200, {
+          title: meta.title,
+          videoUrl,
+          source,
+          language: "zh",
+          subtitles,
+          translation,
+        });
+        return;
+      }
+    }
+
     const subtitle = await getExistingSubtitle(url.href, workspace, meta, origBase);
 
     if (subtitle) {
@@ -286,14 +344,19 @@ async function downloadVideo(url) {
 }
 
 // Pull a Whisper-ready audio track (mono 16 kHz) out of a local video file.
+// Lossless 16 kHz mono WAV, exactly what Whisper consumes. This used to be a
+// 48 kbps mp3 to keep the temp file small, but that lossy pass measurably hurt
+// language detection (a Chinese clip's zh score dropped from 0.27 to 0.20 —
+// under the accept threshold — from the mp3 step alone). WAV at 16 kHz mono is
+// only ~115 MB/hour and the workspace is deleted after the import anyway.
 async function extractAudio(videoPath, workspace) {
-  const compactAudio = path.join(workspace, "whisper-audio.mp3");
+  const audioPath = path.join(workspace, "whisper-audio.wav");
   await runCommand(
     "ffmpeg",
-    ["-y", "-i", videoPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", compactAudio],
+    ["-y", "-i", videoPath, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", audioPath],
     { timeoutMs: 10 * 60_000 },
   );
-  return compactAudio;
+  return audioPath;
 }
 
 // Enforce the cache retention policy: drop files older than the age limit,
@@ -490,9 +553,46 @@ async function transcribeWithWhisper(audioPath, workspace) {
   }
 }
 
+// Read burned-in (hardcoded) captions off the video frames via ocr_captions.py.
+// Returns {language, segments} or null when no legible captions were found —
+// the caller then falls back to the subtitle/transcription path.
+async function ocrCaptions(videoPath) {
+  let result;
+  try {
+    result = await runCommand(PYTHON_BIN, [OCR_SCRIPT, videoPath], {
+      timeoutMs: 30 * 60_000,
+    });
+  } catch (err) {
+    if (/No module named ['"]?rapidocr|ModuleNotFoundError/i.test(err.message || "")) {
+      throw new Error(
+        "Reading on-screen captions needs the rapidocr package — run `npm run sync` " +
+          "to install it, then restart the server.",
+      );
+    }
+    throw err;
+  }
+  const line = result.stdout.trim().split("\n").filter(Boolean).at(-1);
+  if (!line) throw new Error("caption OCR produced no output.");
+  const data = JSON.parse(line);
+  if (data.error === "no_captions") return null;
+  // CHINESE-ONLY (temporary, #65): same scope gate as transcription.
+  if (data.language !== "zh") {
+    const err = new Error(
+      "Only Chinese is supported right now — this video's on-screen captions " +
+        "don't look Chinese. (Multi-language support is paused; see #65.)",
+    );
+    err.code = "UNSUPPORTED_LANGUAGE";
+    err.status = 422;
+    throw err;
+  }
+  return data;
+}
+
 // faster-whisper path: one Python process, one pass (language detected up front
 // so the Traditional-Chinese prompt is applied without a second pass), JSON out.
-async function transcribeFast(audioPath) {
+// Returns the raw timed segments; used directly by the OCR hybrid, which needs
+// them pre-SRT to interleave with caption segments.
+async function transcribeFastSegments(audioPath) {
   const result = await runCommand(PYTHON_BIN, [TRANSCRIBE_SCRIPT, audioPath], {
     timeoutMs: 30 * 60_000,
   });
@@ -503,8 +603,12 @@ async function transcribeFast(audioPath) {
   // instead of transcribing it. Surface a tagged error so the caller can show a
   // friendly message and skip the openai-whisper CLI fallback.
   if (data.error === "unsupported_language") throw unsupportedLanguageError(data.language);
-  const language = data.language || "unknown";
-  const subtitles = segmentsToSrt(data.segments || []);
+  return { language: data.language || "unknown", segments: data.segments || [] };
+}
+
+async function transcribeFast(audioPath) {
+  const { language, segments } = await transcribeFastSegments(audioPath);
+  const subtitles = segmentsToSrt(segments);
   const lowerLang = language.toLowerCase();
   const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
   const translation = await translateSrt(subtitles, langCode);
@@ -587,8 +691,8 @@ async function readFirstJson(dir) {
   return JSON.parse(await readFile(jsonFile, "utf8"));
 }
 
-function segmentsToSrt(segments) {
-  return refineSegments(segments)
+function segmentsToSrt(segments, { refine = true } = {}) {
+  return (refine ? refineSegments(segments) : segments)
     .map((segment, index) =>
       [
         index + 1,

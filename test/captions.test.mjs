@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cleanCaptions, alignTranslationByTime } from "../server/captions.mjs";
+import {
+  cleanCaptions,
+  alignTranslationByTime,
+  mergeCaptionSpeech,
+  paceCaptionLines,
+} from "../server/captions.mjs";
 
 // A trimmed slice of a real YouTube auto-caption VTT (rolling format). Built
 // from an array so the whitespace-only rows — which YouTube emits as a single
@@ -151,4 +156,111 @@ Only the second one.
   assert.equal(out.length, 2, "all source cues are preserved for index alignment");
   assert.equal(out[0].split("\n").slice(2).join(" ").trim(), "");
   assert.equal(out[1].split("\n").slice(2).join(" ").trim(), "Only the second one.");
+});
+
+test("mergeCaptionSpeech: sparse speech -> captions lead, speech fills gaps", () => {
+  // Raw-footage video: captions carry the content, only a little real speech.
+  const captions = [
+    { start: 10, end: 16, text: "字幕寫的第一句話" },
+    { start: 30, end: 36, text: "字幕寫的第二句話" },
+  ];
+  const speech = [
+    { start: 0, end: 4, text: "現場有人喊了一句話" }, // gap -> kept
+    { start: 11, end: 15, text: "與字幕重疊的雜音" }, // captioned -> dropped
+  ];
+  const merged = mergeCaptionSpeech(captions, speech);
+  assert.deepEqual(
+    merged.map((s) => s.text),
+    ["現場有人喊了一句話", "字幕寫的第一句話", "字幕寫的第二句話"],
+  );
+});
+
+test("mergeCaptionSpeech: continuous narration -> speech leads, captions fill gaps", () => {
+  // Narrated news: the anchor talks over muted clips whose captions say
+  // something else. Speech covers >50% of the span, so it must win overlaps —
+  // otherwise the subtitles stop matching the audio.
+  const speech = [
+    { start: 0, end: 10, text: "主播的旁白內容第一句話說個不停" },
+    { start: 10, end: 20, text: "主播的旁白繼續說明現場的情況喔" },
+    { start: 26, end: 34, text: "主播收尾總結整段新聞內容的旁白" },
+  ];
+  const captions = [
+    { start: 2, end: 9, text: "被消音影片自己的字幕" }, // overlaps narration -> dropped
+    { start: 20, end: 25, text: "受訪者說的話字幕有寫" }, // narration gap -> kept
+  ];
+  const merged = mergeCaptionSpeech(captions, speech);
+  assert.deepEqual(
+    merged.map((s) => s.start),
+    [0, 10, 20, 26],
+  );
+  assert.ok(merged.some((s) => s.text === "受訪者說的話字幕有寫"));
+  assert.ok(!merged.some((s) => s.text === "被消音影片自己的字幕"));
+});
+
+test("mergeCaptionSpeech clips gap-fill to the gap so lines never overlap", () => {
+  // The reported bug: anchor speaks 0–4.6 s, a clip caption is on screen
+  // 0–12 s. Kept whole, the caption fights the narration for the highlight
+  // while the anchor talks; it must start when the narration ends.
+  const speech = [
+    { start: 0, end: 3, text: "主播的旁白第一句話講了很多" },
+    { start: 3, end: 4.6, text: "而是為了躲颱風跑上高架橋" },
+    { start: 13.5, end: 20, text: "主播繼續說明溫州高架橋的情況" },
+    { start: 20, end: 26, text: "旁白說明大樓停車場車位掃空" },
+  ];
+  const captions = [{ start: 0, end: 12, text: "被消音短片的字幕內容" }];
+  const merged = mergeCaptionSpeech(captions, speech);
+  const caption = merged.find((s) => s.text === "被消音短片的字幕內容");
+  assert.ok(caption, "caption survives as gap fill");
+  assert.equal(caption.start, 4.6);
+  assert.equal(caption.end, 12);
+  // Strictly non-overlapping timeline.
+  const sorted = merged.map((s) => [s.start, s.end]);
+  for (let i = 1; i < sorted.length; i++) {
+    assert.ok(sorted[i][0] >= sorted[i - 1][1] - 1e-9, `no overlap at ${i}`);
+  }
+});
+
+test("mergeCaptionSpeech drops stretched hallucinations before deciding", () => {
+  // A classic Whisper silence hallucination: a few characters over 23 s. It
+  // must neither appear in the output nor push the video into speech-led mode.
+  const captions = [{ start: 0, end: 40, text: "整段都有的字幕內容" }];
+  const speech = [{ start: 5, end: 28, text: "中文字幕 李宗盛" }];
+  const merged = mergeCaptionSpeech(captions, speech);
+  assert.deepEqual(merged.map((s) => s.text), ["整段都有的字幕內容"]);
+});
+
+test("paceCaptionLines spreads a long static block line by line", () => {
+  const seg = {
+    start: 4.6,
+    end: 12,
+    caption: true,
+    text: "第一行的字\n第二行的字\n第三行的字\n第四行的字",
+  };
+  const paced = paceCaptionLines(seg);
+  assert.equal(paced.length, 4);
+  assert.equal(paced[0].start, 4.6);
+  assert.equal(paced.at(-1).end, 12);
+  for (let i = 1; i < paced.length; i++) {
+    assert.equal(paced[i].start, paced[i - 1].end, "contiguous lines");
+  }
+  // Equal-length lines split the window evenly.
+  assert.ok(Math.abs(paced[0].end - paced[0].start - 1.85) < 0.01);
+  assert.deepEqual(
+    paced.map((s) => s.text),
+    ["第一行的字", "第二行的字", "第三行的字", "第四行的字"],
+  );
+});
+
+test("paceCaptionLines leaves short or single-line blocks alone", () => {
+  const short = { start: 0, end: 5, text: "上一行\n下一行" };
+  assert.deepEqual(paceCaptionLines(short), [short]);
+  const single = { start: 0, end: 20, text: "只有一行但顯示很久的字幕" };
+  assert.deepEqual(paceCaptionLines(single), [single]);
+});
+
+test("mergeCaptionSpeech with no captions keeps all speech, and vice versa", () => {
+  const speech = [{ start: 0, end: 2, text: "有人說話" }];
+  assert.deepEqual(mergeCaptionSpeech([], speech), speech);
+  const captions = [{ start: 0, end: 2, text: "字幕" }];
+  assert.deepEqual(mergeCaptionSpeech(captions, []), captions);
 });
