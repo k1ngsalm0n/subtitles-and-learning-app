@@ -349,7 +349,11 @@ function clipToLargestGap(seg, primary) {
     cur[1] - cur[0] > best[1] - best[0] ? cur : best,
   );
   if (end - start < MIN_GAP_FILL_SECONDS) return null;
-  return { ...seg, start, end };
+  // Mark segments whose window was actually cut — a clipped remainder is not
+  // a real display-state boundary, and dedupeContinuationLines may fold a
+  // too-brief one into the following state.
+  const clipped = start !== seg.start || end !== seg.end;
+  return clipped ? { ...seg, start, end, clipped } : { ...seg, start, end };
 }
 
 // Character-bigram Dice similarity — a cheap stand-in for difflib ratios, good
@@ -386,11 +390,49 @@ const CONTINUATION_MAX_GAP = 1.5;
 // segment left with nothing new disappears (its content is still on screen,
 // just already read). Only caption-tagged segments participate; an
 // interleaved speech line doesn't reset the memory.
+// A clipped caption remainder shorter than this can't be read anyway.
+const GLIMPSE_MAX_SECONDS = 2;
+// …and is absorbed into the next caption segment when at least this fraction
+// of its lines reappear there (same display state, minus a rotated line).
+const GLIMPSE_SHARED_FRACTION = 0.5;
+
 export function dedupeContinuationLines(segments) {
+  // Pre-pass: a caption whose front was clipped off by narration can be left
+  // as an unreadable flash (five lines for 1.4 s) just before the next state
+  // shows mostly the same lines. That flash is not a real display change —
+  // extend the next segment back over it instead. Genuinely short captions
+  // (not clipped) are real states and are never absorbed.
+  const work = segments.map((seg) => ({ ...seg }));
+  const merged = [];
+  for (let i = 0; i < work.length; i++) {
+    const seg = work[i];
+    const next = work[i + 1];
+    if (
+      seg.caption &&
+      seg.clipped &&
+      seg.end - seg.start <= GLIMPSE_MAX_SECONDS &&
+      next?.caption &&
+      next.start - seg.end < 0.5
+    ) {
+      const lines = String(seg.text || "").split("\n").filter(Boolean);
+      const nextLines = String(next.text || "").split("\n").filter(Boolean);
+      const shared = lines.filter((line) =>
+        nextLines.some(
+          (n) => diceSimilarity(line, n) >= CONTINUATION_LINE_SIMILARITY,
+        ),
+      ).length;
+      if (lines.length && shared / lines.length >= GLIMPSE_SHARED_FRACTION) {
+        next.start = seg.start;
+        continue;
+      }
+    }
+    merged.push(seg);
+  }
+
   let prevLines = null;
   let prevEnd = -Infinity;
   const out = [];
-  for (const seg of segments) {
+  for (const seg of merged) {
     if (!seg.caption) {
       // Speech in between doesn't reset the on-screen memory, but it keeps
       // the timeline contiguous — the static block is still displayed while

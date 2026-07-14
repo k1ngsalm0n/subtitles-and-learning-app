@@ -368,3 +368,30 @@ test("a mostly-covered caption still surfaces in its trailing gap", () => {
   assert.equal(caption.start, 4.6);
   assert.equal(caption.end, 6);
 });
+
+test("a clipped unreadable glimpse folds into the next matching state", () => {
+  const block = "第一行摘要\n第二行摘要\n第三行摘要\n第四行摘要";
+  const segments = [
+    { start: 4.6, end: 6, caption: true, clipped: true, text: `${block}\n多餘的標題一行` },
+    { start: 6, end: 8, caption: true, text: `${block}\n輪播的字幕第一句` },
+    { start: 8, end: 10, caption: true, text: `${block}\n輪播的字幕第二句` },
+  ];
+  const out = dedupeContinuationLines(segments);
+  assert.equal(out[0].start, 4.6, "next state extends back over the glimpse");
+  assert.ok(out[0].text.includes("第一行摘要"));
+  assert.ok(out[0].text.includes("輪播的字幕第一句"));
+  assert.equal(out[1].text, "輪播的字幕第二句");
+});
+
+test("a genuinely short caption is never absorbed", () => {
+  // 巨浪拍向窗戶 shows for 2 s then is replaced — a real display state, not a
+  // clipped artifact; it must survive even though the next state shares its
+  // other lines.
+  const segments = [
+    { start: 0, end: 2, caption: true, text: "巨浪拍向窗戶\n標題一\n標題二" },
+    { start: 2, end: 5, caption: true, text: "屋頂也全是海水\n標題一\n標題二" },
+  ];
+  const out = dedupeContinuationLines(segments);
+  assert.ok(out[0].text.includes("巨浪拍向窗戶"));
+  assert.equal(out[1].text, "屋頂也全是海水");
+});
