@@ -237,11 +237,12 @@ export function markUnintelligible(segments) {
   }
   return out;
 }
-// A secondary segment survives the merge while less than half of it overlaps
-// primary segments.
-const GAP_FILL_MAX_OVERLAP = 0.5;
-// After clipping to a gap, anything shorter than this isn't worth showing.
-const MIN_GAP_FILL_SECONDS = 0.5;
+// After clipping to a gap, anything shorter than this isn't worth showing —
+// it would flash for a moment in a breath pause. (A hard "drop when mostly
+// covered" rule was tried instead and left dead air: a caption block 77%
+// covered by narration vanished entirely even though a speaker kept going
+// for seconds after the narration stopped.)
+const MIN_GAP_FILL_SECONDS = 1;
 
 // Merge burned-in caption segments with Whisper speech segments for videos
 // that have both. Which source leads depends on the video:
@@ -263,12 +264,6 @@ const MIN_GAP_FILL_SECONDS = 0.5;
 // pollute the output nor sway the coverage decision. Both inputs and the
 // result are [{start, end, text}] sorted by start.
 export function mergeCaptionSpeech(captionSegments, speechSegments) {
-  const overlap = (a, b) =>
-    Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start));
-  const coveredFraction = (seg, others) => {
-    const duration = Math.max(seg.end - seg.start, 0.01);
-    return others.reduce((sum, o) => sum + overlap(seg, o), 0) / duration;
-  };
   const speech = speechSegments.filter((seg) => {
     const text = String(seg.text || "").trim();
     // Placeholders were already adjudicated (real speech, unintelligible);
@@ -295,7 +290,6 @@ export function mergeCaptionSpeech(captionSegments, speechSegments) {
     ? [speech, captionSegments]
     : [captionSegments, speech];
   const gapFill = secondary
-    .filter((seg) => coveredFraction(seg, primary) < GAP_FILL_MAX_OVERLAP)
     .map((seg) => clipToLargestGap(seg, primary))
     .filter(Boolean);
   return [...primary, ...gapFill].sort((a, b) => a.start - b.start);

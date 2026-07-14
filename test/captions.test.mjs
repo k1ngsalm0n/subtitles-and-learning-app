@@ -350,3 +350,21 @@ test("mergeCaptionSpeech keeps unintelligible placeholders despite slow cps", ()
   const merged = mergeCaptionSpeech([], speech);
   assert.deepEqual(merged, speech);
 });
+
+test("a mostly-covered caption still surfaces in its trailing gap", () => {
+  // The reported bug: narration ends at 4.6, the man starts talking at ~5,
+  // but the caption block (on screen 0-6, 77% covered) was discarded outright
+  // — leaving dead air until the next display state at 6. It must clip to
+  // 4.6-6 instead of vanishing.
+  const speech = [
+    { start: 0, end: 3, text: "主播的旁白第一句話講了很多內容" },
+    { start: 3, end: 4.6, text: "而是為了躲颱風跑上高架橋去" },
+    { start: 6.5, end: 12, text: "主播繼續說明現場的最新情況喔" },
+  ];
+  const captions = [{ start: 0, end: 6, text: "短片畫面上的字幕內容" }];
+  const merged = mergeCaptionSpeech(captions, speech);
+  const caption = merged.find((s) => s.text === "短片畫面上的字幕內容");
+  assert.ok(caption, "clipped remainder survives");
+  assert.equal(caption.start, 4.6);
+  assert.equal(caption.end, 6);
+});
