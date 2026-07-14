@@ -46,12 +46,21 @@ CAPTION_BAND = float(os.environ.get("OCR_CAPTION_BAND", "1"))
 MIN_SCORE = 0.7
 # Two frames' captions are "the same caption" above this similarity.
 SIMILARITY = 0.6
-# Stricter bar for reuniting adjacent segments after a line-set split: a small
-# watermark flickering in and out of OCR readability shouldn't cut a stable
-# caption into pieces (texts nearly identical -> reunite), but a caption
-# disappearing from under a persistent attribution tag is a real change
-# (texts clearly differ -> stay split).
-MERGE_SIMILARITY = 0.75
+# Stricter bar for clustering individual lines across frames. Misreads of one
+# line score ~0.85+ (a character or two differs); genuinely different captions
+# that share a topic can score just above 0.6 ("台风巴威逼近浙江临海车主自发"
+# vs "颱風巴威逼近浙江台州臨海" ≈ 0.61) and merging them corrupts both lines'
+# on-screen runs — which feeds every downstream rule wrong data.
+CLUSTER_SIMILARITY = 0.75
+# Bar for reuniting adjacent segments after a line-set split: reuniting is
+# only safe when the segments differ by a small flickering line (a watermark
+# blinking in and out of OCR readability), measured line-by-line — the
+# differing lines' characters must stay under this fraction of the shared
+# lines' characters. Whole-text similarity is NOT safe here: a big static
+# caption block dominates the ratio, so states where a real caption line
+# rotated beneath it look "similar", get glued, and the majority vote then
+# erases lines.
+REUNITE_DIFF_RATIO = 0.34
 # Furniture cutoffs: a text line is dropped as screen furniture when it stays
 # up longer than this in one stretch (speech captions run 3–15 s; headline
 # strips and tickers run 20 s to minutes)…
@@ -71,6 +80,11 @@ MAX_LINES = 8
 # caption changes. Size/position can't tell them apart (embedded-clip captions
 # are often *smaller* than watermarks), but this temporal shape can.
 TAG_MIN_CONTAINED_RUNS = 2
+# Samples this far apart still belong to one on-screen run: OCR failing to
+# read a line for a single frame must not split its run — a split run loses
+# its equal-span partners and can be misclassified as a tag. Two consecutive
+# missed frames end the run.
+RUN_GAP_TOLERANCE = 2.5
 
 
 def _extract_frames(video_path, workspace):
@@ -100,7 +114,7 @@ def _is_caption_line(text):
     observed in practice was junk, so captions need at least two CJK
     characters, or three characters otherwise."""
     cjk = sum(1 for ch in text if "㐀" <= ch <= "鿿")
-    return cjk >= 2 or len(text) >= 3
+    return cjk >= 2 or len(text) >= 4
 
 
 def _read_lines(engine, img):
@@ -125,19 +139,26 @@ def is_similar(a, b, threshold=SIMILARITY):
 
 
 def pick_text(variants):
-    """Choose the representative reading: most seen, then highest score."""
+    """Choose the representative reading: most seen, then most content, then
+    highest score. Content breaks count ties because OCR is far likelier to
+    miss a line for one frame than to hallucinate an extra line at high
+    confidence — a 1:1 tie between "with line" and "without line" must not
+    fall to chance."""
     tally = {}
     for text, score in variants:
         count, best = tally.get(text, (0, 0.0))
         tally[text] = (count + 1, max(best, score))
-    return max(tally.items(), key=lambda kv: (kv[1][0], kv[1][1]))[0]
+    return max(
+        tally.items(),
+        key=lambda kv: (kv[1][0], len("".join(kv[0].split())), kv[1][1]),
+    )[0]
 
 
 def _max_dwell(times, interval):
     """Longest contiguous on-screen stretch, given sorted sample times."""
     longest = run_start = prev = None
     for t in times:
-        if prev is None or t - prev > interval * 1.5:
+        if prev is None or t - prev > interval * RUN_GAP_TOLERANCE:
             run_start = t
         run = t - run_start + interval
         longest = run if longest is None or run > longest else longest
@@ -154,19 +175,33 @@ def filter_furniture(raw, interval):
     exceed the dwell/presence cutoffs are removed everywhere. Returns samples
     for samples_to_segments: [(time, joined_text, mean_score)].
     """
-    clusters = []  # {"rep": str, "times": [t, ...]}
+    # A cluster keeps a few distinct example readings ("texts") and matches
+    # new lines against any of them: jitter drifts (這裡 → 道裡 → 道理), and a
+    # double-misread can sit below the threshold against the first reading
+    # while clearly matching a later one.
+    clusters = []  # {"rep": str, "texts": [str, ...], "times": [t, ...]}
     assigned = []  # [(time, [(y, text, score, cluster_index), ...])]
     for time, lines in raw:
         row = []
         for y, text, score in lines:
             index = next(
-                (i for i, c in enumerate(clusters) if is_similar(c["rep"], text)),
+                (
+                    i
+                    for i, c in enumerate(clusters)
+                    if any(
+                        is_similar(v, text, CLUSTER_SIMILARITY)
+                        for v in c["texts"]
+                    )
+                ),
                 None,
             )
             if index is None:
                 index = len(clusters)
-                clusters.append({"rep": text, "times": []})
-            clusters[index]["times"].append(time)
+                clusters.append({"rep": text, "texts": [text], "times": []})
+            cluster = clusters[index]
+            if text not in cluster["texts"] and len(cluster["texts"]) < 5:
+                cluster["texts"].append(text)
+            cluster["times"].append(time)
             row.append((y, text, score, index))
         assigned.append((time, row))
 
@@ -196,7 +231,7 @@ def filter_furniture(raw, interval):
         times = sorted(set(cluster["times"]))
         run_start = prev = None
         for t in times:
-            if prev is not None and t - prev > interval * 1.5:
+            if prev is not None and t - prev > interval * RUN_GAP_TOLERANCE:
                 runs.append((index, run_start, prev + interval))
                 run_start = t
             elif run_start is None:
@@ -221,10 +256,16 @@ def filter_furniture(raw, interval):
         outer = "".join(outer.split())
         return inner in outer or is_similar(inner, outer)
 
+    # Partner matching tolerates a missed read at a run's edge (same slack as
+    # run bridging): one unreadable frame at the end of a line's run must not
+    # strip its equal-span protection and feed it to the tag rule.
+    partner_eps = interval * RUN_GAP_TOLERANCE
     tag_runs = []
     for ci, start, end in runs:
         partner = any(
-            cj != ci and abs(s2 - start) <= eps and abs(e2 - end) <= eps
+            cj != ci
+            and abs(s2 - start) <= partner_eps
+            and abs(e2 - end) <= partner_eps
             for cj, s2, e2 in runs
         )
         if partner:
@@ -268,6 +309,38 @@ def filter_furniture(raw, interval):
     return samples
 
 
+def _flicker_only_diff(a, b):
+    """True when two display states differ only by a small flickering line.
+
+    Match the states' lines fuzzily; the unmatched lines' characters must be
+    a small fraction (REUNITE_DIFF_RATIO) of the matched lines'. A watermark
+    blinking over a caption qualifies; a caption line rotating beneath a
+    static block does not.
+    """
+    a_lines = [l for l in a.split("\n") if l.strip()]
+    b_lines = [l for l in b.split("\n") if l.strip()]
+    used = set()
+    common = diff = 0
+    for line in a_lines:
+        j = next(
+            (
+                k
+                for k, other in enumerate(b_lines)
+                if k not in used and is_similar(line, other)
+            ),
+            None,
+        )
+        if j is None:
+            diff += len("".join(line.split()))
+        else:
+            used.add(j)
+            common += len("".join(line.split()))
+    for k, other in enumerate(b_lines):
+        if k not in used:
+            diff += len("".join(other.split()))
+    return common > 0 and diff <= REUNITE_DIFF_RATIO * common
+
+
 def samples_to_segments(samples, interval):
     """Merge per-frame readings into timed segments.
 
@@ -278,10 +351,11 @@ def samples_to_segments(samples, interval):
     matters when a persistent tag shares the screen with a caption — judged by
     text similarity alone, "tag + caption" and "tag" chain into one segment
     and the majority vote can erase the caption entirely. Without ids the old
-    text-similarity rule applies. A post-pass reunites adjacent segments whose
-    texts are nearly identical, so a small watermark flickering in and out of
-    OCR readability can't shred a stable caption. Each segment's text is the
-    majority vote across its frames.
+    text-similarity rule applies. A post-pass reunites adjacent segments that
+    differ only by a small flickering line (see _flicker_only_diff), so a
+    watermark blinking in and out of OCR readability can't shred a stable
+    caption — while states where a real caption line changed stay split. Each
+    segment's text is the majority vote across its frames.
     """
     runs = []
     current = None  # {"start", "end", "variants": [(text, score)], "ids"}
@@ -323,10 +397,8 @@ def samples_to_segments(samples, interval):
         if (
             prev
             and abs(run["start"] - prev["end"]) < interval / 2
-            and is_similar(
-                pick_text(prev["variants"]),
-                pick_text(run["variants"]),
-                MERGE_SIMILARITY,
+            and _flicker_only_diff(
+                pick_text(prev["variants"]), pick_text(run["variants"])
             )
         ):
             prev["end"] = run["end"]

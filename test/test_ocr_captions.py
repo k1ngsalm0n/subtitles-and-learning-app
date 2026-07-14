@@ -44,6 +44,12 @@ class PickTextTest(unittest.TestCase):
         variants = [("甲", 0.7), ("乙", 0.9)]
         self.assertEqual(pick_text(variants), "乙")
 
+    def test_content_breaks_count_ties(self):
+        # 1:1 between a frame that read both lines and a frame that missed
+        # one: prefer the fuller reading, whatever the scores say.
+        variants = [("第一行\n第二行", 0.8), ("第一行", 0.99)]
+        self.assertEqual(pick_text(variants), "第一行\n第二行")
+
 
 class SamplesToSegmentsTest(unittest.TestCase):
     def test_consecutive_similar_readings_merge(self):
@@ -122,6 +128,26 @@ class SamplesToSegmentsTest(unittest.TestCase):
         self.assertEqual(segments[0]["start"], 0.0)
         self.assertEqual(segments[0]["end"], 4.0)
 
+    def test_rotating_line_under_static_block_stays_split(self):
+        # A static 4-line summary fills the screen while a broadcaster caption
+        # rotates beneath it. Whole-text similarity would reunite these states
+        # (the big block dominates the ratio) and majority-vote lines away —
+        # they must stay separate, each keeping the full block plus its own
+        # rotating line.
+        block = "第一行摘要文字\n第二行摘要文字\n第三行摘要文字\n第四行摘要文字"
+        rotating = ["車主們自發把車開上高架橋", "沿道路兩側整齊停放車輛", "留出中間讓應急車輛通行"]
+        samples = []
+        for t in range(9):
+            line = rotating[t // 3]
+            samples.append(
+                (float(t), f"{block}\n{line}", 0.95, frozenset({1, 2, 3, 4, 10 + t // 3}))
+            )
+        segments = samples_to_segments(samples, 1.0)
+        self.assertEqual(len(segments), 3)
+        for seg, line in zip(segments, rotating):
+            self.assertIn("第一行摘要文字", seg["text"])
+            self.assertIn(line, seg["text"])
+
     def test_flickering_watermark_does_not_shred_a_caption(self):
         # A small watermark is only readable every third frame; the resulting
         # line-set changes must not cut the stable caption into pieces, and
@@ -144,6 +170,20 @@ class FilterFurnitureTest(unittest.TestCase):
     def frames(self, seconds, lines_at):
         """Build raw samples: lines_at maps second -> [(y, text, score)]."""
         return [(float(t), lines_at.get(t, [])) for t in range(seconds)]
+
+    def test_topically_similar_lines_stay_separate_clusters(self):
+        # Two different captions about the same topic score ~0.61 similar —
+        # above the loose state threshold but below the strict clustering
+        # one. Merging them corrupts both lines' runs; both must survive.
+        a = "台风“巴威”逼近浙江临海车主自发"
+        b = "颱風巴威逼近浙江台州臨海"
+        lines_at = {t: [(40.0, a, 0.99)] for t in range(0, 6)}
+        for t in range(6, 9):
+            lines_at[t] = [(40.0, a, 0.99), (400.0, b, 0.99)]
+        samples = filter_furniture(self.frames(20, lines_at), 1.0)
+        joined = "".join(s[1] for s in samples)
+        self.assertIn(a, joined)
+        self.assertIn(b, joined)
 
     def test_static_logo_dropped_captions_kept(self):
         # A station logo on screen the whole video, a caption for 4 seconds.
@@ -233,6 +273,32 @@ class FilterFurnitureTest(unittest.TestCase):
         texts = {s[1] for s in samples if s[1]}
         self.assertEqual(texts, set(caps))
 
+    def test_partner_protection_survives_an_edge_read_miss(self):
+        # Four summary lines share the screen 0-11 s while two short captions
+        # rotate beneath them; the first line's final frame fails to read, so
+        # its run ends 1 s early. The slightly-short run must still count its
+        # siblings as equal-span partners — losing that protection fed a real
+        # caption line to the tag rule (seen live).
+        block = [
+            "台风巴威逼近浙江临海车主自发",
+            "把车开上还未通车的立交桥避险",
+            "这是迎战利奇马换来的生存智慧",
+            "浙江宁波等地宣布道路泊位免费",
+        ]
+        lines_at = {}
+        for t in range(12):
+            lines = [(30.0 + i * 25, text, 0.99) for i, text in enumerate(block)]
+            if t == 11:
+                lines = lines[1:]  # line 1 unreadable in the last frame
+            rotating = "高架橋上停滿避險車輛" if t < 6 else "沿路兩側整齊停放留出車道"
+            lines.append((400.0, rotating, 0.95))
+            lines_at[t] = lines
+        samples = filter_furniture(
+            [(float(t), lines_at.get(t, [])) for t in range(20)], 1.0
+        )
+        joined = "".join(s[1] for s in samples)
+        self.assertIn("台风巴威逼近浙江临海车主自发", joined)
+
     def test_equal_span_caption_block_is_not_a_tag(self):
         # A static multi-line summary: all lines share one span, so none
         # "contains" the others and the block survives intact.
@@ -295,6 +361,8 @@ class CaptionLineFilterTest(unittest.TestCase):
         # Single CJK characters are dropped too: every observed one (我, 日)
         # was a half-read watermark or graphic, not a caption.
         self.assertFalse(_is_caption_line("我"))
+        # Short non-CJK strings are graphics fragments ("NB2"), not words.
+        self.assertFalse(_is_caption_line("NB2"))
         self.assertTrue(_is_caption_line("木板"))
         self.assertTrue(_is_caption_line("ETtoday"))
 

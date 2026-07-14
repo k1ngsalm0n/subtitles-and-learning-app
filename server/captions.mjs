@@ -188,6 +188,13 @@ export function alignTranslationByTime(sourceSrt, translationSrt) {
 // Whisper's silence hallucinations are the opposite shape: a few invented
 // characters stretched over tens of seconds ("中文字幕 李宗盛" across 23 s).
 const MIN_SPEECH_CPS = 0.8;
+// Phrases Whisper reproduces from subtitle files in its training data when it
+// hears silence or music: subtitle-group credits, streaming-site watermarks,
+// like-and-subscribe outros. Nobody says these; a segment containing one is
+// invented ("优优独播剧场——YoYo Television Series Exclusive" appeared across
+// 22 s of storm noise). Deliberately specific — no single common word.
+const HALLUCINATION_RE =
+  /独播剧场|獨播劇場|YoYo Television|中文字幕|字幕组|字幕組|字幕志愿者|字幕由|字幕提供|点赞订阅|按讚訂閱|謝謝觀看|谢谢观看|谢谢收看|明镜需要您的支持/;
 // Speech transcription covering at least this fraction of the video means the
 // audio carries the story (a narrated news piece), not the on-screen text.
 const SPEECH_LED_COVERAGE = 0.5;
@@ -227,7 +234,11 @@ export function mergeCaptionSpeech(captionSegments, speechSegments) {
     const text = String(seg.text || "").trim();
     const duration = Math.max(seg.end - seg.start, 0.01);
     const cjk = [...text].filter((ch) => ch >= "㐀" && ch <= "鿿").length;
-    return cjk >= 2 && [...text].length / duration >= MIN_SPEECH_CPS;
+    return (
+      cjk >= 2 &&
+      [...text].length / duration >= MIN_SPEECH_CPS &&
+      !HALLUCINATION_RE.test(text)
+    );
   });
 
   const span = Math.max(

@@ -278,3 +278,16 @@ test("mergeCaptionSpeech drops non-Chinese and interjection-only speech", () => 
     ["整段都有的字幕內容在這裡", "這句是真的有人在說話"],
   );
 });
+
+test("mergeCaptionSpeech drops known Whisper hallucination phrases", () => {
+  const captions = [{ start: 0, end: 40, text: "整段都有的字幕內容在這裡" }];
+  const speech = [
+    // Streaming-site watermark reproduced over 22 s of storm noise — passes
+    // the speed and CJK filters, must be caught by the phrase blacklist.
+    { start: 47, end: 69, text: "优优独播剧场——YoYo Television Series Exclusive 优优独播剧场" },
+    { start: 70, end: 73, text: "這句是真的有人在說話" },
+  ];
+  const merged = mergeCaptionSpeech(captions, speech);
+  assert.ok(!merged.some((s) => s.text.includes("独播剧场")));
+  assert.ok(merged.some((s) => s.text === "這句是真的有人在說話"));
+});
