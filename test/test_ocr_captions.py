@@ -105,6 +105,23 @@ class SamplesToSegmentsTest(unittest.TestCase):
         self.assertIn("海水漫過堤壩", segments[0]["text"])
         self.assertEqual(segments[0]["end"], 6.0)
 
+    def test_fragment_stub_absorbed_into_full_neighbour(self):
+        # A frame caught mid-transition reads only a piece of the caption; the
+        # resulting stub segment must fold into the full-text neighbour
+        # instead of standing as its own subtitle.
+        full = "颱風巴威十一日深夜登陸浙江"
+        samples = [
+            (0.0, "颱風巴威", 0.8, frozenset({2})),
+            (1.0, full, 0.99, frozenset({1})),
+            (2.0, full, 0.99, frozenset({1})),
+            (3.0, full, 0.99, frozenset({1})),
+        ]
+        segments = samples_to_segments(samples, 1.0)
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0]["text"], full)
+        self.assertEqual(segments[0]["start"], 0.0)
+        self.assertEqual(segments[0]["end"], 4.0)
+
     def test_flickering_watermark_does_not_shred_a_caption(self):
         # A small watermark is only readable every third frame; the resulting
         # line-set changes must not cut the stable caption into pieces, and
@@ -199,6 +216,68 @@ class FilterFurnitureTest(unittest.TestCase):
         lines_at = {t: wall if t >= 55 else [] for t in range(60)}
         samples = filter_furniture(self.frames(60, lines_at), 1.0)
         self.assertTrue(all(s[1] == "" for s in samples))
+
+    def test_reporter_tag_spanning_several_captions_dropped(self):
+        # A speaker/source tag (新京報記者) sits on screen across four distinct
+        # interview captions — the user reads it as noise. Its run contains
+        # four complete shorter runs, so the local-tag rule removes it while
+        # each caption line survives on its own.
+        caps = ["這樣的木板是一塊一塊的", "然後放在這裡的縫隙裡", "所以當我去碰觸的時候", "實際上它是紋絲不動的"]
+        lines_at = {}
+        for t in range(43, 52):
+            cap = caps[min((t - 43) // 2, 3)]
+            lines_at[t] = [(360.0, "新京報記者", 0.95), (400.0, cap, 0.99)]
+        samples = filter_furniture(
+            [(float(t), lines_at.get(t, [])) for t in range(60)], 1.0
+        )
+        texts = {s[1] for s in samples if s[1]}
+        self.assertEqual(texts, set(caps))
+
+    def test_equal_span_caption_block_is_not_a_tag(self):
+        # A static multi-line summary: all lines share one span, so none
+        # "contains" the others and the block survives intact.
+        block = [(30.0 + i * 25, f"字幕內容第{i}行的文字", 0.95) for i in range(4)]
+        lines_at = {t: block for t in range(1, 12)}
+        samples = filter_furniture(
+            [(float(t), lines_at.get(t, [])) for t in range(20)], 1.0
+        )
+        texts = {s[1] for s in samples if s[1]}
+        self.assertEqual(len(texts), 1)
+        self.assertEqual(len(next(iter(texts)).split("\n")), 4)
+
+    def test_title_block_with_partner_line_is_not_a_tag(self):
+        # A two-line title card stays up while two short caption lines change
+        # beneath it. The containment shape matches a tag, but title lines
+        # have an equal-span partner — they must survive.
+        lines_at = {}
+        for t in range(5):
+            lines_at[t] = [
+                (40.0, "巴威颱風登陸浙江", 0.99),
+                (70.0, "岸邊掀巨浪吞民宅", 0.99),
+                (250.0, "巨浪拍向窗戶" if t < 2 else "屋頂也全是海水", 0.95),
+            ]
+        samples = filter_furniture(
+            [(float(t), lines_at.get(t, [])) for t in range(30)], 1.0
+        )
+        joined = "".join(s[1] for s in samples)
+        self.assertIn("巴威颱風登陸浙江", joined)
+        self.assertIn("岸邊掀巨浪吞民宅", joined)
+
+    def test_fragment_reads_do_not_make_a_caption_a_tag(self):
+        # OCR occasionally reads fragments ("颱風", "登陸") out of one long
+        # caption. Those contained runs are jitter, not caption changes — the
+        # full line must not be classified as a tag because of them.
+        full = "颱風巴威登陸浙江後帶來強勁風雨"
+        lines_at = {}
+        for t in range(8):
+            if t in (2, 5):
+                lines_at[t] = [(60.0, "颱風", 0.9), (60.0, "登陸", 0.9)]
+            else:
+                lines_at[t] = [(60.0, full, 0.99)]
+        samples = filter_furniture(
+            [(float(t), lines_at.get(t, [])) for t in range(30)], 1.0
+        )
+        self.assertIn(full, "".join(s[1] for s in samples))
 
     def test_short_video_keeps_short_captions(self):
         # In a 10 s clip a 5 s caption is half the runtime; the presence rule

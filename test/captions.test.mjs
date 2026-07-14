@@ -264,3 +264,17 @@ test("mergeCaptionSpeech with no captions keeps all speech, and vice versa", () 
   const captions = [{ start: 0, end: 2, text: "字幕" }];
   assert.deepEqual(mergeCaptionSpeech(captions, []), captions);
 });
+
+test("mergeCaptionSpeech drops non-Chinese and interjection-only speech", () => {
+  const captions = [{ start: 0, end: 30, text: "整段都有的字幕內容在這裡" }];
+  const speech = [
+    { start: 31, end: 34, text: "26、 27、 28、 30、 32、 34" }, // number hallucination
+    { start: 35, end: 35.5, text: "哇" }, // lone interjection
+    { start: 36, end: 39, text: "這句是真的有人在說話" }, // real -> kept
+  ];
+  const merged = mergeCaptionSpeech(captions, speech);
+  assert.deepEqual(
+    merged.map((s) => s.text),
+    ["整段都有的字幕內容在這裡", "這句是真的有人在說話"],
+  );
+});

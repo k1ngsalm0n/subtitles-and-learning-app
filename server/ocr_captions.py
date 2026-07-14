@@ -11,6 +11,10 @@ so screen furniture can be told apart from captions:
   * Furniture (station logos, tickers, headline strips, location tags) sits on
     screen for tens of seconds to the whole video — any text line whose dwell
     time is too long is dropped, wherever it appears.
+  * Per-clip tags (source watermarks, reporter/location labels) are shorter-
+    lived than global furniture but still outlast the captions they share the
+    screen with — any line whose on-screen run fully contains several complete
+    runs of other lines is dropped as a local tag.
   * Captions (speech subtitles, title cards) live for a few seconds each —
     short-dwell lines are kept and merged into timed segments, with a majority
     vote across frames to iron out per-frame OCR jitter.
@@ -61,6 +65,12 @@ MAX_PRESENCE_FRACTION = 0.25
 # QR codes, app banners). Counted after the furniture filter, since busy news
 # layouts carry ~10 raw lines of which most are furniture.
 MAX_LINES = 8
+# A line whose single on-screen run fully contains this many complete runs of
+# other lines is a per-clip tag (source watermark, reporter/location label):
+# real captions live and die with what is said, tags sit through several
+# caption changes. Size/position can't tell them apart (embedded-clip captions
+# are often *smaller* than watermarks), but this temporal shape can.
+TAG_MIN_CONTAINED_RUNS = 2
 
 
 def _extract_frames(video_path, workspace):
@@ -178,9 +188,76 @@ def filter_furniture(raw, interval):
         dropped = ", ".join(repr(clusters[i]["rep"]) for i in sorted(banned))
         sys.stderr.write(f"OCR: dropped screen furniture: {dropped}\n")
 
+    # Contiguous on-screen runs per surviving cluster, for the local-tag rule.
+    runs = []  # (cluster_index, start, end)
+    for index, cluster in enumerate(clusters):
+        if index in banned:
+            continue
+        times = sorted(set(cluster["times"]))
+        run_start = prev = None
+        for t in times:
+            if prev is not None and t - prev > interval * 1.5:
+                runs.append((index, run_start, prev + interval))
+                run_start = t
+            elif run_start is None:
+                run_start = t
+            prev = t
+        if run_start is not None:
+            runs.append((index, run_start, prev + interval))
+
+    # Local tags: a run that fully contains several complete, strictly shorter
+    # runs of other lines sat through that many caption changes — it's a
+    # source watermark or reporter/location label, not a caption. Two guards
+    # protect real captions from the same shape:
+    #   * a title card also outlasts the lines changing beneath it, but titles
+    #     come as multi-line blocks — an equal-span partner run means caption;
+    #   * OCR sometimes reads a fragment of a line ("颱風" out of a longer
+    #     caption); a contained run whose text is a piece of the container is
+    #     jitter, not an independent caption change.
+    eps = interval / 2
+
+    def _fragment_of(inner, outer):
+        inner = "".join(inner.split())
+        outer = "".join(outer.split())
+        return inner in outer or is_similar(inner, outer)
+
+    tag_runs = []
+    for ci, start, end in runs:
+        partner = any(
+            cj != ci and abs(s2 - start) <= eps and abs(e2 - end) <= eps
+            for cj, s2, e2 in runs
+        )
+        if partner:
+            continue
+        contained = sum(
+            1
+            for cj, s2, e2 in runs
+            if cj != ci
+            and s2 >= start - eps
+            and e2 <= end + eps
+            and (e2 - s2) <= (end - start) - interval
+            and not _fragment_of(clusters[cj]["rep"], clusters[ci]["rep"])
+        )
+        if contained >= TAG_MIN_CONTAINED_RUNS:
+            tag_runs.append((ci, start, end))
+    if tag_runs:
+        dropped = ", ".join(
+            f"{clusters[ci]['rep']!r}@{s:.0f}-{e:.0f}s" for ci, s, e in tag_runs
+        )
+        sys.stderr.write(f"OCR: dropped per-clip tags: {dropped}\n")
+
+    def is_tagged(ci, time):
+        return any(
+            c == ci and s - eps <= time <= e + eps for c, s, e in tag_runs
+        )
+
     samples = []
     for time, row in assigned:
-        kept = [(y, text, score, ci) for y, text, score, ci in row if ci not in banned]
+        kept = [
+            (y, text, score, ci)
+            for y, text, score, ci in row
+            if ci not in banned and not is_tagged(ci, time)
+        ]
         if kept and len(kept) <= MAX_LINES:
             text = "\n".join(t for _y, t, _s, _ci in sorted(kept))
             score = sum(s for _y, _t, s, _ci in kept) / len(kept)
@@ -256,9 +333,35 @@ def samples_to_segments(samples, interval):
             prev["variants"].extend(run["variants"])
         else:
             merged.append(run)
+
+    # Absorb fragment stubs: a *brief* segment (a frame or two) whose text is
+    # contained in an adjacent segment's text is a partial OCR read of that
+    # caption (a frame caught mid-transition reading "颱風/登陸" out of the
+    # full line) — fold its time into the fuller neighbour. Longer segments
+    # are real state changes (a tag legitimately remaining after its caption
+    # leaves) and must stay separate.
+    def _within(a, b):
+        a, b = "".join(a.split()), "".join(b.split())
+        return bool(a) and a != b and a in b
+
+    def _brief(run):
+        return run["end"] - run["start"] <= 2 * interval
+
+    cleaned = []
+    for run in merged:
+        text = pick_text(run["variants"])
+        prev = cleaned[-1] if cleaned else None
+        if prev and _brief(run) and _within(text, pick_text(prev["variants"])):
+            prev["end"] = run["end"]
+            continue
+        if prev and _brief(prev) and _within(pick_text(prev["variants"]), text):
+            run["start"] = prev["start"]
+            cleaned[-1] = run
+            continue
+        cleaned.append(run)
     return [
         {"start": r["start"], "end": r["end"], "text": pick_text(r["variants"])}
-        for r in merged
+        for r in cleaned
     ]
 
 
@@ -304,6 +407,12 @@ def main():
     # The app is Chinese-only for now (issue #65); mirror transcribe.py's
     # signal when the on-screen text clearly isn't Chinese.
     language = "zh" if cjk_ratio(segments) >= 0.2 else "unknown"
+    if language == "zh":
+        # In a Chinese video a segment with no CJK at all is a misread
+        # graphic or attribution fragment ("MA&AP"), not study material.
+        segments = [
+            s for s in segments if any("㐀" <= ch <= "鿿" for ch in s["text"])
+        ]
     json.dump(
         {"language": language, "segments": segments},
         sys.stdout,

@@ -210,10 +210,12 @@ const MIN_GAP_FILL_SECONDS = 0.5;
 //     shouting) but broadcaster-written captions — captions are primary and
 //     speech fills their gaps.
 //
-// Impossibly slow speech segments are dropped first (see MIN_SPEECH_CPS) so a
-// long silence hallucination can neither pollute the output nor sway the
-// coverage decision. Both inputs and the result are [{start, end, text}]
-// sorted by start.
+// Implausible speech segments are dropped first — impossibly slow ones (see
+// MIN_SPEECH_CPS: a long silence hallucination) and ones with fewer than two
+// CJK characters (Whisper counting numbers over storm noise, lone "哇"
+// interjections; the app is Chinese-scoped, #65) — so garbage can neither
+// pollute the output nor sway the coverage decision. Both inputs and the
+// result are [{start, end, text}] sorted by start.
 export function mergeCaptionSpeech(captionSegments, speechSegments) {
   const overlap = (a, b) =>
     Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start));
@@ -222,8 +224,10 @@ export function mergeCaptionSpeech(captionSegments, speechSegments) {
     return others.reduce((sum, o) => sum + overlap(seg, o), 0) / duration;
   };
   const speech = speechSegments.filter((seg) => {
+    const text = String(seg.text || "").trim();
     const duration = Math.max(seg.end - seg.start, 0.01);
-    return [...String(seg.text || "").trim()].length / duration >= MIN_SPEECH_CPS;
+    const cjk = [...text].filter((ch) => ch >= "㐀" && ch <= "鿿").length;
+    return cjk >= 2 && [...text].length / duration >= MIN_SPEECH_CPS;
   });
 
   const span = Math.max(
