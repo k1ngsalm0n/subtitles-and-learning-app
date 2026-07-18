@@ -5,6 +5,8 @@
 
 const POS_KEY = "miraaStudio.miniPlayerPos";
 const MARGIN = 12;
+const MIN_WIDTH = 200;
+const RATIO = 16 / 9;
 
 export function setupMiniPlayer(els) {
   const shell = els.playerShell;
@@ -15,7 +17,9 @@ export function setupMiniPlayer(els) {
 
   let inView = true;
   let mini = false;
-  let pos = loadPos();
+  const saved = loadPos();
+  let pos = saved && Number.isFinite(saved.left) ? { left: saved.left, top: saved.top } : null;
+  let size = saved && Number.isFinite(saved.width) ? saved.width : null;
 
   const hasVideo = () => Boolean(video.currentSrc || video.getAttribute("src"));
 
@@ -27,11 +31,26 @@ export function setupMiniPlayer(els) {
     wrap.classList.toggle("mini", on);
     shell.classList.toggle("detached", on);
     if (on) {
+      applySize();
       applyPosition();
     } else {
+      // Clear all inline overrides: the inline player is sized by its shell
+      // (inset: 0), and a leftover width would override that.
       wrap.style.left = "";
       wrap.style.top = "";
+      wrap.style.width = "";
     }
+  }
+
+  // The user's chosen size, shrunk if the window can no longer fit it. No
+  // saved size leaves the CSS default (clamp(240px, 38vw, 420px)) in charge.
+  function applySize() {
+    if (!size) return;
+    const maxWidth = Math.min(
+      window.innerWidth - 2 * MARGIN,
+      (window.innerHeight - 2 * MARGIN) * RATIO,
+    );
+    wrap.style.width = `${Math.min(Math.max(size, MIN_WIDTH), maxWidth)}px`;
   }
 
   // Default to the bottom-right corner; afterwards keep whatever spot the
@@ -79,7 +98,10 @@ export function setupMiniPlayer(els) {
   video.addEventListener("loadedmetadata", update);
 
   window.addEventListener("resize", () => {
-    if (mini) applyPosition();
+    if (mini) {
+      applySize();
+      applyPosition();
+    }
   });
 
   // Shared drag logic. The handle drags immediately; the video-body surface
@@ -112,7 +134,7 @@ export function setupMiniPlayer(els) {
     const onUp = () => {
       source.removeEventListener("pointermove", onMove);
       if (dragging) {
-        savePos(pos);
+        savePos(pos, size);
       } else if (source === surface) {
         if (video.paused) video.play();
         else video.pause();
@@ -131,6 +153,64 @@ export function setupMiniPlayer(els) {
     startDrag(event, surface, { immediate: false });
   });
 
+  // Resize from any corner or edge, anchored at the opposite side. The aspect
+  // stays 16:9 (the CSS aspect-ratio derives height from width), so every
+  // handle ultimately computes a width: side handles from their own axis,
+  // corners from whichever axis the pointer has pulled further.
+  wrap.querySelectorAll(".mini-rz").forEach((handle) => {
+    const dir = handle.dataset.dir;
+    handle.addEventListener("pointerdown", (event) => {
+      if (!mini) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = wrap.getBoundingClientRect();
+      const right = rect.left + rect.width;
+      const bottom = rect.top + rect.height;
+      handle.setPointerCapture(event.pointerId);
+
+      const onMove = (ev) => {
+        const fromX = dir.includes("w")
+          ? right - ev.clientX
+          : ev.clientX - rect.left;
+        const fromY =
+          (dir.includes("n") ? bottom - ev.clientY : ev.clientY - rect.top) *
+          RATIO;
+        let width;
+        if (dir === "n" || dir === "s") width = fromY;
+        else if (dir === "e" || dir === "w") width = fromX;
+        else width = Math.max(fromX, fromY);
+
+        // The anchored sides stay put, so growth is limited by the distance
+        // from the anchor to the viewport edge (minus the margin).
+        const maxWidth = Math.min(
+          dir.includes("w")
+            ? right - MARGIN
+            : window.innerWidth - MARGIN - rect.left,
+          (dir.includes("n")
+            ? bottom - MARGIN
+            : window.innerHeight - MARGIN - rect.top) * RATIO,
+        );
+        width = Math.min(Math.max(width, MIN_WIDTH), maxWidth);
+        const height = width / RATIO;
+        pos = {
+          left: dir.includes("w") ? right - width : rect.left,
+          top: dir.includes("n") ? bottom - height : rect.top,
+        };
+        size = width;
+        wrap.style.width = `${width}px`;
+        wrap.style.left = `${pos.left}px`;
+        wrap.style.top = `${pos.top}px`;
+      };
+      const onUp = () => {
+        handle.removeEventListener("pointermove", onMove);
+        savePos(pos, size);
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp, { once: true });
+      handle.addEventListener("pointercancel", onUp, { once: true });
+    });
+  });
+
   // "Back to full player": scroll the inline slot into view; the observer
   // then restores the player into it.
   els.miniExpand.addEventListener("click", () => {
@@ -140,13 +220,14 @@ export function setupMiniPlayer(els) {
 
 function loadPos() {
   try {
-    const { left, top } = JSON.parse(localStorage.getItem(POS_KEY));
-    return Number.isFinite(left) && Number.isFinite(top) ? { left, top } : null;
+    const { left, top, width } = JSON.parse(localStorage.getItem(POS_KEY));
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+    return { left, top, width: Number.isFinite(width) ? width : null };
   } catch {
     return null;
   }
 }
 
-function savePos(pos) {
-  if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos));
+function savePos(pos, width) {
+  if (pos) localStorage.setItem(POS_KEY, JSON.stringify({ ...pos, width }));
 }
