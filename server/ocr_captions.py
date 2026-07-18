@@ -264,14 +264,25 @@ def filter_furniture(raw, interval):
 
     # Partner matching tolerates a missed read at a run's edge (same slack as
     # run bridging): one unreadable frame at the end of a line's run must not
-    # strip its equal-span protection and feed it to the tag rule.
+    # strip its equal-span protection and feed it to the tag rule. Both edges
+    # AND the duration must agree: a short caption nested just inside a longer
+    # run's span has each edge within the slack while being half the length —
+    # that's a contained caption change, not a partner (a 2 s caption inside a
+    # 6 s watermark run was shielding the watermark from the tag rule, and the
+    # backdrop grouping below then dropped the caption with it — seen live).
     partner_eps = interval * RUN_GAP_TOLERANCE
+
+    def _equal_span(s2, e2, start, end):
+        return (
+            abs(s2 - start) <= partner_eps
+            and abs(e2 - end) <= partner_eps
+            and abs((e2 - s2) - (end - start)) <= partner_eps
+        )
+
     tag_runs = []
     for ci, start, end in runs:
         partner = any(
-            cj != ci
-            and abs(s2 - start) <= partner_eps
-            and abs(e2 - end) <= partner_eps
+            cj != ci and _equal_span(s2, e2, start, end)
             for cj, s2, e2 in runs
         )
         if partner:
@@ -292,6 +303,63 @@ def filter_furniture(raw, interval):
             f"{clusters[ci]['rep']!r}@{s:.0f}-{e:.0f}s" for ci, s, e in tag_runs
         )
         sys.stderr.write(f"OCR: dropped per-clip tags: {dropped}\n")
+
+    # Static backdrop blocks. The partner guard above protects multi-line
+    # blocks from the tag rule one run at a time — right for a title card
+    # that lives and dies with its caption, but it also shields an article
+    # screenshot or summary board that stays up while captions rotate
+    # beneath it (its text is what those captions are reading out, so the
+    # viewer gets a wall of text that then repeats line by line). Apply the
+    # same containment test to each equal-span group as a whole: a block
+    # whose shared span sits through several complete runs of other lines is
+    # scenery, exactly like a single-line tag with the same temporal shape.
+    tagged = set(tag_runs)
+    span_groups = []
+    for run in runs:
+        if run in tagged:
+            continue
+        _ci, start, end = run
+        group = next(
+            (
+                g
+                for g in span_groups
+                if _equal_span(start, end, g[0][1], g[0][2])
+            ),
+            None,
+        )
+        if group is None:
+            span_groups.append([run])
+        else:
+            group.append(run)
+    backdrop_runs = []
+    for group in span_groups:
+        if len(group) < 2:
+            continue
+        members = {ci for ci, _s, _e in group}
+        start = min(s for _c, s, _e in group)
+        end = max(e for _c, _s, e in group)
+        contained = sum(
+            1
+            for run2 in runs
+            if run2 not in tagged
+            and run2[0] not in members
+            and run2[1] >= start - eps
+            and run2[2] <= end + eps
+            and (run2[2] - run2[1]) <= (end - start) - interval
+            and not any(
+                _fragment_of(clusters[run2[0]]["rep"], clusters[ci]["rep"])
+                for ci in members
+            )
+        )
+        if contained >= TAG_MIN_CONTAINED_RUNS:
+            backdrop_runs.extend(group)
+    if backdrop_runs:
+        dropped = ", ".join(
+            f"{clusters[ci]['rep']!r}@{s:.0f}-{e:.0f}s"
+            for ci, s, e in backdrop_runs
+        )
+        sys.stderr.write(f"OCR: dropped static backdrop block: {dropped}\n")
+        tag_runs.extend(backdrop_runs)
 
     def is_tagged(ci, time):
         return any(
