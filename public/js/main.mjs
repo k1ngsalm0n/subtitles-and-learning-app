@@ -21,10 +21,16 @@ import {
   setSourceStatus,
   addDialogCard,
 } from "./ui.mjs";
+import { setupMiniPlayer } from "./miniplayer.mjs";
 
 const els = {
   video: document.querySelector("#video"),
   emptyPlayer: document.querySelector("#emptyPlayer"),
+  playerShell: document.querySelector("#playerShell"),
+  playerWrap: document.querySelector("#playerWrap"),
+  miniDrag: document.querySelector("#miniDrag"),
+  miniDragSurface: document.querySelector("#miniDragSurface"),
+  miniExpand: document.querySelector("#miniExpand"),
   videoInput: document.querySelector("#videoInput"),
   originalInput: document.querySelector("#originalInput"),
   translationInput: document.querySelector("#translationInput"),
@@ -87,6 +93,7 @@ function init() {
   loadSubtitles(sampleOriginal, sampleTranslation);
   renderAll(els);
   setupTranscriptDelegation(els);
+  setupMiniPlayer(els);
   loadCookieSettings();
 }
 

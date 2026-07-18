@@ -209,7 +209,27 @@ export async function handleImportUrl(req, res) {
     // bails out cheaply when the video has no on-screen text, so imports of
     // caption-less videos fall through to transcription without paying for a
     // full OCR pass.
+    //
+    // The two heavy fallbacks use different hardware — OCR is CPU-bound,
+    // Whisper runs on the GPU — so the transcription is kicked off first and
+    // the OCR pass runs concurrently with it, instead of queueing the two
+    // (measured: ~45s saved on a 2-minute news clip). Whichever path needs
+    // the speech awaits the shared promise.
+    let speechPromise = null;
+    let audioPath = "";
     if (videoPath) {
+      try {
+        audioPath = await extractAudio(videoPath, workspace);
+        speechPromise = transcribeFastSegments(audioPath);
+        // Awaited later by whichever path consumes it; without this a
+        // rejection during the OCR pass would surface as unhandled.
+        speechPromise.catch(() => {});
+      } catch (err) {
+        console.warn(
+          `audio extraction failed (${String(err.message || err).split("\n")[0]}); continuing without transcription`,
+        );
+      }
+
       const ocr = await ocrCaptions(videoPath);
       if (ocr) {
         // Captions only cover what's written on screen; many news videos also
@@ -223,8 +243,8 @@ export async function handleImportUrl(req, res) {
         let segments = (ocr.segments || []).map((s) => ({ ...s, caption: true }));
         let source = "ocr";
         try {
-          const audioPath = await extractAudio(videoPath, workspace);
-          const speech = await transcribeFastSegments(audioPath);
+          if (!speechPromise) throw new Error("no audio track extracted");
+          const speech = await speechPromise;
           // Replace low-confidence transcription with the neutral
           // "(indistinct voice)" placeholder before refining — refine strips
           // the logprob field. Then refine (split) the speech utterances so
@@ -263,13 +283,15 @@ export async function handleImportUrl(req, res) {
       }
     }
 
-    // Extract audio from the already-downloaded video instead of fetching the
-    // stream a second time; fall back to a direct audio download if the video
-    // grab produced nothing.
-    const audioPath = videoPath
-      ? await extractAudio(videoPath, workspace)
-      : await downloadAudio(url.href, workspace);
-    const whisperResult = await transcribeWithWhisper(audioPath, workspace);
+    // No burned-in captions either: the transcription started above is the
+    // result. Without a local video (or if its audio extraction failed), fall
+    // back to a direct audio download and transcribe that.
+    if (!audioPath) audioPath = await downloadAudio(url.href, workspace);
+    const whisperResult = await transcribeWithWhisper(
+      audioPath,
+      workspace,
+      speechPromise,
+    );
     sendJson(res, 200, {
       title: meta.title,
       videoUrl,
@@ -571,10 +593,13 @@ function unsupportedLanguageError(language) {
 
 // Transcribe `audioPath` to an SRT plus an English translation. Prefer
 // faster-whisper (same Whisper models, several-fold faster); fall back to the
-// openai-whisper CLI only if faster-whisper isn't installed.
-async function transcribeWithWhisper(audioPath, workspace) {
+// openai-whisper CLI only if faster-whisper isn't installed. When the caller
+// already started a transcription (the concurrent OCR+Whisper path), pass its
+// promise as `speechPromise` so the work isn't done twice.
+async function transcribeWithWhisper(audioPath, workspace, speechPromise = null) {
   try {
-    return await transcribeFast(audioPath);
+    const speech = await (speechPromise || transcribeFastSegments(audioPath));
+    return await finishFastTranscription(speech);
   } catch (err) {
     // Don't fall back to the CLI for a non-Chinese video — that would just
     // transcribe the language we're rejecting. Surface it as-is.
@@ -643,8 +668,9 @@ async function transcribeFastSegments(audioPath) {
   return { language: data.language || "unknown", segments: data.segments || [] };
 }
 
-async function transcribeFast(audioPath) {
-  const { language, segments } = await transcribeFastSegments(audioPath);
+// Turn raw faster-whisper segments into the final result: SRT (normalised to
+// Traditional), plus an English translation.
+async function finishFastTranscription({ language, segments }) {
   const subtitles = await toTraditional(
     segmentsToSrt(markUnintelligible(segments)),
   );
