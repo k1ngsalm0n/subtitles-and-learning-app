@@ -165,12 +165,91 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
   display: flex;
   flex-direction: column;
 }
-.player-wrap {
+/* The shell owns the layout slot: 16:9, but never taller than what leaves the
+   karaoke stage visible below it (topbar + paddings + stage ≈ 300px). The
+   player-wrap fills the shell, and detaches from it in mini mode. */
+.player-shell {
   position: relative;
-  background: #000;
   aspect-ratio: 16/9;
+  max-height: calc(100vh - 300px);
+  max-height: calc(100dvh - 300px);
+  min-height: 200px;
+  background: #000;
 }
-video { width: 100%; height: 100%; display: block; }
+.player-wrap {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+.player-shell.detached::after {
+  content: "Playing in the mini player";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* Floating mini player: fixed, draggable, positioned via left/top from JS. */
+.player-wrap.mini {
+  position: fixed;
+  inset: auto;
+  width: clamp(240px, 38vw, 420px);
+  height: auto;
+  aspect-ratio: 16/9;
+  z-index: 60;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.mini-drag {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  z-index: 2;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  background: linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0));
+  color: #fff;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.player-wrap.mini .mini-drag { display: flex; }
+/* In mini mode the whole video body drags, except the bottom strip where the
+   native controls (seek bar, play button) live. A plain click — no movement —
+   passes through as play/pause via JS. */
+.mini-drag-surface {
+  display: none;
+  position: absolute;
+  inset: 0 0 48px 0;
+  z-index: 1;
+  cursor: grab;
+  touch-action: none;
+}
+.player-wrap.mini .mini-drag-surface { display: block; }
+.mini-drag-surface:active { cursor: grabbing; }
+.player-wrap.mini:hover .mini-drag { opacity: 1; }
+.mini-drag:active { cursor: grabbing; }
+#miniExpand {
+  height: 22px;
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .empty-player {
   position: absolute;
   inset: 0;
@@ -222,8 +301,6 @@ video { width: 100%; height: 100%; display: block; }
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
-  display: grid;
-  grid-template-rows: auto auto;
   min-width: 0;
 }
 /* The transcript is its own, wider container below the player/stage. */
@@ -242,7 +319,6 @@ video { width: 100%; height: 100%; display: block; }
   align-items: center;
   gap: 10px;
   padding: 12px;
-  border-bottom: 1px solid var(--border);
   background: var(--surface-2);
   flex-wrap: wrap;
 }
@@ -283,13 +359,13 @@ video { width: 100%; height: 100%; display: block; }
   min-height: 16px;
 }
 .subtitle-stage {
-  padding: 32px 24px;
+  padding: 20px 24px;
   display: grid;
   gap: 8px;
   align-content: center;
-  min-height: 140px;
+  min-height: 120px;
   background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 .active-original {
   font-size: clamp(20px, 2.5vw, 36px);
@@ -531,25 +607,22 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
       <section id="studyView" class="view active">
         <div class="workspace">
           <section class="media-pane">
-            <div class="player-wrap">
-              <video id="video" controls playsinline></video>
-              <div id="emptyPlayer" class="empty-player">
-                <span>Import a local video or load the sample lesson.</span>
+            <div id="playerShell" class="player-shell">
+              <div id="playerWrap" class="player-wrap">
+                <video id="video" controls playsinline></video>
+                <div id="emptyPlayer" class="empty-player">
+                  <span>Import a local video or load the sample lesson.</span>
+                </div>
+                <div id="miniDragSurface" class="mini-drag-surface"></div>
+                <div id="miniDrag" class="mini-drag">
+                  <span>⠿ Drag</span>
+                  <button id="miniExpand" type="button" title="Back to full player" aria-label="Back to full player">⤢</button>
+                </div>
               </div>
             </div>
-            <div class="import-bar">
-              <label class="file-button">Video<input id="videoInput" type="file" accept="video/*" /></label>
-              <label class="file-button">Original SRT/VTT<input id="originalInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
-              <label class="file-button">Translation SRT/VTT<input id="translationInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
-              <button id="sampleButton" type="button">Sample</button>
-            </div>
-            <div class="url-row">
-              <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
-              <button id="queueUrl" type="button">Import</button>
-              <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
-              <div id="progressWrap" class="progress-wrap">
-                <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>
-              </div>
+            <div class="subtitle-stage">
+              <p id="activeOriginal" class="active-original">Load subtitles to begin.</p>
+              <p id="activeTranslation" class="active-translation"></p>
             </div>
           </section>
 
@@ -569,9 +642,19 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
               <button id="translateButton" type="button">Translate</button>
               <p id="translateStatus" class="translate-status" role="status" aria-live="polite"></p>
             </div>
-            <div class="subtitle-stage">
-              <p id="activeOriginal" class="active-original">Load subtitles to begin.</p>
-              <p id="activeTranslation" class="active-translation"></p>
+            <div class="import-bar">
+              <label class="file-button">Video<input id="videoInput" type="file" accept="video/*" /></label>
+              <label class="file-button">Original SRT/VTT<input id="originalInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
+              <label class="file-button">Translation SRT/VTT<input id="translationInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
+              <button id="sampleButton" type="button">Sample</button>
+            </div>
+            <div class="url-row">
+              <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
+              <button id="queueUrl" type="button">Import</button>
+              <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
+              <div id="progressWrap" class="progress-wrap">
+                <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>
+              </div>
             </div>
           </section>
         </div>
