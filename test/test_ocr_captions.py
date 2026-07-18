@@ -273,12 +273,14 @@ class FilterFurnitureTest(unittest.TestCase):
         texts = {s[1] for s in samples if s[1]}
         self.assertEqual(texts, set(caps))
 
-    def test_partner_protection_survives_an_edge_read_miss(self):
-        # Four summary lines share the screen 0-11 s while two short captions
-        # rotate beneath them; the first line's final frame fails to read, so
-        # its run ends 1 s early. The slightly-short run must still count its
-        # siblings as equal-span partners — losing that protection fed a real
-        # caption line to the tag rule (seen live).
+    def test_backdrop_block_over_rotating_captions_dropped(self):
+        # An article screenshot: four summary lines share the screen 0-12 s
+        # while the clip's real captions rotate beneath them, reading the
+        # same story out. The block is scenery — shown as a subtitle it's a
+        # wall of text whose content then repeats line by line (seen live,
+        # user-reported). The first line's final frame fails to read, so its
+        # run ends 1 s early: the slack that groups equal-span partners must
+        # absorb the miss, not split the block out of backdrop detection.
         block = [
             "台风巴威逼近浙江临海车主自发",
             "把车开上还未通车的立交桥避险",
@@ -297,7 +299,9 @@ class FilterFurnitureTest(unittest.TestCase):
             [(float(t), lines_at.get(t, [])) for t in range(20)], 1.0
         )
         joined = "".join(s[1] for s in samples)
-        self.assertIn("台风巴威逼近浙江临海车主自发", joined)
+        self.assertNotIn("台风巴威逼近浙江临海车主自发", joined)
+        self.assertIn("高架橋上停滿避險車輛", joined)
+        self.assertIn("沿路兩側整齊停放留出車道", joined)
 
     def test_equal_span_caption_block_is_not_a_tag(self):
         # A static multi-line summary: all lines share one span, so none
@@ -311,23 +315,45 @@ class FilterFurnitureTest(unittest.TestCase):
         self.assertEqual(len(texts), 1)
         self.assertEqual(len(next(iter(texts)).split("\n")), 4)
 
-    def test_title_block_with_partner_line_is_not_a_tag(self):
-        # A two-line title card stays up while two short caption lines change
-        # beneath it. The containment shape matches a tag, but title lines
-        # have an equal-span partner — they must survive.
+    def test_title_block_over_several_caption_changes_dropped(self):
+        # A two-line title card sitting through two complete caption changes
+        # has the same temporal shape as a single-line tag over the same
+        # captions — the group rule drops it the same way (a single-line
+        # header there would already be a tag; line count shouldn't grant
+        # immunity).
         lines_at = {}
-        for t in range(5):
+        for t in range(8):
             lines_at[t] = [
                 (40.0, "巴威颱風登陸浙江", 0.99),
                 (70.0, "岸邊掀巨浪吞民宅", 0.99),
-                (250.0, "巨浪拍向窗戶" if t < 2 else "屋頂也全是海水", 0.95),
+                (250.0, "巨浪拍向窗戶" if t < 3 else "屋頂也全是海水", 0.95),
             ]
+        samples = filter_furniture(
+            [(float(t), lines_at.get(t, [])) for t in range(30)], 1.0
+        )
+        joined = "".join(s[1] for s in samples)
+        self.assertNotIn("巴威颱風登陸浙江", joined)
+        self.assertIn("巨浪拍向窗戶", joined)
+        self.assertIn("屋頂也全是海水", joined)
+
+    def test_title_block_over_one_caption_change_survives(self):
+        # A block with a single caption line living inside its span hasn't
+        # "sat through caption changes" — it's a title card plus its one
+        # sub-caption, both study material. The backdrop rule needs several
+        # contained runs, same bar as the single-line tag rule.
+        lines_at = {}
+        for t in range(2, 10):
+            lines_at[t] = [
+                (40.0, "巴威颱風登陸浙江", 0.99),
+                (70.0, "岸邊掀巨浪吞民宅", 0.99),
+            ] + ([(250.0, "巨浪拍向窗戶", 0.95)] if 4 <= t < 7 else [])
         samples = filter_furniture(
             [(float(t), lines_at.get(t, [])) for t in range(30)], 1.0
         )
         joined = "".join(s[1] for s in samples)
         self.assertIn("巴威颱風登陸浙江", joined)
         self.assertIn("岸邊掀巨浪吞民宅", joined)
+        self.assertIn("巨浪拍向窗戶", joined)
 
     def test_fragment_reads_do_not_make_a_caption_a_tag(self):
         # OCR occasionally reads fragments ("颱風", "登陸") out of one long
