@@ -121,6 +121,9 @@ ZH_ACCEPT_PROB = 0.25
 # noise) averages low overall, but the speech window itself is unambiguous —
 # and non-Chinese audio essentially never scores zh this high on any window.
 ZH_WINDOW_PROB = 0.5
+# Repetitive output above this ratio counts as a failed decode: retried hotter
+# during transcription, and reported as unintelligible if it never recovers.
+COMPRESSION_RATIO_THRESHOLD = 2.4
 
 
 def _detect_language(model, audio):
@@ -204,9 +207,19 @@ def _transcribe_on(device, audio):
         # and stamped the first surviving line at 0.00, desyncing everything after.
         # The thresholds below suppress silence/music hallucinations without VAD.
         # Temperature fallback: when a window decodes as low-confidence or
-        # repetitive garbage, retry hotter, then drop it instead of emitting it.
-        temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-        compression_ratio_threshold=2.4,  # repetitive output -> treat as failed
+        # repetitive garbage, retry hotter once, then give up and emit (the
+        # caller masks anything under -0.8 as "(indistinct voice)"). The full
+        # [0.0 … 1.0] ladder was measured on a noise-heavy clip (typhoon
+        # footage, ~90 s of wind/rain): every window fails as a *confident
+        # repetition loop* (logprob ≈ -0.1, compression ratio 30+, no-speech
+        # ≈ 0.4 — so neither threshold can pre-skip it), walks all six
+        # temperatures, and lands on t=1.0 babble that gets masked anyway —
+        # 105 s of transcription for a 94 s clip, vs 23 s at t=0 alone.
+        # Real speech stuck in a loop breaks at the first hot retry; the
+        # deeper temperatures only ever "rescued" noise into sub-threshold
+        # pseudo-text, so they bought nothing but time.
+        temperature=[0.0, 0.2],
+        compression_ratio_threshold=COMPRESSION_RATIO_THRESHOLD,
         log_prob_threshold=-1.0,          # very low-confidence -> treat as failed
         no_speech_threshold=0.6,          # likely-silence window -> emit nothing
         # Derive timings from word-level alignment, not Whisper's coarse timestamp
@@ -229,7 +242,15 @@ def _transcribe_on(device, audio):
             # The decoder's own confidence; the caller uses it to tell garbled
             # attempts at unintelligible speech (dialect under storm noise)
             # from clean transcription, and shows a placeholder instead.
-            "logprob": float(s.avg_logprob),
+            # A segment still failing the compression check after the retries
+            # is a stuck repetition loop ("關於關於關於…") — the decoder is
+            # *confident* in a loop, so its logprob is meaningless. Report it
+            # as unintelligible or the caller's mask would print the loop.
+            "logprob": (
+                -9.0
+                if s.compression_ratio > COMPRESSION_RATIO_THRESHOLD
+                else float(s.avg_logprob)
+            ),
         }
         for s in segments
     ]
