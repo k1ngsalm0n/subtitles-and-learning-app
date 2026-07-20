@@ -104,10 +104,16 @@ export async function runTranslation(els) {
 
   try {
     const srt = buildSrt(state.subtitles);
+    // Detect each line's own language rather than trusting `from` for the
+    // whole file — a video can mix languages, and forcing every line through
+    // the same pair mistranslates the ones not actually in `from`. The
+    // server treats a line already in `to` as done and skips translating it,
+    // and falls back to `from` for any line detection can't call.
+    const langs = state.subtitles.map((line) => detectLanguage(line.text));
     const res = await fetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ srt, from, to }),
+      body: JSON.stringify({ srt, from, to, langs }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Translation failed.");
