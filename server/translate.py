@@ -432,8 +432,12 @@ def parse_srt(text):
     return entries
 
 
-def translate_srt(srt_text, from_code, to_code="en"):
-    """Translate a full SRT string and return the translated SRT string."""
+def _translate_lines(texts, from_code, to_code):
+    """Translate a list of strings, all in `from_code`, to `to_code`.
+
+    Single-source-language worker behind translate_srt: picks the Opus pair or
+    NLLB codes once, then batches by length as before.
+    """
     # Dedicated bilingual model for the app's main pairs; NLLB for the rest.
     opus_name = OPUS_MODELS.get((from_code, to_code))
     src_lang = tgt_lang = None
@@ -441,7 +445,7 @@ def translate_srt(srt_text, from_code, to_code="en"):
         # `zh` is script-agnostic; pick Hant/Hans from the actual text so the
         # model isn't told the wrong script (which makes it hallucinate).
         if from_code == "zh":
-            src_lang = detect_chinese_script(srt_text)
+            src_lang = detect_chinese_script("\n".join(texts))
         else:
             src_lang = LANG_CODE_MAP.get(from_code)
         tgt_lang = LANG_CODE_MAP.get(to_code, "eng_Latn")
@@ -450,22 +454,18 @@ def translate_srt(srt_text, from_code, to_code="en"):
 
     nouns = load_unambiguous_nouns() if from_code == "zh" else {}
 
-    entries = parse_srt(srt_text)
-    texts = [
-        substitute_nouns(content, nouns) if nouns else content
-        for _idx, _timestamp, content in entries
-    ]
+    prepped = [substitute_nouns(t, nouns) if nouns else t for t in texts]
     if opus_name and from_code == "zh":
         # Noun substitution first (the CEDICT keys cover both scripts), then
         # normalise the remaining text to Simplified for the Opus model.
-        texts = [to_simplified(t) for t in texts]
+        prepped = [to_simplified(t) for t in prepped]
 
     # Group similar-length lines together so each batch pads to a length close
     # to its own longest line instead of the longest line in the whole file.
     # This cuts wasted compute on padding; we translate in the sorted order and
     # then restore the original order, so the output is unchanged.
-    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
-    translations = [None] * len(texts)
+    order = sorted(range(len(prepped)), key=lambda i: len(prepped[i]))
+    translations = [None] * len(prepped)
     # Size the batch to the VRAM free right now (recomputed per request, so it
     # adapts as other GPU users — e.g. a game — come and go). The small Opus
     # models don't need the planning; a full batch always fits.
@@ -477,7 +477,7 @@ def translate_srt(srt_text, from_code, to_code="en"):
     while start < len(order):
         size = max(1, _safe_batch)
         idx_chunk = order[start : start + size]
-        chunk = [texts[i] for i in idx_chunk]
+        chunk = [prepped[i] for i in idx_chunk]
         out = (
             translate_batch_opus(chunk, opus_name)
             if opus_name
@@ -486,6 +486,42 @@ def translate_srt(srt_text, from_code, to_code="en"):
         for i, translated_text in zip(idx_chunk, out):
             translations[i] = translated_text
         start += len(idx_chunk)
+
+    return translations
+
+
+def translate_srt(srt_text, from_code, to_code="en", langs=None):
+    """Translate a full SRT string and return the translated SRT string.
+
+    `langs`, when given, is a per-entry list of source-language codes (same
+    length/order as the parsed entries) — e.g. from the client's per-line
+    detector for the translate bar, which lets a file that mixes languages
+    only pay for translating the lines that actually need it. An entry
+    already in `to_code` is passed through untouched instead of round-tripped
+    through a model; the rest are grouped by their detected language and each
+    group is translated with the right pair. A missing/empty detection for a
+    line (or no `langs` at all, e.g. the CLI entry point) falls back to
+    `from_code`, matching the old single-language-for-the-whole-file
+    behaviour.
+    """
+    entries = parse_srt(srt_text)
+    if langs is None or len(langs) != len(entries):
+        effective = [from_code] * len(entries)
+    else:
+        effective = [lang or from_code for lang in langs]
+
+    translations = [None] * len(entries)
+    groups = {}
+    for i, lang in enumerate(effective):
+        if lang == to_code:
+            translations[i] = entries[i][2]
+            continue
+        groups.setdefault(lang, []).append(i)
+
+    for lang, indices in groups.items():
+        texts = [entries[i][2] for i in indices]
+        for i, translated_text in zip(indices, _translate_lines(texts, lang, to_code)):
+            translations[i] = translated_text
 
     return "\n\n".join(
         f"{idx}\n{timestamp}\n{translated_text}"
@@ -526,7 +562,10 @@ def serve():
         rid = req.get("id")
         try:
             translation = translate_srt(
-                req.get("srt", ""), req.get("from", ""), req.get("to", "en")
+                req.get("srt", ""),
+                req.get("from", ""),
+                req.get("to", "en"),
+                req.get("langs"),
             )
             resp = {"id": rid, "translation": translation}
         except Exception as exc:  # noqa: BLE001 - report any failure to the caller
