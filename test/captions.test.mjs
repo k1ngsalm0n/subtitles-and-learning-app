@@ -345,6 +345,24 @@ test("markUnintelligible replaces garbled speech and merges neighbours", () => {
   );
 });
 
+test("markUnintelligible catches a low-wordProb segment despite a fine logprob", () => {
+  // A repetition-loop hallucination sitting inside an otherwise clean decode
+  // window shares that window's logprob with correct neighbours, but its own
+  // words decode with much lower confidence — this is the signal that catches it.
+  const segments = [
+    { start: 0, end: 1.3, text: "给我那些蛋糕", logprob: -0.478, wordProb: 0.47 },
+    { start: 1.3, end: 2.6, text: "妈妈 我们赢了", logprob: -0.478, wordProb: 0.97 },
+  ];
+  const out = markUnintelligible(segments);
+  assert.deepEqual(
+    out.map((s) => [s.start, s.end, s.text]),
+    [
+      [0, 1.3, UNINTELLIGIBLE],
+      [1.3, 2.6, "妈妈 我们赢了"],
+    ],
+  );
+});
+
 test("mergeCaptionSpeech keeps unintelligible placeholders despite slow cps", () => {
   const speech = [{ start: 47.1, end: 63.4, text: UNINTELLIGIBLE }];
   const merged = mergeCaptionSpeech([], speech);
