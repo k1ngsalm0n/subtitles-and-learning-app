@@ -17,6 +17,8 @@ import os
 import re
 import sys
 
+import ipv4_first  # noqa: F401 — dodge the IPv6 black hole (see module docstring)
+
 # Reduce CUDA memory fragmentation. Without this, an over-large batch that OOMs
 # leaves the allocator fragmented and even much smaller retries fail — taking
 # the GPU path down entirely. Must be set before torch initialises CUDA.
