@@ -123,6 +123,11 @@ async function ytdlpBase() {
   return [
     ...DENO_JS_RUNTIME,
     "--no-playlist",
+    // Python's socket layer has no happy-eyeballs: on a network that
+    // advertises IPv6 but black-holes it, every request hangs until the
+    // kernel gives up (~2 min), which surfaces as "yt-dlp timed out".
+    // curl/browsers fall back to IPv4 instantly, so stay on IPv4.
+    "--force-ipv4",
     // YouTube hands out stream URLs that intermittently 403; yt-dlp's own
     // retries recover most of those without a full re-extraction.
     "--retries", "10",
