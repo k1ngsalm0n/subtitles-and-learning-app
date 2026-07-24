@@ -207,19 +207,34 @@ export const UNINTELLIGIBLE = "（聽不清楚的聲音）";
 // around -0.1 to -0.4; garbled attempts at unintelligible audio score below
 // -1. Measured on the two test videos, the gap is wide — -0.8 splits it.
 const MIN_SPEECH_LOGPROB = -0.8;
+// avg_logprob is shared across every segment in the same ~30s decode window,
+// so it's blind to a brief hallucination sitting inside an otherwise-clean
+// window (a repetition-loop fixation, e.g. "give me those cakes" regrowing
+// into "give me those cakes and mangoes" two segments later, both scoring the
+// same logprob as the correct lines around them). wordProb averages each
+// segment's own word-level confidences instead, so it catches those directly.
+// A "Fresh Off The Boat" clip's hallucinated run measured 0.39-0.69 against
+// 0.95-0.97 for clean neighbouring lines. But two genuine lines elsewhere in
+// the same clip ("是真的"/"等下 谁在电话里") scored 0.666/0.680 — right in
+// that gap — so 0.7 masked real dialogue as a side effect. 0.64 sits below
+// both of those and still catches the reported hallucination (0.614),
+// trading a slightly higher chance of missing a future one for not hiding
+// lines that are actually fine.
+const MIN_WORD_PROB = 0.64;
 // Adjacent unintelligible stretches closer than this merge into one
 // placeholder instead of a stutter of identical lines.
 const UNINTELLIGIBLE_JOIN_GAP = 2;
 
 // Replace low-confidence speech segments with the UNINTELLIGIBLE placeholder
 // and merge adjacent placeholders. Runs on Whisper's raw segments (before
-// refineSegments, which strips the logprob field). Segments without a logprob
-// (the openai-whisper CLI fallback) pass through untouched.
+// refineSegments, which strips the logprob/wordProb fields). Segments without
+// either (the openai-whisper CLI fallback) pass through untouched.
 export function markUnintelligible(segments) {
   const out = [];
   for (const seg of segments) {
     const garbled =
-      typeof seg.logprob === "number" && seg.logprob < MIN_SPEECH_LOGPROB;
+      (typeof seg.logprob === "number" && seg.logprob < MIN_SPEECH_LOGPROB) ||
+      (typeof seg.wordProb === "number" && seg.wordProb < MIN_WORD_PROB);
     if (!garbled) {
       out.push(seg);
       continue;

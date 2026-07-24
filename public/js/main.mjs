@@ -34,7 +34,6 @@ const els = {
   videoInput: document.querySelector("#videoInput"),
   originalInput: document.querySelector("#originalInput"),
   translationInput: document.querySelector("#translationInput"),
-  sampleButton: document.querySelector("#sampleButton"),
   sourceUrl: document.querySelector("#sourceUrl"),
   queueUrl: document.querySelector("#queueUrl"),
   sourceStatus: document.querySelector("#sourceStatus"),
@@ -103,9 +102,6 @@ function bindEvents() {
   });
 
   els.themeToggle.addEventListener("click", toggleTheme);
-  els.sampleButton.addEventListener("click", () =>
-    loadSubtitles(sampleOriginal, sampleTranslation),
-  );
   els.videoInput.addEventListener("change", handleVideoInput);
   els.originalInput.addEventListener("change", () => readSubtitleInputs());
   els.translationInput.addEventListener("change", () => readSubtitleInputs());

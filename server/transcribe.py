@@ -221,8 +221,9 @@ def _transcribe_on(device, audio):
     # segments, info = model.transcribe(
     #     audio, language=language, initial_prompt=prompt, beam_size=5,
     # )
-    segs = [
-        {
+    segs = []
+    for s in segments:
+        seg = {
             "start": float(s.start),
             "end": float(s.end),
             "text": s.text,
@@ -231,8 +232,16 @@ def _transcribe_on(device, audio):
             # from clean transcription, and shows a placeholder instead.
             "logprob": float(s.avg_logprob),
         }
-        for s in segments
-    ]
+        # avg_logprob is computed once per ~30s decode window and copied onto
+        # every segment carved out of it, so it can't see a brief hallucination
+        # sitting inside an otherwise-clean window. Per-word probabilities are
+        # already computed (word_timestamps=True, above) for cue timing, so
+        # averaging them gives a real per-segment confidence at no extra cost.
+        words = getattr(s, "words", None) or []
+        word_probs = [w.probability for w in words if w.probability is not None]
+        if word_probs:
+            seg["wordProb"] = sum(word_probs) / len(word_probs)
+        segs.append(seg)
     return {"language": info.language, "segments": segs}
 
 
