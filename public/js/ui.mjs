@@ -10,7 +10,6 @@ export function renderAll(els) {
   // use the cached reference set by main.mjs
   const e = els || _els;
   renderTranscript(e);
-  renderActiveSubtitle(e);
   renderDeck(e);
   renderReviewCard(e);
   renderSources(e);
@@ -110,11 +109,6 @@ function findNearestWord(x, y, container) {
 
 const _segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
-function splitIntoTokens(text) {
-  const raw = [..._segmenter.segment(text)];
-  return raw.map((seg) => ({ text: seg.segment, isWord: isWord(seg) }));
-}
-
 // ---- Ruby (pronunciation stacked over each character) ----------------------
 // `tokens` is [[base, pron], ...] from /api/romanize. We render each as a
 // <ruby> so the reading sits in its own box directly above the base, and can't
@@ -142,7 +136,9 @@ function pronByOffset(tokens) {
   return map;
 }
 
-// Transcript: clickable words, pinyin stacked over each character.
+// Transcript: clickable words, pinyin stacked over each character. data-len
+// carries the base character count so the ruby annotation text inside <rt>
+// doesn't inflate the count and skew the karaoke highlight.
 function renderRubyTranscript(tokens, text) {
   if (isCharAligned(tokens)) {
     const pron = pronByOffset(tokens);
@@ -158,7 +154,7 @@ function renderRubyTranscript(tokens, text) {
         inner += rubyUnit(ch, pron.get(off) || "");
         off += ch.length;
       }
-      html += `<span class="word" data-word="${escapeHtml(seg.segment)}">${inner}</span>`;
+      html += `<span class="word" data-word="${escapeHtml(seg.segment)}" data-len="${[...seg.segment].length}">${inner}</span>`;
     }
     return html;
   }
@@ -166,72 +162,30 @@ function renderRubyTranscript(tokens, text) {
   return tokens
     .map(([base, pron]) =>
       pron
-        ? `<span class="word" data-word="${escapeHtml(base)}">${rubyUnit(base, pron)}</span>`
+        ? `<span class="word" data-word="${escapeHtml(base)}" data-len="${[...base].length}">${rubyUnit(base, pron)}</span>`
         : escapeHtml(base),
     )
     .join("");
 }
 
-// Stage: pinyin stacked over each character, but the karaoke unit is a whole
-// word so the highlight advances word by word (not character by character).
-// data-len carries the base character count so the ruby annotation text inside
-// <rt> doesn't inflate the count and skew the highlight.
-function renderRubyStage(tokens, text) {
-  // Char-aligned (Chinese): group characters into segmenter words, stacking
-  // pinyin over each character inside a single per-word highlight unit.
-  if (isCharAligned(tokens)) {
-    const pron = pronByOffset(tokens);
-    let html = "";
-    for (const seg of _segmenter.segment(text)) {
-      if (!isWord(seg)) {
-        html += escapeHtml(seg.segment);
-        continue;
-      }
-      let inner = "";
-      let off = seg.index;
-      for (const ch of seg.segment) {
-        inner += rubyUnit(ch, pron.get(off) || "");
-        off += ch.length;
-      }
-      html += `<span class="stage-word" data-len="${[...seg.segment].length}">${inner}</span>`;
-    }
-    return html;
-  }
-  // Chunk-based (Japanese, etc.): each token is already one word-level unit.
-  return tokens
-    .map(([base, pron]) =>
-      pron
-        ? `<span class="stage-word" data-len="${[...base].length}">${rubyUnit(base, pron)}</span>`
-        : escapeHtml(base),
-    )
-    .join("");
-}
-
-export function renderActiveSubtitle(els) {
+// Center the active line inside the transcript's own scroll box (scrollTo on
+// the container, not scrollIntoView, so following playback never drags the
+// page or ancestor layouts around).
+export function scrollActiveLineIntoView(els) {
   const e = els || _els;
-  const line = state.subtitles[state.activeIndex];
-  if (!line) {
-    e.activeOriginal.textContent = "Load subtitles to begin.";
-    e.activeTranslation.textContent = "";
-    return;
-  }
-  if (line.tokens && line.tokens.length) {
-    e.activeOriginal.innerHTML = renderRubyStage(line.tokens, line.text);
-  } else {
-    const tokens = splitIntoTokens(line.text);
-    e.activeOriginal.innerHTML = tokens
-      .map((t) =>
-        t.isWord
-          ? `<span class="stage-word">${escapeHtml(t.text)}</span>`
-          : escapeHtml(t.text),
-      )
-      .join("");
-  }
-  e.activeTranslation.textContent = getTranslation(line);
+  const lineEl = e.transcript.querySelector(".line.active");
+  if (!lineEl) return;
+  const top =
+    lineEl.offsetTop -
+    e.transcript.offsetTop -
+    (e.transcript.clientHeight - lineEl.offsetHeight) / 2;
+  e.transcript.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
 let _rafId = null;
 
+// Karaoke highlight: sweeps the words of the transcript's active line in step
+// with playback, weighting each word by its character count.
 export function startHighlightLoop(els) {
   const e = els || _els;
   if (_rafId) return;
@@ -240,7 +194,7 @@ export function startHighlightLoop(els) {
     _rafId = requestAnimationFrame(tick);
     const video = e.video;
     if (!video || video.paused) {
-      e.activeOriginal.querySelectorAll(".stage-word.spoken").forEach(
+      e.transcript.querySelectorAll(".word.spoken").forEach(
         (el) => el.classList.remove("spoken"),
       );
       return;
@@ -251,7 +205,9 @@ export function startHighlightLoop(els) {
     if (duration <= 0) return;
     const elapsed = Math.max(0, Math.min(duration, video.currentTime - line.start));
     const progress = elapsed / duration;
-    const wordEls = e.activeOriginal.querySelectorAll(".stage-word");
+    const activeLine = e.transcript.querySelector(".line.active");
+    if (!activeLine) return;
+    const wordEls = activeLine.querySelectorAll(".word");
     if (!wordEls.length) return;
 
     // Prefer data-len (set when ruby is present) so the pinyin annotation text
