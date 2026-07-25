@@ -33,7 +33,7 @@ import sys
 import tempfile
 from difflib import SequenceMatcher
 
-import ipv4_first  # noqa: F401 — dodge the IPv6 black hole (see module docstring)
+import happy_eyeballs  # noqa: F401 — RFC 8305 connect race (see module docstring)
 
 # Frames sampled per second — every sampled frame is OCR'd. 1 fps is roughly
 # 0.5 s of CPU per video-second on a modest machine; set OCR_FPS=0.5 to halve

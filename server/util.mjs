@@ -84,11 +84,12 @@ export async function ensureCommand(command, installMessage) {
 }
 
 export function runCommand(command, args, options = {}) {
-  const { timeoutMs = 60_000, allowFailure = false, input = null } = options;
+  const { timeoutMs = 60_000, allowFailure = false, input = null, env } = options;
 
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: [input != null ? "pipe" : "ignore", "pipe", "pipe"],
+      env,
     });
     let stdout = "";
     let stderr = "";
