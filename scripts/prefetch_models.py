@@ -17,7 +17,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 sys.path.insert(0, os.path.join(HERE, "..", "server"))
-import ipv4_first  # noqa: E402,F401 — dodge the IPv6 black hole (see module docstring)
+import happy_eyeballs  # noqa: E402,F401 — RFC 8305 connect race (see module docstring)
 
 
 def nllb_model_name() -> str:

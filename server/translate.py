@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-import ipv4_first  # noqa: F401 — dodge the IPv6 black hole (see module docstring)
+import happy_eyeballs  # noqa: F401 — RFC 8305 connect race (see module docstring)
 
 # Reduce CUDA memory fragmentation. Without this, an over-large batch that OOMs
 # leaves the allocator fragmented and even much smaller retries fail — taking

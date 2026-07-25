@@ -15,7 +15,7 @@ import json
 import os
 import sys
 
-import ipv4_first  # noqa: F401 — dodge the IPv6 black hole (see module docstring)
+import happy_eyeballs  # noqa: F401 — RFC 8305 connect race (see module docstring)
 
 # Which Whisper model to load. "auto" (the default) sizes the model to the
 # machine so the app runs well out of the box on anyone's hardware — see

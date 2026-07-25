@@ -119,15 +119,23 @@ const WHISPER_LANG_TO_CODE = {
   // thai: "th", turkish: "tr", ukrainian: "uk", urdu: "ur", vietnamese: "vi",
 };
 
+// Python's socket layer has no happy-eyeballs: on a network that advertises
+// IPv6 but black-holes it, every request hangs until the kernel gives up
+// (~2 min), which surfaces as "yt-dlp timed out". PYTHONPATH puts a
+// sitecustomize.py on yt-dlp's sys.path that loads server/happy_eyeballs.py
+// into its interpreter, so it races IPv6/IPv4 like curl/browsers do.
+const YTDLP_SHIM_DIR = path.join(__dirname, "ytdlp_shim");
+const YTDLP_ENV = {
+  ...process.env,
+  PYTHONPATH: process.env.PYTHONPATH
+    ? `${YTDLP_SHIM_DIR}${path.delimiter}${process.env.PYTHONPATH}`
+    : YTDLP_SHIM_DIR,
+};
+
 async function ytdlpBase() {
   return [
     ...DENO_JS_RUNTIME,
     "--no-playlist",
-    // Python's socket layer has no happy-eyeballs: on a network that
-    // advertises IPv6 but black-holes it, every request hangs until the
-    // kernel gives up (~2 min), which surfaces as "yt-dlp timed out".
-    // curl/browsers fall back to IPv4 instantly, so stay on IPv4.
-    "--force-ipv4",
     // YouTube hands out stream URLs that intermittently 403; yt-dlp's own
     // retries recover most of those without a full re-extraction.
     "--retries", "10",
@@ -143,7 +151,7 @@ async function runYtdlp(args, opts, attempts = 3) {
   let lastErr;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return await runCommand(YTDLP_BIN, args, opts);
+      return await runCommand(YTDLP_BIN, args, { env: YTDLP_ENV, ...opts });
     } catch (err) {
       lastErr = err;
       const transient = /403|forbidden|fragment|unable to download|timed out|connection|temporar/i.test(
@@ -320,7 +328,7 @@ async function getMediaMeta(url) {
   const result = await runCommand(
     YTDLP_BIN,
     [...(await ytdlpBase()), "-J", "--skip-download", url],
-    { timeoutMs: 60_000, allowFailure: true },
+    { timeoutMs: 60_000, allowFailure: true, env: YTDLP_ENV },
   );
   let info;
   try {
@@ -502,7 +510,7 @@ async function getExistingSubtitle(url, workspace, meta, origBase) {
       path.join(workspace, "%(id)s.%(ext)s"),
       url,
     ],
-    { timeoutMs: 90_000, allowFailure: true },
+    { timeoutMs: 90_000, allowFailure: true, env: YTDLP_ENV },
   );
 
   const files = (await listFiles(workspace))
