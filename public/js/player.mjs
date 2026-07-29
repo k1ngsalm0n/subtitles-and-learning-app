@@ -1,6 +1,7 @@
-import { state } from "./state.mjs";
+import { state, deckName } from "./state.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { addCard } from "./flashcards.mjs";
+import { showToast } from "./toast.mjs";
 import { renderTranscript, renderActiveSubtitle } from "./ui.mjs";
 
 // Tracks the active A–B loop, if any: { index, listener }. Only ever one.
@@ -74,5 +75,12 @@ export function loopActiveLine(els) {
 export function saveActiveLine(els) {
   const line = state.subtitles[state.activeIndex];
   if (!line) return;
-  addCard(line.text, getTranslation(line), line.text);
+  const result = addCard({
+    word: line.text,
+    translation: getTranslation(line),
+    example: line.text,
+  });
+  showToast(
+    result.error ? result.error : `Saved the line to ${deckName(result.card.deckId)}.`,
+  );
 }

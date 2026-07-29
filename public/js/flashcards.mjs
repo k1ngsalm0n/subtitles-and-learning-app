@@ -1,35 +1,86 @@
-import { state, saveCards, getCurrentReviewCard } from "./state.mjs";
+import {
+  state,
+  saveCards,
+  getCurrentReviewCard,
+  getTemplate,
+  getDefaultTemplate,
+  getDeck,
+  setLastDeck,
+} from "./state.mjs";
+import { createCard, syncFlattened } from "./carddata.mjs";
 import { renderAll, renderCardList, renderReviewCard, updateStats } from "./ui.mjs";
 
-export function addCard(front, back, example) {
-  const card = {
-    id: crypto.randomUUID(),
-    front: front.trim(),
-    back: back.trim(),
-    example: example.trim(),
-    interval: 1,
-    due: Date.now(),
-    createdAt: Date.now(),
-  };
-  if (!card.front || !card.back) return;
+// Create a card from field values. `values` may carry deckId/templateId/
+// sourceId/sourceTime; missing ones fall back to the last-used deck and the
+// default template. Returns { card } on success or { error } — callers must
+// surface the error (card creation never fails silently).
+export function addCard(values) {
+  const template = getTemplate(values.templateId) || getDefaultTemplate();
+  const deckId = getDeck(values.deckId) ? values.deckId : state.lastDeckId;
+  const card = createCard(values, template, deckId);
+  if (!card.word && !card.translation) {
+    return { error: "The card needs at least a word or a meaning." };
+  }
+  if (!card.front || !card.back) {
+    return {
+      error:
+        "This template would produce an empty card face — fill in the fields it uses.",
+    };
+  }
   state.cards.unshift(card);
+  setLastDeck(card.deckId);
   saveCards();
   renderCardList();
   renderReviewCard();
   updateStats();
+  return { card };
+}
+
+// Apply edits to an existing card (field values, deck, template/field lists).
+export function updateCard(id, changes) {
+  const card = state.cards.find((c) => c.id === id);
+  if (!card) return { error: "That card no longer exists." };
+  Object.assign(card, changes);
+  syncFlattened(card);
+  if (!card.front || !card.back) {
+    return {
+      error:
+        "This template would produce an empty card face — fill in the fields it uses.",
+    };
+  }
+  saveCards();
+  renderAll();
+  return { card };
+}
+
+export function removeCard(id) {
+  const index = state.cards.findIndex((card) => card.id === id);
+  if (index === -1) return null;
+  const [card] = state.cards.splice(index, 1);
+  saveCards();
+  renderAll();
+  return card;
+}
+
+// Undo for quick-add: put a just-removed card back.
+export function restoreCard(card) {
+  state.cards.unshift(card);
+  saveCards();
+  renderAll();
 }
 
 export function flipReviewCard() {
+  if (!getCurrentReviewCard()) return;
   state.showingBack = !state.showingBack;
   renderReviewCard();
 }
 
 export function gradeCard(grade) {
-  // Grade the card currently up for review (most-overdue due card). Grading
-  // pushes its due date into the future, so it leaves the queue and the next
-  // due card becomes current.
+  // Grade the card currently up for review (most-overdue due card in the
+  // selected deck). Grading pushes its due date into the future, so it leaves
+  // the queue and the next due card becomes current.
   const card = getCurrentReviewCard();
-  if (!card) return;
+  if (!card || !state.showingBack) return;
   card.interval = grade === "good" ? Math.min(card.interval * 2, 30) : 1;
   card.due = Date.now() + card.interval * 86400000;
   state.showingBack = false;

@@ -130,6 +130,34 @@ export function validateTemplate(template, existing = []) {
   return null;
 }
 
+// Build a full card from field values + a template. The card copies the
+// template's field lists (and stroke flag) so later template edits/deletions
+// never rewrite existing cards.
+export function createCard(values, template, deckId) {
+  const card = {
+    id:
+      globalThis.crypto?.randomUUID?.() ||
+      `card-${Date.now()}-${Math.floor(Math.random() * 1e9)}`,
+    deckId: deckId || DEFAULT_DECK_ID,
+    templateId: template.id,
+    frontFields: [...template.frontFields],
+    backFields: [...template.backFields],
+    showStrokes: Boolean(template.showStrokes),
+    word: (values.word || "").trim(),
+    pinyin: (values.pinyin || "").trim(),
+    translation: (values.translation || "").trim(),
+    example: (values.example || "").trim(),
+    examplePinyin: (values.examplePinyin || "").trim(),
+    exampleTranslation: (values.exampleTranslation || "").trim(),
+    sourceId: values.sourceId || null,
+    sourceTime: Number.isFinite(values.sourceTime) ? values.sourceTime : null,
+    interval: 1,
+    due: Date.now(),
+    createdAt: Date.now(),
+  };
+  return syncFlattened(card);
+}
+
 // ---- Migration --------------------------------------------------------------
 // Cards from before templates/decks are plain { front, back, example, ... }
 // strings. They become Default-template cards in the Default deck, keeping
@@ -150,6 +178,7 @@ export function migrateCard(card) {
       templateId: template.id,
       frontFields: [...template.frontFields],
       backFields: [...template.backFields],
+      showStrokes: Boolean(card.showStrokes),
       word: card.word ?? card.front ?? "",
       pinyin: card.pinyin ?? "",
       translation: card.translation ?? card.back ?? "",

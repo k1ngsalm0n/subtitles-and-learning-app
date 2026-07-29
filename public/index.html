@@ -477,6 +477,10 @@ rt {
 }
 .card-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
 .card-item p { color: var(--muted); margin-top: 2px; }
+.card-item-body { display: grid; gap: 4px; min-width: 0; }
+.card-item-back .cf { color: var(--muted); }
+.card-item-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.card-item-actions button { height: 30px; padding: 0 10px; font-size: 12px; }
 .danger { color: var(--danger); }
 
 /* Dialog */
@@ -602,6 +606,101 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 :root[data-theme="light"] .bubble-actions button:hover {
   background: rgba(0, 0, 0, 0.1);
 }
+
+/* Toasts */
+.toast-container {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(30, 30, 36, 0.95);
+  color: #f0ece4;
+  font-size: 13px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: toast-pop 0.15s ease-out;
+}
+@keyframes toast-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+:root[data-theme="light"] .toast { background: rgba(30, 30, 36, 0.92); color: #fff; }
+.toast button {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--accent);
+}
+.toast button:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* Shared card faces (see public/js/cardface.mjs) — used identically by the
+   modal preview, the review screen, and the card list. */
+.card-face { display: grid; gap: 6px; justify-items: center; text-align: center; }
+.card-face .cf-word { font-size: 30px; font-weight: 700; }
+.card-face .cf-pinyin { color: var(--muted); font-size: 15px; }
+.card-face .cf-translation { font-size: 18px; }
+.card-face .cf-example { font-size: 15px; line-height: 1.5; }
+.card-face .cf-examplePinyin, .card-face .cf-exampleTranslation { color: var(--muted); font-size: 13px; }
+.card-face .cf-empty { color: var(--muted); opacity: 0.6; }
+.card-face .cf-strokes { justify-self: center; }
+.cf-audio { border: none; background: var(--surface-3); border-radius: 50%; width: 34px; height: 34px; padding: 0; font-size: 15px; }
+.card-face-compact { justify-items: start; text-align: left; gap: 2px; }
+.card-face-compact .cf-word { font-size: 16px; }
+.card-face-compact .cf-translation { font-size: 13px; }
+.card-face-compact .cf-pinyin { font-size: 12px; }
+.card-face-compact .cf-example, .card-face-compact .cf-examplePinyin, .card-face-compact .cf-exampleTranslation { font-size: 12px; }
+
+/* Template manager + editor */
+.card-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tpl-list { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.tpl-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+.tpl-item-body p { margin-top: 2px; font-size: 12px; }
+.tpl-item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.tpl-item-actions button { height: 30px; padding: 0 10px; font-size: 12px; }
+.tpl-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-3);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 6px;
+}
+.tpl-badge-default { color: #000; background: var(--accent); font-weight: 600; }
+.tpl-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tpl-side { border: 1px solid var(--border); border-radius: 8px; padding: 10px; min-width: 0; }
+.tpl-side legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
+.tpl-fields { display: grid; gap: 6px; }
+.tpl-field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.tpl-field input { width: auto; }
+.tpl-field.disabled { opacity: 0.45; }
+.tpl-strokes-row { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.tpl-strokes-row input { width: auto; }
+.tpl-error { min-height: 18px; font-size: 13px; }
 
 /* Stroke order charts (see public/js/strokes.mjs) */
 .stroke-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
@@ -758,7 +857,13 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
             </div>
           </section>
           <section class="card-panel">
-            <div class="section-title"><h2>All cards</h2><button id="exportCards" type="button">Export</button></div>
+            <div class="section-title">
+              <h2>All cards</h2>
+              <div class="card-tools">
+                <button id="manageTemplates" type="button">Templates</button>
+                <button id="exportCards" type="button">Export</button>
+              </div>
+            </div>
             <form id="manualCardForm" class="manual-card">
               <input id="manualFront" type="text" placeholder="Word or phrase" required />
               <input id="manualBack" type="text" placeholder="Meaning" required />
@@ -807,6 +912,46 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
         <menu>
           <button value="cancel" type="submit">Cancel</button>
           <button id="addWordCard" value="default" type="button">Add Flashcard</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="templatesDialog" aria-labelledby="templatesTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="templatesTitle">Card templates</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="templatesList" class="tpl-list"></div>
+        <menu>
+          <button id="newTemplate" type="button">Create template</button>
+          <button value="cancel" type="submit">Done</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="templateDialog" aria-labelledby="tplEditorTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="tplEditorTitle">New template</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <label>Name<input id="tplName" type="text" maxlength="40" /></label>
+        <div class="tpl-sides">
+          <fieldset class="tpl-side">
+            <legend>Front</legend>
+            <div id="tplFrontFields" class="tpl-fields"></div>
+          </fieldset>
+          <fieldset class="tpl-side">
+            <legend>Back</legend>
+            <div id="tplBackFields" class="tpl-fields"></div>
+          </fieldset>
+        </div>
+        <label class="tpl-strokes-row"><input id="tplStrokes" type="checkbox" /> Show stroke order with the word (Chinese)</label>
+        <p id="tplError" class="danger tpl-error" role="alert" aria-live="polite"></p>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="tplSave" type="button">Save template</button>
         </menu>
       </form>
     </dialog>

@@ -1,8 +1,10 @@
-import { state, saveCards, getCurrentReviewCard } from "./state.mjs";
+import { state, getCurrentReviewCard, deckName } from "./state.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
-import { addCard } from "./flashcards.mjs";
+import { addCard, removeCard } from "./flashcards.mjs";
+import { renderCardFace, renderCardSide } from "./cardface.mjs";
+import { showToast } from "./toast.mjs";
 import { lookupWord } from "./lookup.mjs";
 
 export function renderAll(els) {
@@ -283,29 +285,47 @@ export function stopHighlightLoop() {
   }
 }
 
+function cardListItem(card, e) {
+  const item = document.createElement("article");
+  item.className = "card-item";
+  item.dataset.id = card.id;
+
+  const body = document.createElement("div");
+  body.className = "card-item-body";
+  // Both faces go through the shared renderer — same one the review screen
+  // and modal preview use. Strokes stay off in the list (too heavy per row).
+  const front = document.createElement("div");
+  renderCardFace(front, card, card.frontFields, { lang: state.learningLang });
+  front.classList.add("card-face-compact");
+  const back = document.createElement("div");
+  renderCardFace(back, card, card.backFields, { lang: state.learningLang });
+  back.classList.add("card-face-compact", "card-item-back");
+  body.append(front, back);
+
+  const actions = document.createElement("div");
+  actions.className = "card-item-actions";
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "danger";
+  del.textContent = "Delete";
+  del.addEventListener("click", () => removeCard(card.id));
+  actions.append(del);
+
+  item.append(body, actions);
+  return item;
+}
+
 export function renderCardList(els) {
   const e = els || _els;
-  e.cardList.innerHTML =
-    state.cards
-      .map(
-        (card) => `<article class="card-item">
-      <div>
-        <strong>${escapeHtml(card.front)}</strong>
-        <p>${escapeHtml(card.back)}</p>
-      </div>
-      <button class="delete-card danger" type="button" data-id="${card.id}">Delete</button>
-    </article>`,
-      )
-      .join("") ||
-    `<p class="muted">Click words in the transcript or add cards manually.</p>`;
-
-  e.cardList.querySelectorAll(".delete-card").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.cards = state.cards.filter((card) => card.id !== button.dataset.id);
-      saveCards();
-      renderAll(e);
-    });
-  });
+  const cards = state.cards;
+  e.cardList.textContent = "";
+  if (!cards.length) {
+    e.cardList.innerHTML = `<p class="muted">Click words in the transcript or add cards manually.</p>`;
+    return;
+  }
+  for (const card of cards) {
+    e.cardList.appendChild(cardListItem(card, e));
+  }
 }
 
 export function renderReviewCard(els) {
@@ -317,9 +337,17 @@ export function renderReviewCard(els) {
       : "<p>No flashcards yet.</p>";
     return;
   }
-  e.reviewCard.innerHTML = state.showingBack
-    ? `<div><strong>${escapeHtml(card.back)}</strong><p class="muted">${escapeHtml(card.example || card.front)}</p></div>`
-    : `<div><strong>${escapeHtml(card.front)}</strong><p class="muted">Flip to check meaning</p></div>`;
+  const face = document.createElement("div");
+  renderCardSide(face, card, state.showingBack ? "back" : "front", {
+    lang: state.learningLang,
+    // Strokes are part of the card's template; the review screen is exactly
+    // where they should appear.
+  });
+  const hint = document.createElement("p");
+  hint.className = "muted review-hint";
+  hint.textContent = state.showingBack ? "" : "Flip to check the answer";
+  e.reviewCard.textContent = "";
+  e.reviewCard.append(face, hint);
 }
 
 export function renderSources(els) {
@@ -454,8 +482,14 @@ async function openWordBubble(anchor, context, els) {
   positionBubble(bubble, anchor);
 
   bubble.querySelector(".bubble-save").addEventListener("click", () => {
-    const back = [result.pronunciation, result.meaning].filter(Boolean).join(" — ");
-    addCard(word, back || "Add your meaning", context);
+    const added = addCard({
+      word,
+      pinyin: result.pronunciation || "",
+      translation: result.meaning || (result.defs || [])[0] || "",
+      example: context,
+    });
+    if (added.error) showToast(added.error);
+    else showToast(`Added to ${deckName(added.card.deckId)}.`);
     closeBubble();
   });
   bubble.querySelector(".bubble-edit").addEventListener("click", () => {
@@ -468,11 +502,15 @@ async function openWordBubble(anchor, context, els) {
 }
 
 export function addDialogCard(els) {
-  addCard(
-    state.selectedWord,
-    els.dialogMeaning.value || "Add your meaning",
-    els.dialogExample.value,
-  );
+  const result = addCard({
+    word: state.selectedWord,
+    translation: els.dialogMeaning.value,
+    example: els.dialogExample.value,
+  });
+  if (result.error) {
+    showToast(result.error);
+    return;
+  }
   els.wordDialog.close();
 }
 

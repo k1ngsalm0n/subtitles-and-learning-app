@@ -1,6 +1,8 @@
 import { state, saveSources, STORAGE_KEYS } from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import { addCard, flipReviewCard, gradeCard, shuffleCards, exportCards } from "./flashcards.mjs";
+import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
+import { showToast } from "./toast.mjs";
 import { syncToVideo, loopActiveLine, saveActiveLine } from "./player.mjs";
 import {
   populateLanguageSelects,
@@ -79,6 +81,18 @@ const els = {
   dialogMeaning: document.querySelector("#dialogMeaning"),
   dialogExample: document.querySelector("#dialogExample"),
   addWordCard: document.querySelector("#addWordCard"),
+  manageTemplates: document.querySelector("#manageTemplates"),
+  templatesDialog: document.querySelector("#templatesDialog"),
+  templatesList: document.querySelector("#templatesList"),
+  newTemplate: document.querySelector("#newTemplate"),
+  templateDialog: document.querySelector("#templateDialog"),
+  tplEditorTitle: document.querySelector("#tplEditorTitle"),
+  tplName: document.querySelector("#tplName"),
+  tplFrontFields: document.querySelector("#tplFrontFields"),
+  tplBackFields: document.querySelector("#tplBackFields"),
+  tplStrokes: document.querySelector("#tplStrokes"),
+  tplError: document.querySelector("#tplError"),
+  tplSave: document.querySelector("#tplSave"),
 };
 
 setElements(els);
@@ -93,6 +107,8 @@ function init() {
   renderAll(els);
   setupTranscriptDelegation(els);
   setupMiniPlayer(els);
+  setupTemplateEditor(els);
+  setupTemplateManager(els, () => renderAll(els));
   loadCookieSettings();
 }
 
@@ -165,8 +181,16 @@ async function readSubtitleInputs() {
 
 function addManualCard(event) {
   event.preventDefault();
-  addCard(els.manualFront.value, els.manualBack.value, "");
+  const result = addCard({
+    word: els.manualFront.value,
+    translation: els.manualBack.value,
+  });
+  if (result.error) {
+    showToast(result.error);
+    return;
+  }
   els.manualCardForm.reset();
+  els.manualFront.focus();
 }
 
 function showProgress(message, percent) {
