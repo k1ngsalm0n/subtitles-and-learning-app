@@ -43,7 +43,9 @@ import {
   setElements,
   setSourceStatus,
   setSourceJumper,
+  setPracticeOpener,
 } from "./ui.mjs";
+import { setupPractice, openPractice } from "./practice.mjs";
 import { setupMiniPlayer } from "./miniplayer.mjs";
 
 const els = {
@@ -123,6 +125,17 @@ const els = {
   renameDeckCancel: document.querySelector("#renameDeckCancel"),
   renameDeckError: document.querySelector("#renameDeckError"),
   deleteDeck: document.querySelector("#deleteDeck"),
+  practiceDialog: document.querySelector("#practiceDialog"),
+  practiceMain: document.querySelector("#practiceMain"),
+  practiceChar: document.querySelector("#practiceChar"),
+  practiceProgress: document.querySelector("#practiceProgress"),
+  practiceBoard: document.querySelector("#practiceBoard"),
+  practiceFeedback: document.querySelector("#practiceFeedback"),
+  practiceHint: document.querySelector("#practiceHint"),
+  practiceReveal: document.querySelector("#practiceReveal"),
+  practiceSummary: document.querySelector("#practiceSummary"),
+  practiceSummaryText: document.querySelector("#practiceSummaryText"),
+  practiceGradeRow: document.querySelector("#practiceGradeRow"),
   deckSettings: document.querySelector("#deckSettings"),
   deckSettingsDialog: document.querySelector("#deckSettingsDialog"),
   deckNewPerDay: document.querySelector("#deckNewPerDay"),
@@ -164,6 +177,8 @@ function init() {
   setupTemplateEditor(els);
   setupTemplateManager(els, () => renderAll(els));
   setupCardModal(els);
+  setupPractice(els);
+  setPracticeOpener(openPractice);
   setSourceJumper(jumpToSource);
   loadCookieSettings();
 }

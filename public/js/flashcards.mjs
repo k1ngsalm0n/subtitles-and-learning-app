@@ -151,12 +151,9 @@ export function flipReviewCard() {
   renderReviewCard();
 }
 
-export function gradeCard(grade) {
-  // Grade the card at the head of the review queue with minimal SM-2
-  // (public/js/scheduler.mjs). "Again" keeps the card in today's queue via a
-  // short learning step instead of pushing it a day away.
-  const card = getCurrentReviewCard();
-  if (!card || !state.showingBack) return;
+// Apply an SM-2 grade to a specific card (used by the review buttons and by
+// stroke practice feeding its result back).
+export function applyGrade(card, grade) {
   recordStudy(card); // counts against daily limits, using the pre-grade state
   Object.assign(card, schedule(card, grade));
   state.showingBack = false;
@@ -164,6 +161,15 @@ export function gradeCard(grade) {
   renderReviewCard();
   renderDeckNav();
   updateStats();
+}
+
+export function gradeCard(grade) {
+  // Grade the card at the head of the review queue with minimal SM-2
+  // (public/js/scheduler.mjs). "Again" keeps the card in today's queue via a
+  // short learning step instead of pushing it a day away.
+  const card = getCurrentReviewCard();
+  if (!card || !state.showingBack) return;
+  applyGrade(card, grade);
 }
 
 export function shuffleCards() {

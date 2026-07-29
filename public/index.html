@@ -864,6 +864,43 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
 .new-deck-row input { flex: 1 1 140px; }
 .new-deck-row .danger { font-size: 12px; flex-basis: 100%; }
 
+/* Stroke practice (see public/js/practice.mjs) */
+.practice-status { display: flex; align-items: baseline; gap: 12px; }
+.practice-char { font-size: 28px; font-weight: 700; }
+.practice-board {
+  width: min(340px, 78vw);
+  aspect-ratio: 1;
+  display: block;
+  margin: 0 auto;
+  background: var(--surface-2);
+  border-radius: 12px;
+  touch-action: none;
+  cursor: crosshair;
+}
+.practice-feedback { min-height: 20px; font-size: 13px; color: var(--muted); }
+.practice-feedback.danger { color: var(--danger); }
+.practice-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.practice-actions button.suggested { border-color: var(--accent); font-weight: 600; }
+.pboard-stroke {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 34;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pboard-stroke.pboard-wrong { stroke: var(--danger); }
+.pboard-accepted { fill: var(--text); }
+.pboard-revealed { fill: var(--muted); opacity: 0.75; }
+.pboard-ghost { fill: var(--text); opacity: 0.15; }
+.pboard-hint-line {
+  fill: none;
+  stroke: var(--accent-2);
+  stroke-width: 90;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+
 /* Stroke order charts (see public/js/strokes.mjs) */
 .stroke-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 .stroke-block { position: relative; }
@@ -1131,6 +1168,37 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
           <button value="cancel" type="submit">Cancel</button>
           <button id="modalSave" type="button">Add card</button>
         </menu>
+      </form>
+    </dialog>
+
+    <dialog id="practiceDialog" aria-labelledby="practiceTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="practiceTitle">Stroke practice</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="practiceMain">
+          <div class="practice-status">
+            <span id="practiceChar" class="practice-char"></span>
+            <span id="practiceProgress" class="muted"></span>
+          </div>
+          <svg id="practiceBoard" class="practice-board" viewBox="0 0 1024 1024" aria-label="Drawing area"></svg>
+          <p id="practiceFeedback" class="practice-feedback" role="status" aria-live="polite"></p>
+          <div class="practice-actions">
+            <button type="button" id="practiceHint">Hint</button>
+            <button type="button" id="practiceReveal">Reveal stroke</button>
+          </div>
+        </div>
+        <div id="practiceSummary" hidden>
+          <p id="practiceSummaryText"></p>
+          <div id="practiceGradeRow" class="practice-actions" hidden>
+            <span class="muted">Grade this card:</span>
+            <button type="button" data-pgrade="again">Again</button>
+            <button type="button" data-pgrade="hard">Hard</button>
+            <button type="button" data-pgrade="good">Good</button>
+          </div>
+          <menu><button value="cancel" type="submit">Close</button></menu>
+        </div>
       </form>
     </dialog>
 
