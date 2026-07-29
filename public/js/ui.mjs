@@ -4,6 +4,7 @@ import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
 import { addCard, removeCard } from "./flashcards.mjs";
 import { renderCardFace, renderCardSide } from "./cardface.mjs";
+import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
 import { lookupWord } from "./lookup.mjs";
 
@@ -304,12 +305,16 @@ function cardListItem(card, e) {
 
   const actions = document.createElement("div");
   actions.className = "card-item-actions";
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.textContent = "Edit";
+  edit.addEventListener("click", () => openCardModal({ card }));
   const del = document.createElement("button");
   del.type = "button";
   del.className = "danger";
   del.textContent = "Delete";
   del.addEventListener("click", () => removeCard(card.id));
-  actions.append(del);
+  actions.append(edit, del);
 
   item.append(body, actions);
   return item;
@@ -373,15 +378,6 @@ export function updateStats(els) {
   e.reviewDue.textContent = state.cards.filter(
     (card) => card.due <= Date.now(),
   ).length;
-}
-
-function openWordDialog(word, els, prefill = {}) {
-  const line = state.subtitles[state.activeIndex];
-  state.selectedWord = word;
-  els.dialogWord.textContent = word;
-  els.dialogMeaning.value = prefill.meaning || "";
-  els.dialogExample.value = prefill.example ?? line?.text ?? "";
-  els.wordDialog.showModal();
 }
 
 let _bubble = null;
@@ -494,24 +490,18 @@ async function openWordBubble(anchor, context, els) {
   });
   bubble.querySelector(".bubble-edit").addEventListener("click", () => {
     closeBubble();
-    openWordDialog(word, els, {
-      meaning: [result.pronunciation, result.meaning].filter(Boolean).join(" — "),
+    const line = state.subtitles[state.activeIndex];
+    openCardModal({
+      word,
       example: context,
+      prefill: {
+        pinyin: result.pronunciation || "",
+        translation: result.meaning || (result.defs || [])[0] || "",
+      },
+      sourceId: state.currentSourceId,
+      sourceTime: line?.start ?? null,
     });
   });
-}
-
-export function addDialogCard(els) {
-  const result = addCard({
-    word: state.selectedWord,
-    translation: els.dialogMeaning.value,
-    example: els.dialogExample.value,
-  });
-  if (result.error) {
-    showToast(result.error);
-    return;
-  }
-  els.wordDialog.close();
 }
 
 export function setSourceStatus(message, els) {

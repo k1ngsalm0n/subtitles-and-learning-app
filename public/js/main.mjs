@@ -1,7 +1,8 @@
 import { state, saveSources, STORAGE_KEYS } from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
-import { addCard, flipReviewCard, gradeCard, shuffleCards, exportCards } from "./flashcards.mjs";
+import { flipReviewCard, gradeCard, shuffleCards, exportCards } from "./flashcards.mjs";
 import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
+import { setupCardModal, openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
 import { syncToVideo, loopActiveLine, saveActiveLine } from "./player.mjs";
 import {
@@ -21,7 +22,6 @@ import {
   renderReviewCard,
   setElements,
   setSourceStatus,
-  addDialogCard,
 } from "./ui.mjs";
 import { setupMiniPlayer } from "./miniplayer.mjs";
 
@@ -61,9 +61,6 @@ const els = {
   markGood: document.querySelector("#markGood"),
   shuffleCards: document.querySelector("#shuffleCards"),
   exportCards: document.querySelector("#exportCards"),
-  manualCardForm: document.querySelector("#manualCardForm"),
-  manualFront: document.querySelector("#manualFront"),
-  manualBack: document.querySelector("#manualBack"),
   sourceList: document.querySelector("#sourceList"),
   cookieModeNone: document.querySelector("#cookieModeNone"),
   cookieModeBrowser: document.querySelector("#cookieModeBrowser"),
@@ -76,11 +73,25 @@ const els = {
   cookieStatus: document.querySelector("#cookieStatus"),
   progressWrap: document.querySelector("#progressWrap"),
   progressFill: document.querySelector("#progressFill"),
-  wordDialog: document.querySelector("#wordDialog"),
-  dialogWord: document.querySelector("#dialogWord"),
-  dialogMeaning: document.querySelector("#dialogMeaning"),
-  dialogExample: document.querySelector("#dialogExample"),
-  addWordCard: document.querySelector("#addWordCard"),
+  cardModal: document.querySelector("#cardModal"),
+  cardModalTitle: document.querySelector("#cardModalTitle"),
+  dupeNotice: document.querySelector("#dupeNotice"),
+  dupeText: document.querySelector("#dupeText"),
+  dupeOpen: document.querySelector("#dupeOpen"),
+  templatePicker: document.querySelector("#templatePicker"),
+  previewSide: document.querySelector("#previewSide"),
+  previewFlip: document.querySelector("#previewFlip"),
+  previewFace: document.querySelector("#previewFace"),
+  modalFields: document.querySelector("#modalFields"),
+  modalDeck: document.querySelector("#modalDeck"),
+  modalNewDeck: document.querySelector("#modalNewDeck"),
+  modalNewDeckRow: document.querySelector("#modalNewDeckRow"),
+  modalNewDeckName: document.querySelector("#modalNewDeckName"),
+  modalNewDeckCreate: document.querySelector("#modalNewDeckCreate"),
+  modalDeckError: document.querySelector("#modalDeckError"),
+  modalError: document.querySelector("#modalError"),
+  modalSave: document.querySelector("#modalSave"),
+  newCardButton: document.querySelector("#newCardButton"),
   manageTemplates: document.querySelector("#manageTemplates"),
   templatesDialog: document.querySelector("#templatesDialog"),
   templatesList: document.querySelector("#templatesList"),
@@ -109,6 +120,7 @@ function init() {
   setupMiniPlayer(els);
   setupTemplateEditor(els);
   setupTemplateManager(els, () => renderAll(els));
+  setupCardModal(els);
   loadCookieSettings();
 }
 
@@ -130,13 +142,12 @@ function bindEvents() {
   els.translateButton.addEventListener("click", () => runTranslation(els));
   els.queueUrl.addEventListener("click", () => importSourceUrl());
   els.sourceUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") importSourceUrl(); });
-  els.manualCardForm.addEventListener("submit", addManualCard);
+  els.newCardButton.addEventListener("click", () => openCardModal());
   els.flipCard.addEventListener("click", flipReviewCard);
   els.markHard.addEventListener("click", () => gradeCard("hard"));
   els.markGood.addEventListener("click", () => gradeCard("good"));
   els.shuffleCards.addEventListener("click", shuffleCards);
   els.exportCards.addEventListener("click", exportCards);
-  els.addWordCard.addEventListener("click", () => addDialogCard(els));
 
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
@@ -179,19 +190,6 @@ async function readSubtitleInputs() {
 }
 
 
-function addManualCard(event) {
-  event.preventDefault();
-  const result = addCard({
-    word: els.manualFront.value,
-    translation: els.manualBack.value,
-  });
-  if (result.error) {
-    showToast(result.error);
-    return;
-  }
-  els.manualCardForm.reset();
-  els.manualFront.focus();
-}
 
 function showProgress(message, percent) {
   els.progressWrap.classList.add("visible");

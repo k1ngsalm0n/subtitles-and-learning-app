@@ -1,6 +1,7 @@
 import {
   state,
   saveCards,
+  saveDecks,
   getCurrentReviewCard,
   getTemplate,
   getDefaultTemplate,
@@ -67,6 +68,26 @@ export function restoreCard(card) {
   state.cards.unshift(card);
   saveCards();
   renderAll();
+}
+
+// Create a deck by name. Returns { deck } or { error } (empty or duplicate
+// names are rejected with a message, never silently).
+export function addDeck(name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return { error: "Deck name can't be empty." };
+  const clash = state.decks.find(
+    (deck) => deck.name.trim().toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (clash) return { error: `A deck named "${clash.name}" already exists.` };
+  const deck = {
+    id: `deck-${crypto.randomUUID()}`,
+    name: trimmed,
+    createdAt: Date.now(),
+    builtIn: false,
+  };
+  state.decks.push(deck);
+  saveDecks();
+  return { deck };
 }
 
 export function flipReviewCard() {

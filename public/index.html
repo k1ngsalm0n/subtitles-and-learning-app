@@ -702,6 +702,70 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .tpl-strokes-row input { width: auto; }
 .tpl-error { min-height: 18px; font-size: 13px; }
 
+/* Add/edit card modal */
+dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
+.dupe-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-2) 15%, transparent);
+  font-size: 13px;
+}
+.dupe-notice button { height: 28px; min-height: 28px; padding: 0 10px; font-size: 12px; }
+.template-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+.template-option {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 15px;
+}
+.template-option.active { background: var(--accent); color: #000; border-color: transparent; font-weight: 600; }
+.template-create { color: var(--muted); border-style: dashed; }
+.preview-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 10px 14px 18px;
+}
+.preview-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.preview-topbar button { height: 28px; min-height: 28px; padding: 0 10px; font-size: 12px; }
+.preview-face { min-height: 110px; align-content: center; }
+.modal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal-field { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+.modal-field.loading input {
+  background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 18%, transparent), transparent);
+  background-size: 200% 100%;
+  animation: field-shimmer 1.2s linear infinite;
+}
+@keyframes field-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.deck-row { display: flex; align-items: end; gap: 8px; }
+.deck-label { flex: 1; display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+.deck-label select {
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 8px;
+  font-size: 13px;
+}
+.new-deck-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.new-deck-row input { flex: 1 1 140px; }
+.new-deck-row .danger { font-size: 12px; flex-basis: 100%; }
+
 /* Stroke order charts (see public/js/strokes.mjs) */
 .stroke-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 .stroke-block { position: relative; }
@@ -864,11 +928,9 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
                 <button id="exportCards" type="button">Export</button>
               </div>
             </div>
-            <form id="manualCardForm" class="manual-card">
-              <input id="manualFront" type="text" placeholder="Word or phrase" required />
-              <input id="manualBack" type="text" placeholder="Meaning" required />
-              <button type="submit">Add</button>
-            </form>
+            <div class="manual-card">
+              <button id="newCardButton" type="button">+ New card</button>
+            </div>
             <div id="cardList" class="card-list"></div>
           </section>
         </div>
@@ -901,17 +963,40 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
       </section>
     </main>
 
-    <dialog id="wordDialog">
+    <dialog id="cardModal" class="card-modal" aria-labelledby="cardModalTitle">
       <form method="dialog" class="word-form">
         <div class="section-title">
-          <h2 id="dialogWord">Word</h2>
+          <h2 id="cardModalTitle">New flashcard</h2>
           <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
         </div>
-        <label>Meaning<input id="dialogMeaning" type="text" /></label>
-        <label>Example<textarea id="dialogExample" rows="3"></textarea></label>
+        <p id="dupeNotice" class="dupe-notice" hidden>
+          <span id="dupeText"></span>
+          <button type="button" id="dupeOpen">Edit that card</button>
+        </p>
+        <div id="templatePicker" class="template-picker" role="radiogroup" aria-label="Card template"></div>
+        <div class="preview-wrap">
+          <div class="preview-topbar">
+            <span id="previewSide" class="muted">Front</span>
+            <button type="button" id="previewFlip">Flip to back</button>
+          </div>
+          <div id="previewFace" class="preview-face card-face" aria-live="polite"></div>
+        </div>
+        <div id="modalFields" class="modal-fields"></div>
+        <div class="deck-row">
+          <label class="deck-label">Deck
+            <select id="modalDeck" aria-label="Deck"></select>
+          </label>
+          <button type="button" id="modalNewDeck">+ New deck</button>
+        </div>
+        <div id="modalNewDeckRow" class="new-deck-row" hidden>
+          <input id="modalNewDeckName" type="text" placeholder="Deck name" maxlength="40" aria-label="New deck name" />
+          <button type="button" id="modalNewDeckCreate">Create</button>
+          <span id="modalDeckError" class="danger"></span>
+        </div>
+        <p id="modalError" class="danger tpl-error" role="alert" aria-live="polite"></p>
         <menu>
           <button value="cancel" type="submit">Cancel</button>
-          <button id="addWordCard" value="default" type="button">Add Flashcard</button>
+          <button id="modalSave" type="button">Add card</button>
         </menu>
       </form>
     </dialog>
