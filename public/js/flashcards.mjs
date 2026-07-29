@@ -8,7 +8,7 @@ import {
   getDeck,
   setLastDeck,
 } from "./state.mjs";
-import { createCard, syncFlattened } from "./carddata.mjs";
+import { createCard, syncFlattened, DEFAULT_DECK_ID } from "./carddata.mjs";
 import { renderAll, renderCardList, renderReviewCard, updateStats } from "./ui.mjs";
 
 // Create a card from field values. `values` may carry deckId/templateId/
@@ -88,6 +88,52 @@ export function addDeck(name) {
   state.decks.push(deck);
   saveDecks();
   return { deck };
+}
+
+export function renameDeck(id, name) {
+  const deck = getDeck(id);
+  if (!deck || deck.builtIn) return { error: "This deck can't be renamed." };
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return { error: "Deck name can't be empty." };
+  const clash = state.decks.find(
+    (other) =>
+      other.id !== id &&
+      other.name.trim().toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (clash) return { error: `A deck named "${clash.name}" already exists.` };
+  deck.name = trimmed;
+  saveDecks();
+  renderAll();
+  return { deck };
+}
+
+// Delete a deck. Its cards either move to the Default deck
+// (mode "move", the default) or are deleted with it (mode "delete").
+export function deleteDeck(id, mode = "move") {
+  const deck = getDeck(id);
+  if (!deck || deck.builtIn) return { error: "The Default deck can't be deleted." };
+  state.decks = state.decks.filter((other) => other.id !== id);
+  if (mode === "delete") {
+    state.cards = state.cards.filter((card) => card.deckId !== id);
+  } else {
+    for (const card of state.cards) {
+      if (card.deckId === id) card.deckId = DEFAULT_DECK_ID;
+    }
+  }
+  if (state.selectedDeckId === id) state.selectedDeckId = "all";
+  if (state.lastDeckId === id) setLastDeck(DEFAULT_DECK_ID);
+  saveDecks();
+  saveCards();
+  renderAll();
+  return {};
+}
+
+export function moveCardToDeck(cardId, deckId) {
+  const card = state.cards.find((c) => c.id === cardId);
+  if (!card || !getDeck(deckId)) return;
+  card.deckId = deckId;
+  saveCards();
+  renderAll();
 }
 
 export function flipReviewCard() {

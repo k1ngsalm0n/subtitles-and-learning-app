@@ -1,8 +1,15 @@
-import { state, getCurrentReviewCard, deckName } from "./state.mjs";
+import {
+  state,
+  getCurrentReviewCard,
+  getDueCards,
+  cardsInDeck,
+  deckName,
+  getDeck,
+} from "./state.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
-import { addCard, removeCard } from "./flashcards.mjs";
+import { addCard, removeCard, moveCardToDeck } from "./flashcards.mjs";
 import { renderCardFace, renderCardSide } from "./cardface.mjs";
 import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
@@ -14,6 +21,8 @@ export function renderAll(els) {
   const e = els || _els;
   renderTranscript(e);
   renderActiveSubtitle(e);
+  renderDeckNav(e);
+  renderDeckHeader(e);
   renderCardList(e);
   renderReviewCard(e);
   renderSources(e);
@@ -286,6 +295,65 @@ export function stopHighlightLoop() {
   }
 }
 
+// ---- Cards view: deck sidebar, header, filtered list -----------------------
+
+export function renderDeckNav(els) {
+  const e = els || _els;
+  const item = (deckId, label) => {
+    const total = cardsInDeck(deckId).length;
+    const due = getDueCards(deckId).length;
+    const active = state.selectedDeckId === deckId;
+    return `<button type="button" class="deck-nav-item ${active ? "active" : ""}" data-deck="${escapeHtml(deckId)}">
+      <span class="deck-nav-name">${escapeHtml(label)}</span>
+      <span class="deck-nav-counts">${due ? `<span class="deck-due">${due} due</span>` : ""}<span class="deck-count">${total}</span></span>
+    </button>`;
+  };
+  e.deckNav.innerHTML = [
+    item("all", "All decks"),
+    ...state.decks.map((deck) => item(deck.id, deck.name)),
+  ].join("");
+
+  e.deckNav.querySelectorAll(".deck-nav-item").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedDeckId = button.dataset.deck;
+      state.showingBack = false;
+      renderDeckNav(e);
+      renderDeckHeader(e);
+      renderCardList(e);
+      renderReviewCard(e);
+    });
+  });
+}
+
+export function renderDeckHeader(els) {
+  const e = els || _els;
+  const id = state.selectedDeckId;
+  e.deckTitle.textContent = deckName(id);
+  // Rename/Delete apply only to user decks — not "All decks", not the
+  // built-in Default deck.
+  const deck = getDeck(id);
+  const editable = Boolean(deck && !deck.builtIn);
+  e.renameDeck.hidden = !editable;
+  e.deleteDeck.hidden = !editable;
+  if (!editable) e.renameDeckForm.hidden = true;
+}
+
+function cardMatchesSearch(card, query) {
+  if (!query) return true;
+  return [
+    card.word,
+    card.pinyin,
+    card.translation,
+    card.example,
+    card.exampleTranslation,
+    card.front,
+    card.back,
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
+}
+
 function cardListItem(card, e) {
   const item = document.createElement("article");
   item.className = "card-item";
@@ -303,6 +371,14 @@ function cardListItem(card, e) {
   back.classList.add("card-face-compact", "card-item-back");
   body.append(front, back);
 
+  // Deck chip when browsing all decks, so cards show where they live.
+  if (state.selectedDeckId === "all") {
+    const chip = document.createElement("span");
+    chip.className = "deck-chip";
+    chip.textContent = deckName(card.deckId);
+    body.prepend(chip);
+  }
+
   const actions = document.createElement("div");
   actions.className = "card-item-actions";
   const edit = document.createElement("button");
@@ -314,7 +390,21 @@ function cardListItem(card, e) {
   del.className = "danger";
   del.textContent = "Delete";
   del.addEventListener("click", () => removeCard(card.id));
-  actions.append(edit, del);
+
+  // Move between decks straight from the list.
+  const move = document.createElement("select");
+  move.className = "card-move";
+  move.setAttribute("aria-label", "Move to deck");
+  for (const deck of state.decks) {
+    const option = document.createElement("option");
+    option.value = deck.id;
+    option.textContent = deck.name;
+    move.appendChild(option);
+  }
+  move.value = getDeck(card.deckId) ? card.deckId : "default";
+  move.addEventListener("change", () => moveCardToDeck(card.id, move.value));
+
+  actions.append(edit, move, del);
 
   item.append(body, actions);
   return item;
@@ -322,10 +412,17 @@ function cardListItem(card, e) {
 
 export function renderCardList(els) {
   const e = els || _els;
-  const cards = state.cards;
+  const query = (state.cardSearch || "").trim().toLowerCase();
+  const cards = cardsInDeck(state.selectedDeckId).filter((card) =>
+    cardMatchesSearch(card, query),
+  );
   e.cardList.textContent = "";
   if (!cards.length) {
-    e.cardList.innerHTML = `<p class="muted">Click words in the transcript or add cards manually.</p>`;
+    e.cardList.innerHTML = `<p class="muted">${
+      query
+        ? "No cards match your search."
+        : "Click words in the transcript or add cards manually."
+    }</p>`;
     return;
   }
   for (const card of cards) {
@@ -335,13 +432,21 @@ export function renderCardList(els) {
 
 export function renderReviewCard(els) {
   const e = els || _els;
-  const card = getCurrentReviewCard();
+  const due = getDueCards();
+  const card = due[0] || null;
+  e.reviewProgress.textContent = card ? `${due.length} to review` : "";
+
   if (!card) {
-    e.reviewCard.innerHTML = state.cards.length
-      ? "<p>All caught up — no cards due for review.</p>"
-      : "<p>No flashcards yet.</p>";
+    const total = cardsInDeck(state.selectedDeckId).length;
+    e.reviewCard.innerHTML = total
+      ? "<p>All caught up — no cards due in this deck.</p>"
+      : "<p>No flashcards in this deck yet.</p>";
+    e.flipCard.hidden = true;
+    e.markHard.hidden = true;
+    e.markGood.hidden = true;
     return;
   }
+
   const face = document.createElement("div");
   renderCardSide(face, card, state.showingBack ? "back" : "front", {
     lang: state.learningLang,
@@ -353,6 +458,12 @@ export function renderReviewCard(els) {
   hint.textContent = state.showingBack ? "" : "Flip to check the answer";
   e.reviewCard.textContent = "";
   e.reviewCard.append(face, hint);
+
+  // Grading an answer you haven't seen is meaningless — show Hard/Good only
+  // after the flip.
+  e.flipCard.hidden = state.showingBack;
+  e.markHard.hidden = !state.showingBack;
+  e.markGood.hidden = !state.showingBack;
 }
 
 export function renderSources(els) {

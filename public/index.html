@@ -445,16 +445,80 @@ rt {
 }
 
 /* Cards & Library views */
-.cards-layout, .library-layout {
+.cards-layout {
+  display: grid;
+  grid-template-columns: 230px 360px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.library-layout {
   display: grid;
   grid-template-columns: 380px 1fr;
   gap: 20px;
 }
-.review-panel, .card-panel, .panel {
+.review-panel, .card-panel, .deck-sidebar, .panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   padding: 16px;
+}
+
+/* Deck sidebar */
+.deck-nav { display: grid; gap: 4px; }
+.deck-nav-item {
+  height: auto;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+}
+.deck-nav-item:hover { background: var(--surface-2); color: var(--text); }
+.deck-nav-item.active { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.deck-nav-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.deck-nav-counts { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.deck-count {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-3);
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.deck-due {
+  font-size: 11px;
+  font-weight: 600;
+  color: #000;
+  background: var(--accent-2);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.deck-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.deck-delete-choice { display: flex; align-items: center; gap: 8px; }
+.deck-delete-choice input { width: auto; }
+#cardSearch { width: 160px; }
+.card-move {
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 6px;
+  max-width: 130px;
 }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .review-card {
@@ -810,8 +874,13 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
   }
   .transcript-pane { position: static; max-height: 70vh; }
 }
+@media (max-width: 1250px) {
+  .cards-layout { grid-template-columns: 210px 1fr; }
+  .deck-sidebar { grid-row: span 2; }
+}
 @media (max-width: 900px) {
   .cards-layout, .library-layout { grid-template-columns: 1fr; }
+  .deck-sidebar { grid-row: auto; }
 }
     </style>
   </head>
@@ -911,8 +980,22 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
 
       <section id="cardsView" class="view">
         <div class="cards-layout">
+          <aside class="deck-sidebar">
+            <div class="section-title"><h2>Decks</h2><button id="newDeck" type="button">+ New</button></div>
+            <form id="newDeckForm" class="new-deck-row" hidden>
+              <input id="newDeckName" type="text" placeholder="Deck name" maxlength="40" aria-label="New deck name" />
+              <button type="submit">Add</button>
+              <span id="newDeckError" class="danger"></span>
+            </form>
+            <nav id="deckNav" class="deck-nav" aria-label="Decks"></nav>
+          </aside>
+
           <section class="review-panel">
-            <div class="section-title"><h2>Review</h2><button id="shuffleCards" type="button">Shuffle</button></div>
+            <div class="section-title">
+              <h2>Review</h2>
+              <span id="reviewProgress" class="muted"></span>
+              <button id="shuffleCards" type="button">Shuffle</button>
+            </div>
             <div id="reviewCard" class="review-card"><p>No flashcards yet.</p></div>
             <div class="card-actions">
               <button id="flipCard" type="button">Flip</button>
@@ -920,14 +1003,24 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
               <button id="markGood" type="button">Good</button>
             </div>
           </section>
+
           <section class="card-panel">
             <div class="section-title">
-              <h2>All cards</h2>
+              <h2 id="deckTitle">All decks</h2>
               <div class="card-tools">
+                <input id="cardSearch" type="search" placeholder="Search cards" aria-label="Search cards" />
+                <button id="renameDeck" type="button" hidden>Rename</button>
+                <button id="deleteDeck" type="button" class="danger" hidden>Delete deck</button>
                 <button id="manageTemplates" type="button">Templates</button>
                 <button id="exportCards" type="button">Export</button>
               </div>
             </div>
+            <form id="renameDeckForm" class="new-deck-row" hidden>
+              <input id="renameDeckName" type="text" maxlength="40" aria-label="New deck name" />
+              <button type="submit">Save</button>
+              <button type="button" id="renameDeckCancel">Cancel</button>
+              <span id="renameDeckError" class="danger"></span>
+            </form>
             <div class="manual-card">
               <button id="newCardButton" type="button">+ New card</button>
             </div>
@@ -997,6 +1090,22 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
         <menu>
           <button value="cancel" type="submit">Cancel</button>
           <button id="modalSave" type="button">Add card</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="deckDeleteDialog" aria-labelledby="deckDeleteTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="deckDeleteTitle">Delete deck</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <p id="deckDeleteText"></p>
+        <label class="deck-delete-choice"><input type="radio" name="deckDeleteMode" value="move" checked /> Move its cards to the Default deck</label>
+        <label class="deck-delete-choice"><input type="radio" name="deckDeleteMode" value="delete" /> Delete the cards too</label>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="deckDeleteConfirm" type="button" class="danger">Delete deck</button>
         </menu>
       </form>
     </dialog>

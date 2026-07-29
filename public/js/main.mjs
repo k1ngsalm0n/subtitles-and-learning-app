@@ -1,6 +1,14 @@
-import { state, saveSources, STORAGE_KEYS } from "./state.mjs";
+import { state, saveSources, getDeck, cardsInDeck, STORAGE_KEYS } from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
-import { flipReviewCard, gradeCard, shuffleCards, exportCards } from "./flashcards.mjs";
+import {
+  flipReviewCard,
+  gradeCard,
+  shuffleCards,
+  exportCards,
+  addDeck,
+  renameDeck,
+  deleteDeck,
+} from "./flashcards.mjs";
 import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
 import { setupCardModal, openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
@@ -92,6 +100,23 @@ const els = {
   modalError: document.querySelector("#modalError"),
   modalSave: document.querySelector("#modalSave"),
   newCardButton: document.querySelector("#newCardButton"),
+  deckNav: document.querySelector("#deckNav"),
+  deckTitle: document.querySelector("#deckTitle"),
+  newDeck: document.querySelector("#newDeck"),
+  newDeckForm: document.querySelector("#newDeckForm"),
+  newDeckName: document.querySelector("#newDeckName"),
+  newDeckError: document.querySelector("#newDeckError"),
+  renameDeck: document.querySelector("#renameDeck"),
+  renameDeckForm: document.querySelector("#renameDeckForm"),
+  renameDeckName: document.querySelector("#renameDeckName"),
+  renameDeckCancel: document.querySelector("#renameDeckCancel"),
+  renameDeckError: document.querySelector("#renameDeckError"),
+  deleteDeck: document.querySelector("#deleteDeck"),
+  deckDeleteDialog: document.querySelector("#deckDeleteDialog"),
+  deckDeleteText: document.querySelector("#deckDeleteText"),
+  deckDeleteConfirm: document.querySelector("#deckDeleteConfirm"),
+  cardSearch: document.querySelector("#cardSearch"),
+  reviewProgress: document.querySelector("#reviewProgress"),
   manageTemplates: document.querySelector("#manageTemplates"),
   templatesDialog: document.querySelector("#templatesDialog"),
   templatesList: document.querySelector("#templatesList"),
@@ -143,6 +168,7 @@ function bindEvents() {
   els.queueUrl.addEventListener("click", () => importSourceUrl());
   els.sourceUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") importSourceUrl(); });
   els.newCardButton.addEventListener("click", () => openCardModal());
+  bindDeckEvents();
   els.flipCard.addEventListener("click", flipReviewCard);
   els.markHard.addEventListener("click", () => gradeCard("hard"));
   els.markGood.addEventListener("click", () => gradeCard("good"));
@@ -153,6 +179,71 @@ function bindEvents() {
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
   els.cookieModeFile.addEventListener("click", () => setCookieMode("file"));
   els.saveCookies.addEventListener("click", saveCookieSettings);
+}
+
+function bindDeckEvents() {
+  els.newDeck.addEventListener("click", () => {
+    els.newDeckForm.hidden = !els.newDeckForm.hidden;
+    els.newDeckError.textContent = "";
+    if (!els.newDeckForm.hidden) els.newDeckName.focus();
+  });
+  els.newDeckForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const result = addDeck(els.newDeckName.value);
+    if (result.error) {
+      els.newDeckError.textContent = result.error;
+      return;
+    }
+    els.newDeckForm.reset();
+    els.newDeckForm.hidden = true;
+    state.selectedDeckId = result.deck.id;
+    renderAll(els);
+  });
+
+  els.renameDeck.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (!deck) return;
+    els.renameDeckForm.hidden = false;
+    els.renameDeckError.textContent = "";
+    els.renameDeckName.value = deck.name;
+    els.renameDeckName.focus();
+    els.renameDeckName.select();
+  });
+  els.renameDeckCancel.addEventListener("click", () => {
+    els.renameDeckForm.hidden = true;
+  });
+  els.renameDeckForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const result = renameDeck(state.selectedDeckId, els.renameDeckName.value);
+    if (result.error) {
+      els.renameDeckError.textContent = result.error;
+      return;
+    }
+    els.renameDeckForm.hidden = true;
+  });
+
+  els.deleteDeck.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (!deck) return;
+    const count = cardsInDeck(deck.id).length;
+    els.deckDeleteText.textContent = count
+      ? `Delete "${deck.name}"? It holds ${count} card${count === 1 ? "" : "s"}.`
+      : `Delete the empty deck "${deck.name}"?`;
+    els.deckDeleteDialog.showModal();
+  });
+  els.deckDeleteConfirm.addEventListener("click", () => {
+    const mode = els.deckDeleteDialog.querySelector(
+      'input[name="deckDeleteMode"]:checked',
+    ).value;
+    const result = deleteDeck(state.selectedDeckId, mode);
+    els.deckDeleteDialog.close();
+    if (result.error) showToast(result.error);
+  });
+
+  els.cardSearch.addEventListener("input", () => {
+    state.cardSearch = els.cardSearch.value;
+    renderCardList(els);
+  });
 }
 
 function switchView(view) {
