@@ -123,11 +123,20 @@ python -m unittest discover -s test -p "test_*.py"
 - Flashcard **templates**: three built-ins (Default, Reverse, Stroke order)
   plus custom ones — pick which fields appear on each face, set a default.
 - **Decks**: create/rename/delete, move cards between them, per-deck counts,
-  and review scoped to the selected deck. Simple spaced repetition, shuffle,
-  card editing, and duplicate detection.
+  and review scoped to the selected deck. Card editing and duplicate detection.
+- **Spaced repetition** with a minimal SM-2 scheduler: four grades
+  (Again/Hard/Good/Easy), each button previewing the interval it will produce.
+  Again keeps the card in the current session via short learning steps rather
+  than pushing it a day away; lapses reduce the interval and ease instead of
+  resetting. Per-deck daily new/review limits (editable) keep a big import from
+  producing an unmanageable day.
 - **Stroke order** for Han characters: per-stroke charts and stroke-by-stroke
   animation, fully offline (see attribution below). Honors
   `prefers-reduced-motion`.
+- **Stroke practice**: draw a character stroke by stroke (mouse/trackpad/touch)
+  and get graded against the real stroke medians, with order enforced, hints
+  after repeated misses, and an optional suggested grade fed back into the
+  scheduler.
 - Cards remember the video moment they came from and can jump back to it.
 - Words that already have a card are underlined in the transcript.
 - **Import/export**: versioned JSON (cards + decks + templates) with a merging

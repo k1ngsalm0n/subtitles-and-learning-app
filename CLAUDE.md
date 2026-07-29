@@ -49,6 +49,18 @@ plain strings for backward compatibility; each card carries its own
 `npm run sync` also downloads the Make Me a Hanzi `graphics.txt` (~30 MB,
 gitignored; `SKIP_STROKES=1` to skip; attribution in README).
 
+Spaced repetition: `scheduler.mjs` is a pure minimal SM-2 (grades
+Again/Hard/Good/Easy; injectable now/rng; learning steps keep Again cards in
+the session; `migrateSchedules` upgrades pre-SM-2 cards). The review queue,
+per-deck daily new/review limits, and daily counters live in `state.mjs`
+(`getReviewQueue`, `getQueueCounts`, `deckLimits`, `recordStudy`). Stroke
+practice: `strokegrade.mjs` is the pure grader (`gradeStroke(drawn,
+expectedMedian)` — resample + start/end proximity + direction + shape
+distance), `practice.mjs` the Pointer-Events drawing UI that reuses
+`strokes.mjs` for data/rendering. Do not change the toy-scheduler assumptions
+elsewhere — grading now goes through `applyGrade`/`schedule`. Tests:
+`scheduler.test.mjs`, `stroke-grading.test.mjs`, `state.test.mjs`.
+
 ## Fresh-machine setup (after a distro reinstall)
 
 Install these with whatever your distro provides (pacman, dnf, apt, brew, …):
