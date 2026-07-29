@@ -544,6 +544,7 @@ export function updateStats(els) {
 }
 
 let _bubble = null;
+let _backdrop = null;
 let _bubbleCleanup = null;
 
 function getBubble() {
@@ -555,27 +556,35 @@ function getBubble() {
   return _bubble;
 }
 
+// Full-screen layer under the bubble: the closing click lands here instead of
+// on whatever is behind it (transcript lines, buttons, the video), so
+// dismissing the popup never triggers a background action.
+function getBackdrop() {
+  if (_backdrop) return _backdrop;
+  _backdrop = document.createElement("div");
+  _backdrop.className = "bubble-backdrop";
+  _backdrop.hidden = true;
+  _backdrop.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    closeBubble();
+  });
+  document.body.appendChild(_backdrop);
+  return _backdrop;
+}
+
 function closeBubble() {
   if (_bubble) _bubble.hidden = true;
+  if (_backdrop) _backdrop.hidden = true;
   if (_bubbleCleanup) {
     _bubbleCleanup();
     _bubbleCleanup = null;
   }
 }
 
-function positionBubble(bubble, anchor) {
-  const rect = anchor.getBoundingClientRect();
-  bubble.style.visibility = "hidden";
+// The bubble is a viewport-centered pop-up (see .word-bubble CSS); showing it
+// is all that's left to do here.
+function positionBubble(bubble) {
   bubble.hidden = false;
-  const bw = bubble.offsetWidth;
-  const bh = bubble.offsetHeight;
-  let left = rect.left + rect.width / 2 - bw / 2 + window.scrollX;
-  left = Math.max(8, Math.min(left, window.scrollX + window.innerWidth - bw - 8));
-  let top = rect.top + window.scrollY - bh - 8;
-  if (rect.top < bh + 16) top = rect.bottom + window.scrollY + 8;
-  bubble.style.left = `${left}px`;
-  bubble.style.top = `${top}px`;
-  bubble.style.visibility = "visible";
 }
 
 async function openWordBubble(anchor, context, els) {
@@ -588,18 +597,12 @@ async function openWordBubble(anchor, context, els) {
     <div class="bubble-word">${escapeHtml(word)}</div>
     <div class="bubble-pron muted">…</div>
     <div class="bubble-meaning">Looking up…</div>`;
-  positionBubble(bubble, anchor);
+  getBackdrop().hidden = false;
+  positionBubble(bubble);
 
-  const onDocClick = (ev) => {
-    if (!bubble.contains(ev.target) && !ev.target.closest(".word")) closeBubble();
-  };
   const onKey = (ev) => { if (ev.key === "Escape") closeBubble(); };
-  setTimeout(() => document.addEventListener("click", onDocClick), 0);
   document.addEventListener("keydown", onKey);
-  _bubbleCleanup = () => {
-    document.removeEventListener("click", onDocClick);
-    document.removeEventListener("keydown", onKey);
-  };
+  _bubbleCleanup = () => document.removeEventListener("keydown", onKey);
 
   const result = await lookupWord(word, lang, context);
   if (bubble.hidden) return;
@@ -638,7 +641,7 @@ async function openWordBubble(anchor, context, els) {
       <button type="button" class="bubble-save">+ Flashcard</button>
       <button type="button" class="bubble-edit">Edit…</button>
     </div>`;
-  positionBubble(bubble, anchor);
+  positionBubble(bubble);
 
   // Quick add: one click, default template + last-used deck, undo toast.
   // The full modal stays one step away via Edit.
