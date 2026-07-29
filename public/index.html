@@ -280,17 +280,6 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   padding: 24px;
 }
 .empty-player.hidden { display: none; }
-/* Slim bar under the video: just the active line's translation (in amber),
-   without re-adding the tall subtitle stage that duplicated the transcript. */
-.active-translation-bar {
-  padding: 12px 20px;
-  text-align: center;
-  color: var(--accent-2);
-  font-size: 16px;
-  line-height: 1.4;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-}
 .import-bar, .url-row, .toolbar-row, .manual-card, .card-actions {
   display: flex;
   gap: 8px;
@@ -355,21 +344,21 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .translate-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   background: var(--surface-2);
   flex-wrap: wrap;
 }
 .translate-langs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex: 1 1 auto;
 }
 .translate-field {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--muted);
   font-size: 12px;
   flex: 1 1 0;
@@ -396,6 +385,8 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   font-size: 12px;
   min-height: 16px;
 }
+/* No idle gap: collapse the status row entirely when it carries no message. */
+.translate-status:empty { display: none; }
 .transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
 .line {
   display: grid;
@@ -1019,7 +1010,6 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
                 <div class="mini-rz" data-dir="se"></div>
               </div>
             </div>
-            <p id="activeTranslationBar" class="active-translation-bar" hidden></p>
           </section>
 
           <section class="learning-pane">
