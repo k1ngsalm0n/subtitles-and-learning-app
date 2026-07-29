@@ -24,7 +24,6 @@ export function renderAll(els) {
   // use the cached reference set by main.mjs
   const e = els || _els;
   renderTranscript(e);
-  renderActiveTranslation(e);
   renderDeckNav(e);
   renderDeckHeader(e);
   renderCardList(e);
@@ -191,18 +190,6 @@ function renderRubyTranscript(tokens, text, savedWords) {
         : escapeHtml(base),
     )
     .join("");
-}
-
-// Slim translation bar under the video: shows just the active line's
-// translation (the transcript already carries the original). Hidden when the
-// active line has no translation.
-export function renderActiveTranslation(els) {
-  const e = els || _els;
-  if (!e.activeTranslationBar) return;
-  const line = state.subtitles[state.activeIndex];
-  const text = line ? getTranslation(line) : "";
-  e.activeTranslationBar.textContent = text;
-  e.activeTranslationBar.hidden = !text;
 }
 
 // Center the active line inside the transcript's own scroll box (scrollTo on
