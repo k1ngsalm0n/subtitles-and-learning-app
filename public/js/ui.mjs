@@ -338,6 +338,30 @@ export function renderDeckHeader(els) {
   if (!editable) e.renameDeckForm.hidden = true;
 }
 
+// main.mjs registers the actual jump implementation (it owns the player and
+// the import flow); ui only renders the control.
+let _sourceJumper = null;
+export function setSourceJumper(fn) {
+  _sourceJumper = fn;
+}
+
+// "▶ title · 0:42" — jumps back to the video moment a card came from.
+// Cards without a link (manual/local-file cards) simply get no control.
+function sourceLinkButton(card) {
+  if (!card.sourceId || !Number.isFinite(card.sourceTime)) return null;
+  const source = state.sources.find((s) => s.id === card.sourceId);
+  if (!source) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "card-source";
+  button.textContent = `▶ ${source.title || "clip"} · ${formatTime(card.sourceTime)}`;
+  button.title = "Jump to this moment in the video";
+  button.addEventListener("click", () =>
+    _sourceJumper?.(card.sourceId, card.sourceTime),
+  );
+  return button;
+}
+
 function cardMatchesSearch(card, query) {
   if (!query) return true;
   return [
@@ -378,6 +402,9 @@ function cardListItem(card, e) {
     chip.textContent = deckName(card.deckId);
     body.prepend(chip);
   }
+
+  const sourceButton = sourceLinkButton(card);
+  if (sourceButton) body.appendChild(sourceButton);
 
   const actions = document.createElement("div");
   actions.className = "card-item-actions";
@@ -458,6 +485,8 @@ export function renderReviewCard(els) {
   hint.textContent = state.showingBack ? "" : "Flip to check the answer";
   e.reviewCard.textContent = "";
   e.reviewCard.append(face, hint);
+  const sourceButton = sourceLinkButton(card);
+  if (sourceButton) e.reviewCard.appendChild(sourceButton);
 
   // Grading an answer you haven't seen is meaningless — show Hard/Good only
   // after the flip.

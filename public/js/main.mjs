@@ -30,6 +30,7 @@ import {
   renderReviewCard,
   setElements,
   setSourceStatus,
+  setSourceJumper,
 } from "./ui.mjs";
 import { setupMiniPlayer } from "./miniplayer.mjs";
 
@@ -146,6 +147,7 @@ function init() {
   setupTemplateEditor(els);
   setupTemplateManager(els, () => renderAll(els));
   setupCardModal(els);
+  setSourceJumper(jumpToSource);
   loadCookieSettings();
 }
 
@@ -269,6 +271,44 @@ function handleVideoInput(event) {
   if (!file) return;
   els.video.src = URL.createObjectURL(file);
   els.emptyPlayer.classList.add("hidden");
+  // A local file isn't a library source; cards made from it carry no link.
+  state.currentSourceId = null;
+}
+
+// Jump back to the moment a card came from: seek if the source is already
+// loaded, otherwise reload its downloaded video first.
+function jumpToSource(sourceId, time) {
+  const source = state.sources.find((s) => s.id === sourceId);
+  if (!source) {
+    showToast("That source is no longer in the library.");
+    return;
+  }
+  switchView("study");
+  const seek = () => {
+    els.video.currentTime = time || 0;
+    els.video.play();
+  };
+  if (state.currentSourceId === sourceId && els.video.src) {
+    seek();
+    return;
+  }
+  if (source.videoUrl) {
+    els.video.src = source.videoUrl;
+    els.emptyPlayer.classList.add("hidden");
+    els.video.addEventListener("loadedmetadata", seek, { once: true });
+    els.video.addEventListener(
+      "error",
+      () => showToast("The downloaded video is gone — re-import the URL to restore it."),
+      { once: true },
+    );
+    state.currentSourceId = sourceId;
+    setSourceStatus(
+      `Loaded “${source.title || source.url}” — re-import the URL to restore its subtitles.`,
+      els,
+    );
+    return;
+  }
+  showToast("Re-import this source to load its video.");
 }
 
 async function readSubtitleInputs() {
@@ -370,7 +410,12 @@ async function importSourceUrl() {
     if (result.videoUrl) {
       els.video.src = result.videoUrl;
       els.emptyPlayer.classList.add("hidden");
+      // Persisted so a card's "jump back" control can reload the video later.
+      source.videoUrl = result.videoUrl;
     }
+
+    // New cards link back to this source + the moment they were made.
+    state.currentSourceId = source.id;
 
     loadSubtitles(result.subtitles || "", result.translation || "");
     if (result.language) {
