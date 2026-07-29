@@ -433,6 +433,8 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   cursor: pointer;
 }
 .word:hover { background: rgba(110,231,183,0.15); }
+/* Words that already have a flashcard */
+.word.saved { border-bottom: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); }
 .translation { margin-top: 4px; line-height: 1.5; color: var(--muted); font-size: 15px; }
 /* Pronunciation stacked over each character (ruby/furigana). */
 ruby { ruby-position: over; ruby-align: center; }
@@ -1025,7 +1027,9 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
                 <button id="renameDeck" type="button" hidden>Rename</button>
                 <button id="deleteDeck" type="button" class="danger" hidden>Delete deck</button>
                 <button id="manageTemplates" type="button">Templates</button>
-                <button id="exportCards" type="button">Export</button>
+                <button id="exportCards" type="button" title="Export cards, decks, and templates as JSON">Export</button>
+                <button id="exportAnki" type="button" title="Export a tab-separated file for Anki">Anki TSV</button>
+                <label class="file-button" title="Import a previously exported JSON file">Import<input id="importFile" type="file" accept=".json,application/json" /></label>
               </div>
             </div>
             <form id="renameDeckForm" class="new-deck-row" hidden>

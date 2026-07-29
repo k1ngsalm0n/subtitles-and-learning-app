@@ -72,6 +72,8 @@ export function loopActiveLine(els) {
   }
 }
 
+// Whole-line save goes through the same card system as everything else:
+// default template, last-used deck, and a link back to this video moment.
 export function saveActiveLine(els) {
   const line = state.subtitles[state.activeIndex];
   if (!line) return;
@@ -79,6 +81,8 @@ export function saveActiveLine(els) {
     word: line.text,
     translation: getTranslation(line),
     example: line.text,
+    sourceId: state.currentSourceId,
+    sourceTime: line.start,
   });
   showToast(
     result.error ? result.error : `Saved the line to ${deckName(result.card.deckId)}.`,

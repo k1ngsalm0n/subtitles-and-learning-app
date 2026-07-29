@@ -37,6 +37,12 @@ export function setElements(els) {
 export function renderTranscript(els) {
   const e = els || _els;
   const query = e.searchInput.value.trim().toLowerCase();
+  // One Set per render, not a scan per word: every saved word gets a subtle
+  // mark in the transcript so it's obvious what's already in the deck.
+  const savedWords = new Set();
+  for (const card of state.cards) {
+    if (card.word) savedWords.add(card.word);
+  }
   const html = state.subtitles
     .map((line, index) => ({ line, index }))
     .filter(
@@ -48,8 +54,8 @@ export function renderTranscript(els) {
       const translation = getTranslation(line);
       const original =
         line.tokens && line.tokens.length
-          ? renderRubyTranscript(line.tokens, line.text)
-          : tokenize(line.text);
+          ? renderRubyTranscript(line.tokens, line.text, savedWords)
+          : tokenize(line.text, savedWords);
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${formatTime(line.start)}</span>
         <div>
@@ -154,8 +160,10 @@ function pronByOffset(tokens) {
   return map;
 }
 
-// Transcript: clickable words, pinyin stacked over each character.
-function renderRubyTranscript(tokens, text) {
+// Transcript: clickable words, pinyin stacked over each character. Words in
+// `savedWords` get a "saved" mark.
+function renderRubyTranscript(tokens, text, savedWords) {
+  const savedClass = (word) => (savedWords?.has(word) ? " saved" : "");
   if (isCharAligned(tokens)) {
     const pron = pronByOffset(tokens);
     let html = "";
@@ -170,7 +178,7 @@ function renderRubyTranscript(tokens, text) {
         inner += rubyUnit(ch, pron.get(off) || "");
         off += ch.length;
       }
-      html += `<span class="word" data-word="${escapeHtml(seg.segment)}">${inner}</span>`;
+      html += `<span class="word${savedClass(seg.segment)}" data-word="${escapeHtml(seg.segment)}">${inner}</span>`;
     }
     return html;
   }
@@ -178,7 +186,7 @@ function renderRubyTranscript(tokens, text) {
   return tokens
     .map(([base, pron]) =>
       pron
-        ? `<span class="word" data-word="${escapeHtml(base)}">${rubyUnit(base, pron)}</span>`
+        ? `<span class="word${savedClass(base)}" data-word="${escapeHtml(base)}">${rubyUnit(base, pron)}</span>`
         : escapeHtml(base),
     )
     .join("");

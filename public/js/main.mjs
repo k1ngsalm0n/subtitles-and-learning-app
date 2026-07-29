@@ -5,10 +5,13 @@ import {
   gradeCard,
   shuffleCards,
   exportCards,
+  exportAnkiTsv,
+  importCardsFromText,
   addDeck,
   renameDeck,
   deleteDeck,
 } from "./flashcards.mjs";
+import { describeReport } from "./portability.mjs";
 import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
 import { setupCardModal, openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
@@ -118,6 +121,8 @@ const els = {
   deckDeleteConfirm: document.querySelector("#deckDeleteConfirm"),
   cardSearch: document.querySelector("#cardSearch"),
   reviewProgress: document.querySelector("#reviewProgress"),
+  exportAnki: document.querySelector("#exportAnki"),
+  importFile: document.querySelector("#importFile"),
   manageTemplates: document.querySelector("#manageTemplates"),
   templatesDialog: document.querySelector("#templatesDialog"),
   templatesList: document.querySelector("#templatesList"),
@@ -176,6 +181,14 @@ function bindEvents() {
   els.markGood.addEventListener("click", () => gradeCard("good"));
   els.shuffleCards.addEventListener("click", shuffleCards);
   els.exportCards.addEventListener("click", exportCards);
+  els.exportAnki.addEventListener("click", exportAnkiTsv);
+  els.importFile.addEventListener("change", async () => {
+    const file = els.importFile.files[0];
+    els.importFile.value = "";
+    if (!file) return;
+    const result = importCardsFromText(await file.text());
+    showToast(result.error ? result.error : describeReport(result.report));
+  });
 
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));

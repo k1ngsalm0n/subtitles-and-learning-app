@@ -2,6 +2,7 @@ import {
   state,
   saveCards,
   saveDecks,
+  saveTemplates,
   getCurrentReviewCard,
   getTemplate,
   getDefaultTemplate,
@@ -9,6 +10,7 @@ import {
   setLastDeck,
 } from "./state.mjs";
 import { createCard, syncFlattened, DEFAULT_DECK_ID } from "./carddata.mjs";
+import { buildExport, mergeImport, buildAnkiTsv } from "./portability.mjs";
 import { renderAll, renderCardList, renderReviewCard, updateStats } from "./ui.mjs";
 
 // Create a card from field values. `values` may carry deckId/templateId/
@@ -31,9 +33,8 @@ export function addCard(values) {
   state.cards.unshift(card);
   setLastDeck(card.deckId);
   saveCards();
-  renderCardList();
-  renderReviewCard();
-  updateStats();
+  // Full re-render: the transcript marks saved words, so it must refresh too.
+  renderAll();
   return { card };
 }
 
@@ -163,14 +164,58 @@ export function shuffleCards() {
   renderAll();
 }
 
-export function exportCards() {
-  const blob = new Blob([JSON.stringify(state.cards, null, 2)], {
-    type: "application/json",
-  });
+function download(filename, text, type) {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "miraa-flashcards.json";
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+// Versioned JSON export: cards + decks + templates, importable below.
+export function exportCards() {
+  const payload = buildExport({
+    cards: state.cards,
+    decks: state.decks,
+    templates: state.templates,
+  });
+  download(
+    "miraa-flashcards.json",
+    JSON.stringify(payload, null, 2),
+    "application/json",
+  );
+}
+
+// Anki-ready TSV: front <tab> back <tab> deck name, one row per card.
+export function exportAnkiTsv() {
+  download(
+    "miraa-flashcards-anki.tsv",
+    buildAnkiTsv(state.cards, state.decks),
+    "text/tab-separated-values",
+  );
+}
+
+// Merge an exported file back in. Returns { report } or { error }.
+export function importCardsFromText(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { error: "That file isn't valid JSON." };
+  }
+  const merged = mergeImport(
+    { cards: state.cards, decks: state.decks, templates: state.templates },
+    parsed,
+  );
+  if (merged.error) return merged;
+  state.decks = merged.decks;
+  state.templates = merged.templates;
+  state.cards = merged.cards;
+  saveDecks();
+  saveCards();
+  saveTemplates();
+  renderAll();
+  return { report: merged.report };
 }
