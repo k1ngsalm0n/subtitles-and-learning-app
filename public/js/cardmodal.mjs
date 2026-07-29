@@ -51,6 +51,9 @@ export function setupCardModal(els) {
     if (!key || !_draft) return;
     _dirty.add(key);
     _draft[key] = event.target.value;
+    // The word's script decides whether stroke-order templates make sense,
+    // so the picker follows word edits.
+    if (key === "word") renderTemplatePicker();
     renderPreview();
   });
 

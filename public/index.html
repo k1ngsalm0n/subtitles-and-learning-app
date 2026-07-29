@@ -35,6 +35,8 @@
   --shadow: 0 4px 24px rgba(0,0,0,0.06);
 }
 * { box-sizing: border-box; margin: 0; }
+/* Author display values (flex/grid) must not defeat the hidden attribute. */
+[hidden] { display: none !important; }
 body {
   min-height: 100vh;
   background: var(--bg);
