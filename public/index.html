@@ -603,6 +603,40 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   background: rgba(0, 0, 0, 0.1);
 }
 
+/* Stroke order charts (see public/js/strokes.mjs) */
+.stroke-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.stroke-block { position: relative; }
+.stroke-anim { width: 96px; height: 96px; display: block; background: var(--surface-2); border-radius: 8px; }
+.stroke-chart { display: flex; flex-wrap: wrap; gap: 4px; max-width: 240px; }
+.stroke-step { width: 44px; height: 44px; background: var(--surface-2); border-radius: 6px; }
+.stroke-grid { fill: none; stroke: var(--border); stroke-width: 10; }
+.stroke-grid-inner { stroke-dasharray: 28 28; opacity: 0.7; }
+.stroke-done { fill: var(--muted); opacity: 0.5; }
+.stroke-now { fill: var(--accent); }
+.stroke-ghost { fill: var(--text); opacity: 0.12; }
+.stroke-draw {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 128;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.stroke-replay {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  height: 22px;
+  min-height: 22px;
+  width: 22px;
+  padding: 0;
+  font-size: 12px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+:root[data-theme="light"] .stroke-replay { background: rgba(0, 0, 0, 0.15); color: #333; }
+
 @media (max-width: 1100px) {
   .workspace {
     grid-template-columns: 1fr;
