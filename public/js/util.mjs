@@ -20,12 +20,15 @@ function isWord(seg) {
   return seg.isWordLike || _cjkRe.test(seg.segment);
 }
 
-export function tokenize(text) {
+// `savedWords` (a Set, built once per render) marks words that already have
+// a flashcard.
+export function tokenize(text, savedWords) {
   const segments = [..._segmenter.segment(text)];
   return segments
     .map((seg) => {
       if (isWord(seg)) {
-        return `<span class="word" data-word="${escapeHtml(seg.segment)}">${escapeHtml(seg.segment)}</span>`;
+        const saved = savedWords?.has(seg.segment) ? " saved" : "";
+        return `<span class="word${saved}" data-word="${escapeHtml(seg.segment)}">${escapeHtml(seg.segment)}</span>`;
       }
       return escapeHtml(seg.segment);
     })

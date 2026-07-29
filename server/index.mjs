@@ -6,6 +6,7 @@ import { handleGetCookies, handleSaveCookies } from "./cookies.mjs";
 import { handleLookup } from "./lookup.mjs";
 import { handleTranslate } from "./translate.mjs";
 import { handleRomanize } from "./romanize.mjs";
+import { handleStrokes } from "./strokes.mjs";
 import { serveStatic } from "./static.mjs";
 import { sendJson } from "./util.mjs";
 
@@ -48,6 +49,10 @@ createServer(async (req, res) => {
     }
     if (req.method === "POST" && req.url === "/api/romanize") {
       await handleRomanize(req, res);
+      return;
+    }
+    if (req.method === "GET" && req.url.startsWith("/api/strokes")) {
+      await handleStrokes(req, res);
       return;
     }
 

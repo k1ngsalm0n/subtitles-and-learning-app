@@ -1,6 +1,29 @@
-import { state, saveSources, STORAGE_KEYS } from "./state.mjs";
+import {
+  state,
+  saveSources,
+  saveDecks,
+  getDeck,
+  cardsInDeck,
+  DEFAULT_NEW_PER_DAY,
+  DEFAULT_REVIEWS_PER_DAY,
+  STORAGE_KEYS,
+} from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
-import { addCard, flipReviewCard, gradeCard, shuffleCards, exportCards } from "./flashcards.mjs";
+import {
+  flipReviewCard,
+  gradeCard,
+  shuffleCards,
+  exportCards,
+  exportAnkiTsv,
+  importCardsFromText,
+  addDeck,
+  renameDeck,
+  deleteDeck,
+} from "./flashcards.mjs";
+import { describeReport } from "./portability.mjs";
+import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
+import { setupCardModal, openCardModal } from "./cardmodal.mjs";
+import { showToast } from "./toast.mjs";
 import { syncToVideo, loopActiveLine, saveActiveLine } from "./player.mjs";
 import {
   populateLanguageSelects,
@@ -11,16 +34,17 @@ import {
 import {
   renderAll,
   renderTranscript,
-  renderActiveSubtitle,
   startHighlightLoop,
   setupTranscriptDelegation,
   renderSources,
-  renderDeck,
+  renderCardList,
   renderReviewCard,
   setElements,
   setSourceStatus,
-  addDialogCard,
+  setSourceJumper,
+  setPracticeOpener,
 } from "./ui.mjs";
+import { setupPractice, openPractice } from "./practice.mjs";
 import { setupMiniPlayer } from "./miniplayer.mjs";
 
 const els = {
@@ -38,8 +62,7 @@ const els = {
   queueUrl: document.querySelector("#queueUrl"),
   sourceStatus: document.querySelector("#sourceStatus"),
   transcript: document.querySelector("#transcript"),
-  activeOriginal: document.querySelector("#activeOriginal"),
-  activeTranslation: document.querySelector("#activeTranslation"),
+  activeTranslationBar: document.querySelector("#activeTranslationBar"),
   subtitleCount: document.querySelector("#subtitleCount"),
   cardCount: document.querySelector("#cardCount"),
   reviewDue: document.querySelector("#reviewDue"),
@@ -52,16 +75,11 @@ const els = {
   translateButton: document.querySelector("#translateButton"),
   translateStatus: document.querySelector("#translateStatus"),
   themeToggle: document.querySelector("#themeToggle"),
-  deckList: document.querySelector("#deckList"),
+  cardList: document.querySelector("#cardList"),
   reviewCard: document.querySelector("#reviewCard"),
   flipCard: document.querySelector("#flipCard"),
-  markHard: document.querySelector("#markHard"),
-  markGood: document.querySelector("#markGood"),
   shuffleCards: document.querySelector("#shuffleCards"),
   exportCards: document.querySelector("#exportCards"),
-  manualCardForm: document.querySelector("#manualCardForm"),
-  manualFront: document.querySelector("#manualFront"),
-  manualBack: document.querySelector("#manualBack"),
   sourceList: document.querySelector("#sourceList"),
   cookieModeNone: document.querySelector("#cookieModeNone"),
   cookieModeBrowser: document.querySelector("#cookieModeBrowser"),
@@ -74,11 +92,72 @@ const els = {
   cookieStatus: document.querySelector("#cookieStatus"),
   progressWrap: document.querySelector("#progressWrap"),
   progressFill: document.querySelector("#progressFill"),
-  wordDialog: document.querySelector("#wordDialog"),
-  dialogWord: document.querySelector("#dialogWord"),
-  dialogMeaning: document.querySelector("#dialogMeaning"),
-  dialogExample: document.querySelector("#dialogExample"),
-  addWordCard: document.querySelector("#addWordCard"),
+  cardModal: document.querySelector("#cardModal"),
+  cardModalTitle: document.querySelector("#cardModalTitle"),
+  dupeNotice: document.querySelector("#dupeNotice"),
+  dupeText: document.querySelector("#dupeText"),
+  dupeOpen: document.querySelector("#dupeOpen"),
+  templatePicker: document.querySelector("#templatePicker"),
+  previewSide: document.querySelector("#previewSide"),
+  previewFlip: document.querySelector("#previewFlip"),
+  previewFace: document.querySelector("#previewFace"),
+  modalFields: document.querySelector("#modalFields"),
+  modalDeck: document.querySelector("#modalDeck"),
+  modalNewDeck: document.querySelector("#modalNewDeck"),
+  modalNewDeckRow: document.querySelector("#modalNewDeckRow"),
+  modalNewDeckName: document.querySelector("#modalNewDeckName"),
+  modalNewDeckCreate: document.querySelector("#modalNewDeckCreate"),
+  modalDeckError: document.querySelector("#modalDeckError"),
+  modalError: document.querySelector("#modalError"),
+  modalSave: document.querySelector("#modalSave"),
+  newCardButton: document.querySelector("#newCardButton"),
+  deckNav: document.querySelector("#deckNav"),
+  deckTitle: document.querySelector("#deckTitle"),
+  newDeck: document.querySelector("#newDeck"),
+  newDeckForm: document.querySelector("#newDeckForm"),
+  newDeckName: document.querySelector("#newDeckName"),
+  newDeckError: document.querySelector("#newDeckError"),
+  renameDeck: document.querySelector("#renameDeck"),
+  renameDeckForm: document.querySelector("#renameDeckForm"),
+  renameDeckName: document.querySelector("#renameDeckName"),
+  renameDeckCancel: document.querySelector("#renameDeckCancel"),
+  renameDeckError: document.querySelector("#renameDeckError"),
+  deleteDeck: document.querySelector("#deleteDeck"),
+  practiceDialog: document.querySelector("#practiceDialog"),
+  practiceMain: document.querySelector("#practiceMain"),
+  practiceChar: document.querySelector("#practiceChar"),
+  practiceProgress: document.querySelector("#practiceProgress"),
+  practiceBoard: document.querySelector("#practiceBoard"),
+  practiceFeedback: document.querySelector("#practiceFeedback"),
+  practiceHint: document.querySelector("#practiceHint"),
+  practiceReveal: document.querySelector("#practiceReveal"),
+  practiceSummary: document.querySelector("#practiceSummary"),
+  practiceSummaryText: document.querySelector("#practiceSummaryText"),
+  practiceGradeRow: document.querySelector("#practiceGradeRow"),
+  deckSettings: document.querySelector("#deckSettings"),
+  deckSettingsDialog: document.querySelector("#deckSettingsDialog"),
+  deckNewPerDay: document.querySelector("#deckNewPerDay"),
+  deckReviewsPerDay: document.querySelector("#deckReviewsPerDay"),
+  deckSettingsSave: document.querySelector("#deckSettingsSave"),
+  deckDeleteDialog: document.querySelector("#deckDeleteDialog"),
+  deckDeleteText: document.querySelector("#deckDeleteText"),
+  deckDeleteConfirm: document.querySelector("#deckDeleteConfirm"),
+  cardSearch: document.querySelector("#cardSearch"),
+  reviewProgress: document.querySelector("#reviewProgress"),
+  exportAnki: document.querySelector("#exportAnki"),
+  importFile: document.querySelector("#importFile"),
+  manageTemplates: document.querySelector("#manageTemplates"),
+  templatesDialog: document.querySelector("#templatesDialog"),
+  templatesList: document.querySelector("#templatesList"),
+  newTemplate: document.querySelector("#newTemplate"),
+  templateDialog: document.querySelector("#templateDialog"),
+  tplEditorTitle: document.querySelector("#tplEditorTitle"),
+  tplName: document.querySelector("#tplName"),
+  tplFrontFields: document.querySelector("#tplFrontFields"),
+  tplBackFields: document.querySelector("#tplBackFields"),
+  tplStrokes: document.querySelector("#tplStrokes"),
+  tplError: document.querySelector("#tplError"),
+  tplSave: document.querySelector("#tplSave"),
 };
 
 setElements(els);
@@ -93,6 +172,12 @@ function init() {
   renderAll(els);
   setupTranscriptDelegation(els);
   setupMiniPlayer(els);
+  setupTemplateEditor(els);
+  setupTemplateManager(els, () => renderAll(els));
+  setupCardModal(els);
+  setupPractice(els);
+  setPracticeOpener(openPractice);
+  setSourceJumper(jumpToSource);
   loadCookieSettings();
 }
 
@@ -114,18 +199,127 @@ function bindEvents() {
   els.translateButton.addEventListener("click", () => runTranslation(els));
   els.queueUrl.addEventListener("click", () => importSourceUrl());
   els.sourceUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") importSourceUrl(); });
-  els.manualCardForm.addEventListener("submit", addManualCard);
+  els.newCardButton.addEventListener("click", () => openCardModal());
+  bindDeckEvents();
   els.flipCard.addEventListener("click", flipReviewCard);
-  els.markHard.addEventListener("click", () => gradeCard("hard"));
-  els.markGood.addEventListener("click", () => gradeCard("good"));
+  document.querySelectorAll("#cardsView .grade-button").forEach((button) => {
+    button.addEventListener("click", () => gradeCard(button.dataset.grade));
+  });
+  document.addEventListener("keydown", handleReviewKeys);
   els.shuffleCards.addEventListener("click", shuffleCards);
   els.exportCards.addEventListener("click", exportCards);
-  els.addWordCard.addEventListener("click", () => addDialogCard(els));
+  els.exportAnki.addEventListener("click", exportAnkiTsv);
+  els.importFile.addEventListener("change", async () => {
+    const file = els.importFile.files[0];
+    els.importFile.value = "";
+    if (!file) return;
+    const result = importCardsFromText(await file.text());
+    showToast(result.error ? result.error : describeReport(result.report));
+  });
 
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
   els.cookieModeFile.addEventListener("click", () => setCookieMode("file"));
   els.saveCookies.addEventListener("click", saveCookieSettings);
+}
+
+// Review shortcuts (Flashcards view only): Space flips, 1–4 grade
+// Again/Hard/Good/Easy.
+const GRADE_KEYS = { 1: "again", 2: "hard", 3: "good", 4: "easy" };
+function handleReviewKeys(event) {
+  if (!document.querySelector("#cardsView").classList.contains("active")) return;
+  if (document.querySelector("dialog[open]")) return;
+  const tag = event.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (event.key === " ") {
+    event.preventDefault();
+    flipReviewCard();
+  } else if (GRADE_KEYS[event.key]) {
+    gradeCard(GRADE_KEYS[event.key]);
+  }
+}
+
+function bindDeckEvents() {
+  els.newDeck.addEventListener("click", () => {
+    els.newDeckForm.hidden = !els.newDeckForm.hidden;
+    els.newDeckError.textContent = "";
+    if (!els.newDeckForm.hidden) els.newDeckName.focus();
+  });
+  els.newDeckForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const result = addDeck(els.newDeckName.value);
+    if (result.error) {
+      els.newDeckError.textContent = result.error;
+      return;
+    }
+    els.newDeckForm.reset();
+    els.newDeckForm.hidden = true;
+    state.selectedDeckId = result.deck.id;
+    renderAll(els);
+  });
+
+  els.renameDeck.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (!deck) return;
+    els.renameDeckForm.hidden = false;
+    els.renameDeckError.textContent = "";
+    els.renameDeckName.value = deck.name;
+    els.renameDeckName.focus();
+    els.renameDeckName.select();
+  });
+  els.renameDeckCancel.addEventListener("click", () => {
+    els.renameDeckForm.hidden = true;
+  });
+  els.renameDeckForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const result = renameDeck(state.selectedDeckId, els.renameDeckName.value);
+    if (result.error) {
+      els.renameDeckError.textContent = result.error;
+      return;
+    }
+    els.renameDeckForm.hidden = true;
+  });
+
+  els.deleteDeck.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (!deck) return;
+    const count = cardsInDeck(deck.id).length;
+    els.deckDeleteText.textContent = count
+      ? `Delete "${deck.name}"? It holds ${count} card${count === 1 ? "" : "s"}.`
+      : `Delete the empty deck "${deck.name}"?`;
+    els.deckDeleteDialog.showModal();
+  });
+  els.deckDeleteConfirm.addEventListener("click", () => {
+    const mode = els.deckDeleteDialog.querySelector(
+      'input[name="deckDeleteMode"]:checked',
+    ).value;
+    const result = deleteDeck(state.selectedDeckId, mode);
+    els.deckDeleteDialog.close();
+    if (result.error) showToast(result.error);
+  });
+
+  els.cardSearch.addEventListener("input", () => {
+    state.cardSearch = els.cardSearch.value;
+    renderCardList(els);
+  });
+
+  els.deckSettings.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (!deck) return;
+    els.deckNewPerDay.value = deck.newPerDay ?? DEFAULT_NEW_PER_DAY;
+    els.deckReviewsPerDay.value = deck.reviewsPerDay ?? DEFAULT_REVIEWS_PER_DAY;
+    els.deckSettingsDialog.showModal();
+  });
+  els.deckSettingsSave.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (deck) {
+      deck.newPerDay = Math.max(0, Number(els.deckNewPerDay.value) || 0);
+      deck.reviewsPerDay = Math.max(0, Number(els.deckReviewsPerDay.value) || 0);
+      saveDecks();
+      renderAll(els);
+    }
+    els.deckSettingsDialog.close();
+  });
 }
 
 function switchView(view) {
@@ -151,6 +345,44 @@ function handleVideoInput(event) {
   if (!file) return;
   els.video.src = URL.createObjectURL(file);
   els.emptyPlayer.classList.add("hidden");
+  // A local file isn't a library source; cards made from it carry no link.
+  state.currentSourceId = null;
+}
+
+// Jump back to the moment a card came from: seek if the source is already
+// loaded, otherwise reload its downloaded video first.
+function jumpToSource(sourceId, time) {
+  const source = state.sources.find((s) => s.id === sourceId);
+  if (!source) {
+    showToast("That source is no longer in the library.");
+    return;
+  }
+  switchView("study");
+  const seek = () => {
+    els.video.currentTime = time || 0;
+    els.video.play();
+  };
+  if (state.currentSourceId === sourceId && els.video.src) {
+    seek();
+    return;
+  }
+  if (source.videoUrl) {
+    els.video.src = source.videoUrl;
+    els.emptyPlayer.classList.add("hidden");
+    els.video.addEventListener("loadedmetadata", seek, { once: true });
+    els.video.addEventListener(
+      "error",
+      () => showToast("The downloaded video is gone — re-import the URL to restore it."),
+      { once: true },
+    );
+    state.currentSourceId = sourceId;
+    setSourceStatus(
+      `Loaded “${source.title || source.url}” — re-import the URL to restore its subtitles.`,
+      els,
+    );
+    return;
+  }
+  showToast("Re-import this source to load its video.");
 }
 
 async function readSubtitleInputs() {
@@ -163,11 +395,6 @@ async function readSubtitleInputs() {
 }
 
 
-function addManualCard(event) {
-  event.preventDefault();
-  addCard(els.manualFront.value, els.manualBack.value, "");
-  els.manualCardForm.reset();
-}
 
 function showProgress(message, percent) {
   els.progressWrap.classList.add("visible");
@@ -257,7 +484,12 @@ async function importSourceUrl() {
     if (result.videoUrl) {
       els.video.src = result.videoUrl;
       els.emptyPlayer.classList.add("hidden");
+      // Persisted so a card's "jump back" control can reload the video later.
+      source.videoUrl = result.videoUrl;
     }
+
+    // New cards link back to this source + the moment they were made.
+    state.currentSourceId = source.id;
 
     loadSubtitles(result.subtitles || "", result.translation || "");
     if (result.language) {

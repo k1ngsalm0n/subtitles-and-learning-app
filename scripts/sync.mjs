@@ -13,7 +13,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { chmodSync } from "node:fs";
+import { chmodSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -179,6 +179,41 @@ if (build) {
   ]);
 } else {
   console.log("\n→ Keeping the locked CPU torch build.");
+}
+
+// Make Me a Hanzi stroke-order data (~30 MB, gitignored). Best-effort like the
+// deno step: a failure just means the app runs without stroke-order charts.
+function ensureStrokeData() {
+  const target = join(ROOT, "data", "graphics.txt");
+  if (existsSync(target)) {
+    console.log("  graphics.txt already present in data/ — skipping.");
+    return;
+  }
+  mkdirSync(dirname(target), { recursive: true });
+  const url =
+    "https://raw.githubusercontent.com/skishore/makemeahanzi/master/graphics.txt";
+  const tmp = `${target}.download`;
+  const dl = spawnSync("curl", ["-fsSL", "-o", tmp, url], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+  if (dl.error || dl.status !== 0 || !existsSync(tmp)) {
+    rmSync(tmp, { force: true });
+    console.warn(
+      "  ⚠ stroke-order download failed — the app will run without stroke " +
+        "charts. Re-run `npm run sync` to retry.",
+    );
+    return;
+  }
+  renameSync(tmp, target);
+  console.log("  Downloaded stroke-order data → data/graphics.txt");
+}
+
+if (process.env.SKIP_STROKES) {
+  console.log("\n→ SKIP_STROKES set — not downloading stroke-order data.");
+} else {
+  console.log("\n→ Ensuring Han stroke-order data (Make Me a Hanzi)…");
+  ensureStrokeData();
 }
 
 if (process.env.SKIP_MODELS) {

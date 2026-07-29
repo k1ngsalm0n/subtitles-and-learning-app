@@ -31,8 +31,35 @@ skips videos with no on-screen text), `zh_convert.py` (subtitles normalised
 to Traditional via OpenCC by default; `ZH_SCRIPT=off` keeps the source
 script), `lookup.mjs` (word
 explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
-(pronunciation), `segment.mjs`, `cookies.mjs`. Python tests in `test/`, JS
+(pronunciation), `strokes.mjs` (Han stroke order: indexes
+`data/graphics.txt` once by byte range and serves
+`GET /api/strokes?chars=你好`; degrades to `{}` when the file is absent),
+`segment.mjs`, `cookies.mjs`. Python tests in `test/`, JS
 tests run via `node --test`.
+
+Flashcards (frontend): `carddata.mjs` is the pure data layer (field registry,
+built-in templates/decks, flattening, legacy migration — tested under Node),
+`cardface.mjs` the single shared face renderer (preview/review/list all use
+it), `cardmodal.mjs` the add/edit modal, `templates.mjs` template CRUD +
+editor, `portability.mjs` versioned JSON import/export + Anki TSV,
+`strokes.mjs` (frontend) the stroke chart/animation renderer, `tts.mjs`
+speechSynthesis feature detection. Cards keep `front`/`back` as flattened
+plain strings for backward compatibility; each card carries its own
+`frontFields`/`backFields` copies so template edits never rewrite cards.
+`npm run sync` also downloads the Make Me a Hanzi `graphics.txt` (~30 MB,
+gitignored; `SKIP_STROKES=1` to skip; attribution in README).
+
+Spaced repetition: `scheduler.mjs` is a pure minimal SM-2 (grades
+Again/Hard/Good/Easy; injectable now/rng; learning steps keep Again cards in
+the session; `migrateSchedules` upgrades pre-SM-2 cards). The review queue,
+per-deck daily new/review limits, and daily counters live in `state.mjs`
+(`getReviewQueue`, `getQueueCounts`, `deckLimits`, `recordStudy`). Stroke
+practice: `strokegrade.mjs` is the pure grader (`gradeStroke(drawn,
+expectedMedian)` — resample + start/end proximity + direction + shape
+distance), `practice.mjs` the Pointer-Events drawing UI that reuses
+`strokes.mjs` for data/rendering. Do not change the toy-scheduler assumptions
+elsewhere — grading now goes through `applyGrade`/`schedule`. Tests:
+`scheduler.test.mjs`, `stroke-grading.test.mjs`, `state.test.mjs`.
 
 ## Fresh-machine setup (after a distro reinstall)
 

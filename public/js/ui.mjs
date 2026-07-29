@@ -1,8 +1,22 @@
-import { state, saveCards, getCurrentReviewCard } from "./state.mjs";
+import {
+  state,
+  getCurrentReviewCard,
+  getDueCards,
+  getQueueCounts,
+  nextLearningDue,
+  cardsInDeck,
+  deckName,
+  getDeck,
+} from "./state.mjs";
+import { previewIntervals, formatInterval } from "./scheduler.mjs";
+import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
-import { addCard } from "./flashcards.mjs";
+import { addCard, removeCard, moveCardToDeck } from "./flashcards.mjs";
+import { renderCardFace, renderCardSide } from "./cardface.mjs";
+import { openCardModal } from "./cardmodal.mjs";
+import { showToast } from "./toast.mjs";
 import { lookupWord } from "./lookup.mjs";
 
 export function renderAll(els) {
@@ -10,8 +24,10 @@ export function renderAll(els) {
   // use the cached reference set by main.mjs
   const e = els || _els;
   renderTranscript(e);
-  renderActiveSubtitle(e);
-  renderDeck(e);
+  renderActiveTranslation(e);
+  renderDeckNav(e);
+  renderDeckHeader(e);
+  renderCardList(e);
   renderReviewCard(e);
   renderSources(e);
   updateStats(e);
@@ -25,6 +41,12 @@ export function setElements(els) {
 export function renderTranscript(els) {
   const e = els || _els;
   const query = e.searchInput.value.trim().toLowerCase();
+  // One Set per render, not a scan per word: every saved word gets a subtle
+  // mark in the transcript so it's obvious what's already in the deck.
+  const savedWords = new Set();
+  for (const card of state.cards) {
+    if (card.word) savedWords.add(card.word);
+  }
   const html = state.subtitles
     .map((line, index) => ({ line, index }))
     .filter(
@@ -36,8 +58,8 @@ export function renderTranscript(els) {
       const translation = getTranslation(line);
       const original =
         line.tokens && line.tokens.length
-          ? renderRubyTranscript(line.tokens, line.text)
-          : tokenize(line.text);
+          ? renderRubyTranscript(line.tokens, line.text, savedWords)
+          : tokenize(line.text, savedWords);
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${formatTime(line.start)}</span>
         <div>
@@ -110,11 +132,6 @@ function findNearestWord(x, y, container) {
 
 const _segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
-function splitIntoTokens(text) {
-  const raw = [..._segmenter.segment(text)];
-  return raw.map((seg) => ({ text: seg.segment, isWord: isWord(seg) }));
-}
-
 // ---- Ruby (pronunciation stacked over each character) ----------------------
 // `tokens` is [[base, pron], ...] from /api/romanize. We render each as a
 // <ruby> so the reading sits in its own box directly above the base, and can't
@@ -142,8 +159,12 @@ function pronByOffset(tokens) {
   return map;
 }
 
-// Transcript: clickable words, pinyin stacked over each character.
-function renderRubyTranscript(tokens, text) {
+// Transcript: clickable words, pinyin stacked over each character. Words in
+// `savedWords` get a "saved" mark. data-len carries the base character count so
+// the ruby annotation text inside <rt> doesn't inflate the count and skew the
+// karaoke highlight now running on the active transcript line.
+function renderRubyTranscript(tokens, text, savedWords) {
+  const savedClass = (word) => (savedWords?.has(word) ? " saved" : "");
   if (isCharAligned(tokens)) {
     const pron = pronByOffset(tokens);
     let html = "";
@@ -158,7 +179,7 @@ function renderRubyTranscript(tokens, text) {
         inner += rubyUnit(ch, pron.get(off) || "");
         off += ch.length;
       }
-      html += `<span class="word" data-word="${escapeHtml(seg.segment)}">${inner}</span>`;
+      html += `<span class="word${savedClass(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${[...seg.segment].length}">${inner}</span>`;
     }
     return html;
   }
@@ -166,72 +187,42 @@ function renderRubyTranscript(tokens, text) {
   return tokens
     .map(([base, pron]) =>
       pron
-        ? `<span class="word" data-word="${escapeHtml(base)}">${rubyUnit(base, pron)}</span>`
+        ? `<span class="word${savedClass(base)}" data-word="${escapeHtml(base)}" data-len="${[...base].length}">${rubyUnit(base, pron)}</span>`
         : escapeHtml(base),
     )
     .join("");
 }
 
-// Stage: pinyin stacked over each character, but the karaoke unit is a whole
-// word so the highlight advances word by word (not character by character).
-// data-len carries the base character count so the ruby annotation text inside
-// <rt> doesn't inflate the count and skew the highlight.
-function renderRubyStage(tokens, text) {
-  // Char-aligned (Chinese): group characters into segmenter words, stacking
-  // pinyin over each character inside a single per-word highlight unit.
-  if (isCharAligned(tokens)) {
-    const pron = pronByOffset(tokens);
-    let html = "";
-    for (const seg of _segmenter.segment(text)) {
-      if (!isWord(seg)) {
-        html += escapeHtml(seg.segment);
-        continue;
-      }
-      let inner = "";
-      let off = seg.index;
-      for (const ch of seg.segment) {
-        inner += rubyUnit(ch, pron.get(off) || "");
-        off += ch.length;
-      }
-      html += `<span class="stage-word" data-len="${[...seg.segment].length}">${inner}</span>`;
-    }
-    return html;
-  }
-  // Chunk-based (Japanese, etc.): each token is already one word-level unit.
-  return tokens
-    .map(([base, pron]) =>
-      pron
-        ? `<span class="stage-word" data-len="${[...base].length}">${rubyUnit(base, pron)}</span>`
-        : escapeHtml(base),
-    )
-    .join("");
-}
-
-export function renderActiveSubtitle(els) {
+// Slim translation bar under the video: shows just the active line's
+// translation (the transcript already carries the original). Hidden when the
+// active line has no translation.
+export function renderActiveTranslation(els) {
   const e = els || _els;
+  if (!e.activeTranslationBar) return;
   const line = state.subtitles[state.activeIndex];
-  if (!line) {
-    e.activeOriginal.textContent = "Load subtitles to begin.";
-    e.activeTranslation.textContent = "";
-    return;
-  }
-  if (line.tokens && line.tokens.length) {
-    e.activeOriginal.innerHTML = renderRubyStage(line.tokens, line.text);
-  } else {
-    const tokens = splitIntoTokens(line.text);
-    e.activeOriginal.innerHTML = tokens
-      .map((t) =>
-        t.isWord
-          ? `<span class="stage-word">${escapeHtml(t.text)}</span>`
-          : escapeHtml(t.text),
-      )
-      .join("");
-  }
-  e.activeTranslation.textContent = getTranslation(line);
+  const text = line ? getTranslation(line) : "";
+  e.activeTranslationBar.textContent = text;
+  e.activeTranslationBar.hidden = !text;
+}
+
+// Center the active line inside the transcript's own scroll box (scrollTo on
+// the container, not scrollIntoView, so following playback never drags the
+// page or ancestor layouts around).
+export function scrollActiveLineIntoView(els) {
+  const e = els || _els;
+  const lineEl = e.transcript.querySelector(".line.active");
+  if (!lineEl) return;
+  const top =
+    lineEl.offsetTop -
+    e.transcript.offsetTop -
+    (e.transcript.clientHeight - lineEl.offsetHeight) / 2;
+  e.transcript.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
 let _rafId = null;
 
+// Karaoke highlight: sweeps the words of the transcript's active line in step
+// with playback, weighting each word by its character count.
 export function startHighlightLoop(els) {
   const e = els || _els;
   if (_rafId) return;
@@ -240,7 +231,7 @@ export function startHighlightLoop(els) {
     _rafId = requestAnimationFrame(tick);
     const video = e.video;
     if (!video || video.paused) {
-      e.activeOriginal.querySelectorAll(".stage-word.spoken").forEach(
+      e.transcript.querySelectorAll(".word.spoken").forEach(
         (el) => el.classList.remove("spoken"),
       );
       return;
@@ -251,7 +242,9 @@ export function startHighlightLoop(els) {
     if (duration <= 0) return;
     const elapsed = Math.max(0, Math.min(duration, video.currentTime - line.start));
     const progress = elapsed / duration;
-    const wordEls = e.activeOriginal.querySelectorAll(".stage-word");
+    const activeLine = e.transcript.querySelector(".line.active");
+    if (!activeLine) return;
+    const wordEls = activeLine.querySelectorAll(".word");
     if (!wordEls.length) return;
 
     // Prefer data-len (set when ruby is present) so the pinyin annotation text
@@ -283,43 +276,259 @@ export function stopHighlightLoop() {
   }
 }
 
-export function renderDeck(els) {
-  const e = els || _els;
-  e.deckList.innerHTML =
-    state.cards
-      .map(
-        (card) => `<article class="deck-item">
-      <div>
-        <strong>${escapeHtml(card.front)}</strong>
-        <p>${escapeHtml(card.back)}</p>
-      </div>
-      <button class="delete-card danger" type="button" data-id="${card.id}">Delete</button>
-    </article>`,
-      )
-      .join("") ||
-    `<p class="muted">Click words in the transcript or add cards manually.</p>`;
+// ---- Cards view: deck sidebar, header, filtered list -----------------------
 
-  e.deckList.querySelectorAll(".delete-card").forEach((button) => {
+export function renderDeckNav(els) {
+  const e = els || _els;
+  const item = (deckId, label) => {
+    const total = cardsInDeck(deckId).length;
+    const due = getDueCards(deckId).length;
+    const active = state.selectedDeckId === deckId;
+    return `<button type="button" class="deck-nav-item ${active ? "active" : ""}" data-deck="${escapeHtml(deckId)}">
+      <span class="deck-nav-name">${escapeHtml(label)}</span>
+      <span class="deck-nav-counts">${due ? `<span class="deck-due">${due} due</span>` : ""}<span class="deck-count">${total}</span></span>
+    </button>`;
+  };
+  e.deckNav.innerHTML = [
+    item("all", "All decks"),
+    ...state.decks.map((deck) => item(deck.id, deck.name)),
+  ].join("");
+
+  e.deckNav.querySelectorAll(".deck-nav-item").forEach((button) => {
     button.addEventListener("click", () => {
-      state.cards = state.cards.filter((card) => card.id !== button.dataset.id);
-      saveCards();
-      renderAll(e);
+      state.selectedDeckId = button.dataset.deck;
+      state.showingBack = false;
+      renderDeckNav(e);
+      renderDeckHeader(e);
+      renderCardList(e);
+      renderReviewCard(e);
     });
   });
 }
 
-export function renderReviewCard(els) {
+export function renderDeckHeader(els) {
   const e = els || _els;
-  const card = getCurrentReviewCard();
-  if (!card) {
-    e.reviewCard.innerHTML = state.cards.length
-      ? "<p>All caught up — no cards due for review.</p>"
-      : "<p>No flashcards yet.</p>";
+  const id = state.selectedDeckId;
+  e.deckTitle.textContent = deckName(id);
+  // Rename/Delete apply only to user decks — not "All decks", not the
+  // built-in Default deck. Daily limits are editable on every real deck.
+  const deck = getDeck(id);
+  const editable = Boolean(deck && !deck.builtIn);
+  e.renameDeck.hidden = !editable;
+  e.deleteDeck.hidden = !editable;
+  e.deckSettings.hidden = !deck;
+  if (!editable) e.renameDeckForm.hidden = true;
+}
+
+// main.mjs registers the actual jump implementation (it owns the player and
+// the import flow); ui only renders the control.
+let _sourceJumper = null;
+export function setSourceJumper(fn) {
+  _sourceJumper = fn;
+}
+
+// practice.mjs registers the stroke-practice opener the same way.
+let _practiceOpener = null;
+export function setPracticeOpener(fn) {
+  _practiceOpener = fn;
+}
+
+// "✍ Practice strokes" — only for Han-script cards, and only once the
+// practice module has registered itself.
+function practiceLinkButton(card) {
+  if (!_practiceOpener || !hasHan(card.word)) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "card-source card-practice";
+  button.textContent = "✍ Practice strokes";
+  button.addEventListener("click", () => _practiceOpener(card));
+  return button;
+}
+
+// "▶ title · 0:42" — jumps back to the video moment a card came from.
+// Cards without a link (manual/local-file cards) simply get no control.
+function sourceLinkButton(card) {
+  if (!card.sourceId || !Number.isFinite(card.sourceTime)) return null;
+  const source = state.sources.find((s) => s.id === card.sourceId);
+  if (!source) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "card-source";
+  button.textContent = `▶ ${source.title || "clip"} · ${formatTime(card.sourceTime)}`;
+  button.title = "Jump to this moment in the video";
+  button.addEventListener("click", () =>
+    _sourceJumper?.(card.sourceId, card.sourceTime),
+  );
+  return button;
+}
+
+function cardMatchesSearch(card, query) {
+  if (!query) return true;
+  return [
+    card.word,
+    card.pinyin,
+    card.translation,
+    card.example,
+    card.exampleTranslation,
+    card.front,
+    card.back,
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
+}
+
+function cardListItem(card, e) {
+  const item = document.createElement("article");
+  item.className = "card-item";
+  item.dataset.id = card.id;
+
+  const body = document.createElement("div");
+  body.className = "card-item-body";
+  // Both faces go through the shared renderer — same one the review screen
+  // and modal preview use. Strokes stay off in the list (too heavy per row).
+  const front = document.createElement("div");
+  renderCardFace(front, card, card.frontFields, { lang: state.learningLang });
+  front.classList.add("card-face-compact");
+  const back = document.createElement("div");
+  renderCardFace(back, card, card.backFields, { lang: state.learningLang });
+  back.classList.add("card-face-compact", "card-item-back");
+  body.append(front, back);
+
+  // Deck chip when browsing all decks, so cards show where they live.
+  if (state.selectedDeckId === "all") {
+    const chip = document.createElement("span");
+    chip.className = "deck-chip";
+    chip.textContent = deckName(card.deckId);
+    body.prepend(chip);
+  }
+
+  const sourceButton = sourceLinkButton(card);
+  if (sourceButton) body.appendChild(sourceButton);
+
+  const actions = document.createElement("div");
+  actions.className = "card-item-actions";
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.textContent = "Edit";
+  edit.addEventListener("click", () => openCardModal({ card }));
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "danger";
+  del.textContent = "Delete";
+  del.addEventListener("click", () => removeCard(card.id));
+
+  const practiceButton = practiceLinkButton(card);
+  if (practiceButton) body.appendChild(practiceButton);
+
+  // Move between decks straight from the list.
+  const move = document.createElement("select");
+  move.className = "card-move";
+  move.setAttribute("aria-label", "Move to deck");
+  for (const deck of state.decks) {
+    const option = document.createElement("option");
+    option.value = deck.id;
+    option.textContent = deck.name;
+    move.appendChild(option);
+  }
+  move.value = getDeck(card.deckId) ? card.deckId : "default";
+  move.addEventListener("change", () => moveCardToDeck(card.id, move.value));
+
+  actions.append(edit, move, del);
+
+  item.append(body, actions);
+  return item;
+}
+
+export function renderCardList(els) {
+  const e = els || _els;
+  const query = (state.cardSearch || "").trim().toLowerCase();
+  const cards = cardsInDeck(state.selectedDeckId).filter((card) =>
+    cardMatchesSearch(card, query),
+  );
+  e.cardList.textContent = "";
+  if (!cards.length) {
+    e.cardList.innerHTML = `<p class="muted">${
+      query
+        ? "No cards match your search."
+        : "Click words in the transcript or add cards manually."
+    }</p>`;
     return;
   }
-  e.reviewCard.innerHTML = state.showingBack
-    ? `<div><strong>${escapeHtml(card.back)}</strong><p class="muted">${escapeHtml(card.example || card.front)}</p></div>`
-    : `<div><strong>${escapeHtml(card.front)}</strong><p class="muted">Flip to check meaning</p></div>`;
+  for (const card of cards) {
+    e.cardList.appendChild(cardListItem(card, e));
+  }
+}
+
+// Re-render when the next learning card comes due, so "Again" cards reappear
+// on their own without a manual refresh.
+let _reviewTimer = 0;
+
+export function renderReviewCard(els) {
+  const e = els || _els;
+  clearTimeout(_reviewTimer);
+  const card = getCurrentReviewCard();
+  const counts = getQueueCounts();
+  e.reviewProgress.textContent = card
+    ? [
+        counts.new ? `${counts.new} new` : "",
+        counts.learning ? `${counts.learning} learning` : "",
+        counts.review ? `${counts.review} due` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
+  const gradeButtons = document.querySelectorAll("#cardsView .grade-button");
+
+  if (!card) {
+    const total = cardsInDeck(state.selectedDeckId).length;
+    const upcoming = nextLearningDue();
+    if (upcoming) {
+      // A card graded Again is waiting on its learning step — count it down.
+      const wait = Math.max(1000, upcoming - Date.now());
+      e.reviewCard.innerHTML = `<p>Next card in ${formatInterval(wait)}.</p>`;
+      _reviewTimer = setTimeout(() => {
+        renderReviewCard(e);
+        renderDeckNav(e);
+        updateStats(e);
+      }, Math.min(wait + 100, 60_000));
+    } else {
+      e.reviewCard.innerHTML = total
+        ? "<p>All caught up — nothing more to study in this deck today.</p>"
+        : "<p>No flashcards in this deck yet.</p>";
+    }
+    e.flipCard.hidden = true;
+    gradeButtons.forEach((b) => (b.hidden = true));
+    return;
+  }
+
+  const face = document.createElement("div");
+  renderCardSide(face, card, state.showingBack ? "back" : "front", {
+    lang: state.learningLang,
+    // Strokes are part of the card's template; the review screen is exactly
+    // where they should appear.
+  });
+  const hint = document.createElement("p");
+  hint.className = "muted review-hint";
+  hint.textContent = state.showingBack ? "" : "Flip to check the answer";
+  e.reviewCard.textContent = "";
+  e.reviewCard.append(face, hint);
+  const sourceButton = sourceLinkButton(card);
+  if (sourceButton) e.reviewCard.appendChild(sourceButton);
+  const practiceButton = practiceLinkButton(card);
+  if (practiceButton) e.reviewCard.appendChild(practiceButton);
+
+  // Grading an answer you haven't seen is meaningless — grades appear only
+  // after the flip, each labeled with the interval it would produce.
+  e.flipCard.hidden = state.showingBack;
+  const preview = previewIntervals(card);
+  gradeButtons.forEach((button) => {
+    button.hidden = !state.showingBack;
+    button.querySelector(".grade-int").textContent = formatInterval(
+      preview[button.dataset.grade],
+    );
+  });
 }
 
 export function renderSources(els) {
@@ -347,16 +556,8 @@ export function updateStats(els) {
   ).length;
 }
 
-function openWordDialog(word, els, prefill = {}) {
-  const line = state.subtitles[state.activeIndex];
-  state.selectedWord = word;
-  els.dialogWord.textContent = word;
-  els.dialogMeaning.value = prefill.meaning || "";
-  els.dialogExample.value = prefill.example ?? line?.text ?? "";
-  els.wordDialog.showModal();
-}
-
 let _bubble = null;
+let _backdrop = null;
 let _bubbleCleanup = null;
 
 function getBubble() {
@@ -368,27 +569,35 @@ function getBubble() {
   return _bubble;
 }
 
+// Full-screen layer under the bubble: the closing click lands here instead of
+// on whatever is behind it (transcript lines, buttons, the video), so
+// dismissing the popup never triggers a background action.
+function getBackdrop() {
+  if (_backdrop) return _backdrop;
+  _backdrop = document.createElement("div");
+  _backdrop.className = "bubble-backdrop";
+  _backdrop.hidden = true;
+  _backdrop.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    closeBubble();
+  });
+  document.body.appendChild(_backdrop);
+  return _backdrop;
+}
+
 function closeBubble() {
   if (_bubble) _bubble.hidden = true;
+  if (_backdrop) _backdrop.hidden = true;
   if (_bubbleCleanup) {
     _bubbleCleanup();
     _bubbleCleanup = null;
   }
 }
 
-function positionBubble(bubble, anchor) {
-  const rect = anchor.getBoundingClientRect();
-  bubble.style.visibility = "hidden";
+// The bubble is a viewport-centered pop-up (see .word-bubble CSS); showing it
+// is all that's left to do here.
+function positionBubble(bubble) {
   bubble.hidden = false;
-  const bw = bubble.offsetWidth;
-  const bh = bubble.offsetHeight;
-  let left = rect.left + rect.width / 2 - bw / 2 + window.scrollX;
-  left = Math.max(8, Math.min(left, window.scrollX + window.innerWidth - bw - 8));
-  let top = rect.top + window.scrollY - bh - 8;
-  if (rect.top < bh + 16) top = rect.bottom + window.scrollY + 8;
-  bubble.style.left = `${left}px`;
-  bubble.style.top = `${top}px`;
-  bubble.style.visibility = "visible";
 }
 
 async function openWordBubble(anchor, context, els) {
@@ -401,18 +610,12 @@ async function openWordBubble(anchor, context, els) {
     <div class="bubble-word">${escapeHtml(word)}</div>
     <div class="bubble-pron muted">…</div>
     <div class="bubble-meaning">Looking up…</div>`;
-  positionBubble(bubble, anchor);
+  getBackdrop().hidden = false;
+  positionBubble(bubble);
 
-  const onDocClick = (ev) => {
-    if (!bubble.contains(ev.target) && !ev.target.closest(".word")) closeBubble();
-  };
   const onKey = (ev) => { if (ev.key === "Escape") closeBubble(); };
-  setTimeout(() => document.addEventListener("click", onDocClick), 0);
   document.addEventListener("keydown", onKey);
-  _bubbleCleanup = () => {
-    document.removeEventListener("click", onDocClick);
-    document.removeEventListener("keydown", onKey);
-  };
+  _bubbleCleanup = () => document.removeEventListener("keydown", onKey);
 
   const result = await lookupWord(word, lang, context);
   if (bubble.hidden) return;
@@ -451,29 +654,64 @@ async function openWordBubble(anchor, context, els) {
       <button type="button" class="bubble-save">+ Flashcard</button>
       <button type="button" class="bubble-edit">Edit…</button>
     </div>`;
-  positionBubble(bubble, anchor);
+  positionBubble(bubble);
 
+  // Quick add: one click, default template + last-used deck, undo toast.
+  // The full modal stays one step away via Edit.
   bubble.querySelector(".bubble-save").addEventListener("click", () => {
-    const back = [result.pronunciation, result.meaning].filter(Boolean).join(" — ");
-    addCard(word, back || "Add your meaning", context);
+    const line = state.subtitles[state.activeIndex];
+    const added = addCard({
+      word,
+      pinyin: result.pronunciation || "",
+      translation: result.meaning || (result.defs || [])[0] || "",
+      example: context,
+      sourceId: state.currentSourceId,
+      sourceTime: line?.start ?? null,
+    });
+    if (added.error) {
+      showToast(added.error, {
+        actions: [
+          {
+            label: "Edit…",
+            onClick: () =>
+              openCardModal({
+                word,
+                example: context,
+                prefill: {
+                  pinyin: result.pronunciation || "",
+                  translation: result.meaning || (result.defs || [])[0] || "",
+                },
+                sourceId: state.currentSourceId,
+                sourceTime: line?.start ?? null,
+              }),
+          },
+        ],
+      });
+    } else {
+      const card = added.card;
+      showToast(`Added to ${deckName(card.deckId)}`, {
+        actions: [
+          { label: "Undo", onClick: () => removeCard(card.id) },
+          { label: "Edit…", onClick: () => openCardModal({ card }) },
+        ],
+      });
+    }
     closeBubble();
   });
   bubble.querySelector(".bubble-edit").addEventListener("click", () => {
     closeBubble();
-    openWordDialog(word, els, {
-      meaning: [result.pronunciation, result.meaning].filter(Boolean).join(" — "),
+    const line = state.subtitles[state.activeIndex];
+    openCardModal({
+      word,
       example: context,
+      prefill: {
+        pinyin: result.pronunciation || "",
+        translation: result.meaning || (result.defs || [])[0] || "",
+      },
+      sourceId: state.currentSourceId,
+      sourceTime: line?.start ?? null,
     });
   });
-}
-
-export function addDialogCard(els) {
-  addCard(
-    state.selectedWord,
-    els.dialogMeaning.value || "Add your meaning",
-    els.dialogExample.value,
-  );
-  els.wordDialog.close();
 }
 
 export function setSourceStatus(message, els) {
