@@ -477,15 +477,46 @@ async function openWordBubble(anchor, context, els) {
     </div>`;
   positionBubble(bubble, anchor);
 
+  // Quick add: one click, default template + last-used deck, undo toast.
+  // The full modal stays one step away via Edit.
   bubble.querySelector(".bubble-save").addEventListener("click", () => {
+    const line = state.subtitles[state.activeIndex];
     const added = addCard({
       word,
       pinyin: result.pronunciation || "",
       translation: result.meaning || (result.defs || [])[0] || "",
       example: context,
+      sourceId: state.currentSourceId,
+      sourceTime: line?.start ?? null,
     });
-    if (added.error) showToast(added.error);
-    else showToast(`Added to ${deckName(added.card.deckId)}.`);
+    if (added.error) {
+      showToast(added.error, {
+        actions: [
+          {
+            label: "Edit…",
+            onClick: () =>
+              openCardModal({
+                word,
+                example: context,
+                prefill: {
+                  pinyin: result.pronunciation || "",
+                  translation: result.meaning || (result.defs || [])[0] || "",
+                },
+                sourceId: state.currentSourceId,
+                sourceTime: line?.start ?? null,
+              }),
+          },
+        ],
+      });
+    } else {
+      const card = added.card;
+      showToast(`Added to ${deckName(card.deckId)}`, {
+        actions: [
+          { label: "Undo", onClick: () => removeCard(card.id) },
+          { label: "Edit…", onClick: () => openCardModal({ card }) },
+        ],
+      });
+    }
     closeBubble();
   });
   bubble.querySelector(".bubble-edit").addEventListener("click", () => {
