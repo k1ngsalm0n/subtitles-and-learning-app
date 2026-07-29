@@ -2,7 +2,11 @@ import { state, deckName } from "./state.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { addCard } from "./flashcards.mjs";
 import { showToast } from "./toast.mjs";
-import { renderTranscript, scrollActiveLineIntoView } from "./ui.mjs";
+import {
+  renderTranscript,
+  scrollActiveLineIntoView,
+  renderActiveTranslation,
+} from "./ui.mjs";
 
 // Tracks the active A–B loop, if any: { index, listener }. Only ever one.
 let activeLoop = null;
@@ -26,6 +30,7 @@ export function syncToVideo(els) {
     if (activeLoop && activeLoop.index !== index) stopLoop(els);
     state.activeIndex = index;
     renderTranscript(els);
+    renderActiveTranslation(els);
     // Playback moved to a new line — keep it centered in the transcript so the
     // karaoke highlight stays on screen.
     scrollActiveLineIntoView(els);
@@ -39,6 +44,7 @@ export function activateLine(index, seek, els) {
     els.video.currentTime = state.subtitles[index].start;
   }
   renderTranscript(els);
+  renderActiveTranslation(els);
 }
 
 export function loopActiveLine(els) {

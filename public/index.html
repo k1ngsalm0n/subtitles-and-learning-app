@@ -280,6 +280,17 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   padding: 24px;
 }
 .empty-player.hidden { display: none; }
+/* Slim bar under the video: just the active line's translation (in amber),
+   without re-adding the tall subtitle stage that duplicated the transcript. */
+.active-translation-bar {
+  padding: 12px 20px;
+  text-align: center;
+  color: var(--accent-2);
+  font-size: 16px;
+  line-height: 1.4;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
 .import-bar, .url-row, .toolbar-row, .manual-card, .card-actions {
   display: flex;
   gap: 8px;
@@ -1001,6 +1012,7 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
                 <div class="mini-rz" data-dir="se"></div>
               </div>
             </div>
+            <p id="activeTranslationBar" class="active-translation-bar" hidden></p>
           </section>
 
           <section class="learning-pane">

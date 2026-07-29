@@ -1,6 +1,6 @@
 import { state } from "./state.mjs";
 import { parseSubtitle, alignTranslations } from "./subtitle.mjs";
-import { renderTranscript, setElements } from "./ui.mjs";
+import { renderTranscript, renderActiveTranslation, setElements } from "./ui.mjs";
 import { LANGUAGES, detectLanguage, languageName } from "./languages.mjs";
 
 const AUTO = "auto";
@@ -117,6 +117,7 @@ export async function runTranslation(els) {
     const translated = parseSubtitle(data.translation || "");
     state.subtitles = alignTranslations(state.subtitles, translated);
     renderTranscript(els);
+    renderActiveTranslation(els);
     setStatus(els, `Translated to ${languageName(to)}.`);
   } catch (error) {
     setStatus(els, error.message);
