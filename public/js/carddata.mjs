@@ -3,6 +3,8 @@
 // No DOM, no storage — state.mjs wires it to localStorage, tests import it
 // directly under Node.
 
+import { START_EASE } from "./scheduler.mjs";
+
 export const DEFAULT_DECK_ID = "default";
 
 export const BUILTIN_TEMPLATE_IDS = {
@@ -151,6 +153,11 @@ export function createCard(values, template, deckId) {
     exampleTranslation: (values.exampleTranslation || "").trim(),
     sourceId: values.sourceId || null,
     sourceTime: Number.isFinite(values.sourceTime) ? values.sourceTime : null,
+    state: "new",
+    step: 0,
+    ease: START_EASE,
+    reps: 0,
+    lapses: 0,
     interval: 1,
     due: Date.now(),
     createdAt: Date.now(),

@@ -513,6 +513,23 @@ rt {
 }
 .deck-delete-choice { display: flex; align-items: center; gap: 8px; }
 .deck-delete-choice input { width: auto; }
+
+/* Grade buttons: label on top, predicted interval underneath */
+.card-actions .grade-button, .card-actions #flipCard { flex: 1; }
+.grade-button {
+  flex-direction: column;
+  gap: 0;
+  height: 46px;
+  padding: 0 8px;
+  line-height: 1.2;
+}
+.grade-int { font-size: 10px; color: var(--muted); font-weight: 400; }
+.grade-again:hover { border-color: var(--danger); }
+.grade-hard:hover { border-color: var(--accent-2); }
+.grade-good:hover, .grade-easy:hover { border-color: var(--accent); }
+.review-keys { font-size: 11px; text-align: center; margin-top: 8px; }
+.deck-settings-row { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+.card-practice { color: var(--accent); }
 #cardSearch { width: 160px; }
 .card-source {
   height: 26px;
@@ -1016,9 +1033,12 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
             <div id="reviewCard" class="review-card"><p>No flashcards yet.</p></div>
             <div class="card-actions">
               <button id="flipCard" type="button">Flip</button>
-              <button id="markHard" type="button">Hard</button>
-              <button id="markGood" type="button">Good</button>
+              <button class="grade-button grade-again" type="button" data-grade="again">Again<span class="grade-int"></span></button>
+              <button class="grade-button grade-hard" type="button" data-grade="hard">Hard<span class="grade-int"></span></button>
+              <button class="grade-button grade-good" type="button" data-grade="good">Good<span class="grade-int"></span></button>
+              <button class="grade-button grade-easy" type="button" data-grade="easy">Easy<span class="grade-int"></span></button>
             </div>
+            <p class="review-keys muted">Space to flip · 1–4 to grade</p>
           </section>
 
           <section class="card-panel">
@@ -1027,6 +1047,7 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
               <div class="card-tools">
                 <input id="cardSearch" type="search" placeholder="Search cards" aria-label="Search cards" />
                 <button id="renameDeck" type="button" hidden>Rename</button>
+                <button id="deckSettings" type="button" hidden>Limits</button>
                 <button id="deleteDeck" type="button" class="danger" hidden>Delete deck</button>
                 <button id="manageTemplates" type="button">Templates</button>
                 <button id="exportCards" type="button" title="Export cards, decks, and templates as JSON">Export</button>
@@ -1109,6 +1130,25 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
         <menu>
           <button value="cancel" type="submit">Cancel</button>
           <button id="modalSave" type="button">Add card</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="deckSettingsDialog" aria-labelledby="deckSettingsTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="deckSettingsTitle">Deck limits</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <label class="deck-settings-row">New cards per day
+          <input id="deckNewPerDay" type="number" min="0" max="9999" />
+        </label>
+        <label class="deck-settings-row">Reviews per day
+          <input id="deckReviewsPerDay" type="number" min="0" max="9999" />
+        </label>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="deckSettingsSave" type="button">Save</button>
         </menu>
       </form>
     </dialog>

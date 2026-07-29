@@ -2,10 +2,14 @@ import {
   state,
   getCurrentReviewCard,
   getDueCards,
+  getQueueCounts,
+  nextLearningDue,
   cardsInDeck,
   deckName,
   getDeck,
 } from "./state.mjs";
+import { previewIntervals, formatInterval } from "./scheduler.mjs";
+import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
@@ -338,11 +342,12 @@ export function renderDeckHeader(els) {
   const id = state.selectedDeckId;
   e.deckTitle.textContent = deckName(id);
   // Rename/Delete apply only to user decks — not "All decks", not the
-  // built-in Default deck.
+  // built-in Default deck. Daily limits are editable on every real deck.
   const deck = getDeck(id);
   const editable = Boolean(deck && !deck.builtIn);
   e.renameDeck.hidden = !editable;
   e.deleteDeck.hidden = !editable;
+  e.deckSettings.hidden = !deck;
   if (!editable) e.renameDeckForm.hidden = true;
 }
 
@@ -351,6 +356,24 @@ export function renderDeckHeader(els) {
 let _sourceJumper = null;
 export function setSourceJumper(fn) {
   _sourceJumper = fn;
+}
+
+// practice.mjs registers the stroke-practice opener the same way.
+let _practiceOpener = null;
+export function setPracticeOpener(fn) {
+  _practiceOpener = fn;
+}
+
+// "✍ Practice strokes" — only for Han-script cards, and only once the
+// practice module has registered itself.
+function practiceLinkButton(card) {
+  if (!_practiceOpener || !hasHan(card.word)) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "card-source card-practice";
+  button.textContent = "✍ Practice strokes";
+  button.addEventListener("click", () => _practiceOpener(card));
+  return button;
 }
 
 // "▶ title · 0:42" — jumps back to the video moment a card came from.
@@ -426,6 +449,9 @@ function cardListItem(card, e) {
   del.textContent = "Delete";
   del.addEventListener("click", () => removeCard(card.id));
 
+  const practiceButton = practiceLinkButton(card);
+  if (practiceButton) body.appendChild(practiceButton);
+
   // Move between decks straight from the list.
   const move = document.createElement("select");
   move.className = "card-move";
@@ -465,20 +491,46 @@ export function renderCardList(els) {
   }
 }
 
+// Re-render when the next learning card comes due, so "Again" cards reappear
+// on their own without a manual refresh.
+let _reviewTimer = 0;
+
 export function renderReviewCard(els) {
   const e = els || _els;
-  const due = getDueCards();
-  const card = due[0] || null;
-  e.reviewProgress.textContent = card ? `${due.length} to review` : "";
+  clearTimeout(_reviewTimer);
+  const card = getCurrentReviewCard();
+  const counts = getQueueCounts();
+  e.reviewProgress.textContent = card
+    ? [
+        counts.new ? `${counts.new} new` : "",
+        counts.learning ? `${counts.learning} learning` : "",
+        counts.review ? `${counts.review} due` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
+  const gradeButtons = document.querySelectorAll("#cardsView .grade-button");
 
   if (!card) {
     const total = cardsInDeck(state.selectedDeckId).length;
-    e.reviewCard.innerHTML = total
-      ? "<p>All caught up — no cards due in this deck.</p>"
-      : "<p>No flashcards in this deck yet.</p>";
+    const upcoming = nextLearningDue();
+    if (upcoming) {
+      // A card graded Again is waiting on its learning step — count it down.
+      const wait = Math.max(1000, upcoming - Date.now());
+      e.reviewCard.innerHTML = `<p>Next card in ${formatInterval(wait)}.</p>`;
+      _reviewTimer = setTimeout(() => {
+        renderReviewCard(e);
+        renderDeckNav(e);
+        updateStats(e);
+      }, Math.min(wait + 100, 60_000));
+    } else {
+      e.reviewCard.innerHTML = total
+        ? "<p>All caught up — nothing more to study in this deck today.</p>"
+        : "<p>No flashcards in this deck yet.</p>";
+    }
     e.flipCard.hidden = true;
-    e.markHard.hidden = true;
-    e.markGood.hidden = true;
+    gradeButtons.forEach((b) => (b.hidden = true));
     return;
   }
 
@@ -495,12 +547,19 @@ export function renderReviewCard(els) {
   e.reviewCard.append(face, hint);
   const sourceButton = sourceLinkButton(card);
   if (sourceButton) e.reviewCard.appendChild(sourceButton);
+  const practiceButton = practiceLinkButton(card);
+  if (practiceButton) e.reviewCard.appendChild(practiceButton);
 
-  // Grading an answer you haven't seen is meaningless — show Hard/Good only
-  // after the flip.
+  // Grading an answer you haven't seen is meaningless — grades appear only
+  // after the flip, each labeled with the interval it would produce.
   e.flipCard.hidden = state.showingBack;
-  e.markHard.hidden = !state.showingBack;
-  e.markGood.hidden = !state.showingBack;
+  const preview = previewIntervals(card);
+  gradeButtons.forEach((button) => {
+    button.hidden = !state.showingBack;
+    button.querySelector(".grade-int").textContent = formatInterval(
+      preview[button.dataset.grade],
+    );
+  });
 }
 
 export function renderSources(els) {

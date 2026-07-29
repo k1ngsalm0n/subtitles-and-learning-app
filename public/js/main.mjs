@@ -1,4 +1,13 @@
-import { state, saveSources, getDeck, cardsInDeck, STORAGE_KEYS } from "./state.mjs";
+import {
+  state,
+  saveSources,
+  saveDecks,
+  getDeck,
+  cardsInDeck,
+  DEFAULT_NEW_PER_DAY,
+  DEFAULT_REVIEWS_PER_DAY,
+  STORAGE_KEYS,
+} from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import {
   flipReviewCard,
@@ -69,8 +78,6 @@ const els = {
   cardList: document.querySelector("#cardList"),
   reviewCard: document.querySelector("#reviewCard"),
   flipCard: document.querySelector("#flipCard"),
-  markHard: document.querySelector("#markHard"),
-  markGood: document.querySelector("#markGood"),
   shuffleCards: document.querySelector("#shuffleCards"),
   exportCards: document.querySelector("#exportCards"),
   sourceList: document.querySelector("#sourceList"),
@@ -116,6 +123,11 @@ const els = {
   renameDeckCancel: document.querySelector("#renameDeckCancel"),
   renameDeckError: document.querySelector("#renameDeckError"),
   deleteDeck: document.querySelector("#deleteDeck"),
+  deckSettings: document.querySelector("#deckSettings"),
+  deckSettingsDialog: document.querySelector("#deckSettingsDialog"),
+  deckNewPerDay: document.querySelector("#deckNewPerDay"),
+  deckReviewsPerDay: document.querySelector("#deckReviewsPerDay"),
+  deckSettingsSave: document.querySelector("#deckSettingsSave"),
   deckDeleteDialog: document.querySelector("#deckDeleteDialog"),
   deckDeleteText: document.querySelector("#deckDeleteText"),
   deckDeleteConfirm: document.querySelector("#deckDeleteConfirm"),
@@ -177,8 +189,10 @@ function bindEvents() {
   els.newCardButton.addEventListener("click", () => openCardModal());
   bindDeckEvents();
   els.flipCard.addEventListener("click", flipReviewCard);
-  els.markHard.addEventListener("click", () => gradeCard("hard"));
-  els.markGood.addEventListener("click", () => gradeCard("good"));
+  document.querySelectorAll("#cardsView .grade-button").forEach((button) => {
+    button.addEventListener("click", () => gradeCard(button.dataset.grade));
+  });
+  document.addEventListener("keydown", handleReviewKeys);
   els.shuffleCards.addEventListener("click", shuffleCards);
   els.exportCards.addEventListener("click", exportCards);
   els.exportAnki.addEventListener("click", exportAnkiTsv);
@@ -194,6 +208,22 @@ function bindEvents() {
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
   els.cookieModeFile.addEventListener("click", () => setCookieMode("file"));
   els.saveCookies.addEventListener("click", saveCookieSettings);
+}
+
+// Review shortcuts (Flashcards view only): Space flips, 1–4 grade
+// Again/Hard/Good/Easy.
+const GRADE_KEYS = { 1: "again", 2: "hard", 3: "good", 4: "easy" };
+function handleReviewKeys(event) {
+  if (!document.querySelector("#cardsView").classList.contains("active")) return;
+  if (document.querySelector("dialog[open]")) return;
+  const tag = event.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (event.key === " ") {
+    event.preventDefault();
+    flipReviewCard();
+  } else if (GRADE_KEYS[event.key]) {
+    gradeCard(GRADE_KEYS[event.key]);
+  }
 }
 
 function bindDeckEvents() {
@@ -258,6 +288,24 @@ function bindDeckEvents() {
   els.cardSearch.addEventListener("input", () => {
     state.cardSearch = els.cardSearch.value;
     renderCardList(els);
+  });
+
+  els.deckSettings.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (!deck) return;
+    els.deckNewPerDay.value = deck.newPerDay ?? DEFAULT_NEW_PER_DAY;
+    els.deckReviewsPerDay.value = deck.reviewsPerDay ?? DEFAULT_REVIEWS_PER_DAY;
+    els.deckSettingsDialog.showModal();
+  });
+  els.deckSettingsSave.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (deck) {
+      deck.newPerDay = Math.max(0, Number(els.deckNewPerDay.value) || 0);
+      deck.reviewsPerDay = Math.max(0, Number(els.deckReviewsPerDay.value) || 0);
+      saveDecks();
+      renderAll(els);
+    }
+    els.deckSettingsDialog.close();
   });
 }
 

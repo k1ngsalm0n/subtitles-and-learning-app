@@ -8,10 +8,18 @@ import {
   getDefaultTemplate,
   getDeck,
   setLastDeck,
+  recordStudy,
 } from "./state.mjs";
 import { createCard, syncFlattened, DEFAULT_DECK_ID } from "./carddata.mjs";
+import { schedule } from "./scheduler.mjs";
 import { buildExport, mergeImport, buildAnkiTsv } from "./portability.mjs";
-import { renderAll, renderCardList, renderReviewCard, updateStats } from "./ui.mjs";
+import {
+  renderAll,
+  renderCardList,
+  renderReviewCard,
+  renderDeckNav,
+  updateStats,
+} from "./ui.mjs";
 
 // Create a card from field values. `values` may carry deckId/templateId/
 // sourceId/sourceTime; missing ones fall back to the last-used deck and the
@@ -144,16 +152,17 @@ export function flipReviewCard() {
 }
 
 export function gradeCard(grade) {
-  // Grade the card currently up for review (most-overdue due card in the
-  // selected deck). Grading pushes its due date into the future, so it leaves
-  // the queue and the next due card becomes current.
+  // Grade the card at the head of the review queue with minimal SM-2
+  // (public/js/scheduler.mjs). "Again" keeps the card in today's queue via a
+  // short learning step instead of pushing it a day away.
   const card = getCurrentReviewCard();
   if (!card || !state.showingBack) return;
-  card.interval = grade === "good" ? Math.min(card.interval * 2, 30) : 1;
-  card.due = Date.now() + card.interval * 86400000;
+  recordStudy(card); // counts against daily limits, using the pre-grade state
+  Object.assign(card, schedule(card, grade));
   state.showingBack = false;
   saveCards();
   renderReviewCard();
+  renderDeckNav();
   updateStats();
 }
 

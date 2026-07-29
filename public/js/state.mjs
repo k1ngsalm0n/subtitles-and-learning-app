@@ -6,6 +6,7 @@ import {
   DEFAULT_DECK_ID,
   BUILTIN_TEMPLATE_IDS,
 } from "./carddata.mjs";
+import { migrateSchedules } from "./scheduler.mjs";
 
 export const STORAGE_KEYS = {
   cards: "miraaStudio.cards",
@@ -13,9 +14,14 @@ export const STORAGE_KEYS = {
   templates: "miraaStudio.templates",
   defaultTemplate: "miraaStudio.defaultTemplate",
   lastDeck: "miraaStudio.lastDeck",
+  dailyStats: "miraaStudio.dailyStats",
   sources: "miraaStudio.sources",
   theme: "miraaStudio.theme",
 };
+
+// Per-deck daily caps (used when a deck doesn't set its own).
+export const DEFAULT_NEW_PER_DAY = 20;
+export const DEFAULT_REVIEWS_PER_DAY = 200;
 
 // Tests import this module under Node, where localStorage doesn't exist.
 function loadString(key, fallback) {
@@ -69,12 +75,14 @@ export const state = {
   currentSourceId: null,
 };
 
-// One-shot legacy migration: cards from before templates/decks get field
-// lists, a deck, and a template. Persisted immediately so it runs only once.
+// One-shot legacy migrations: cards from before templates/decks get field
+// lists, a deck, and a template; cards from before SM-2 get scheduling
+// fields. Persisted immediately so each runs only once.
 {
   const migrated = migrateCards(loadJson(STORAGE_KEYS.cards, []));
-  state.cards = migrated.cards;
-  if (migrated.changed) saveCards();
+  const scheduled = migrateSchedules(migrated.cards);
+  state.cards = scheduled.cards;
+  if (migrated.changed || scheduled.changed) saveCards();
 }
 
 // Repair dangling references (deck deleted in another tab, cleared storage…).
@@ -116,19 +124,129 @@ export function findCardByWord(word) {
   return state.cards.find((card) => (card.word || card.front) === needle) || null;
 }
 
-// Cards that are due for review (due timestamp has passed), most-overdue first.
-// This is the actual review queue — spaced repetition depends on it.
-export function getDueCards(deckId = state.selectedDeckId) {
-  const now = Date.now();
-  return cardsInDeck(deckId)
-    .filter((card) => card.due <= now)
-    .sort((a, b) => a.due - b.due);
+// ---- Daily stats & limits ---------------------------------------------------
+// Tracks how many new cards were introduced and reviews done today, per deck,
+// so a big import doesn't produce a 400-card day.
+
+function todayKey(now = Date.now()) {
+  return new Date(now).toISOString().slice(0, 10);
 }
 
-// The card currently up for review: the most-overdue due card in the selected
-// deck, or null when nothing is due.
+function loadDailyStats(now = Date.now()) {
+  const stored = loadJson(STORAGE_KEYS.dailyStats, null);
+  if (stored && stored.date === todayKey(now)) return stored;
+  return { date: todayKey(now), perDeck: {} };
+}
+
+let _dailyStats = loadDailyStats();
+
+export function getDailyStats(deckId, now = Date.now()) {
+  if (_dailyStats.date !== todayKey(now)) _dailyStats = loadDailyStats(now);
+  return _dailyStats.perDeck[deckId] || { newSeen: 0, reviews: 0 };
+}
+
+// Called once per grading, with the card's *pre-grade* state.
+export function recordStudy(card, now = Date.now()) {
+  if (_dailyStats.date !== todayKey(now)) _dailyStats = loadDailyStats(now);
+  const deckId = card.deckId || DEFAULT_DECK_ID;
+  const stats = (_dailyStats.perDeck[deckId] ??= { newSeen: 0, reviews: 0 });
+  if (card.state === "new") stats.newSeen += 1;
+  else if (card.state === "review") stats.reviews += 1;
+  storeString(STORAGE_KEYS.dailyStats, JSON.stringify(_dailyStats));
+}
+
+export function deckLimits(deckId) {
+  const deck = getDeck(deckId);
+  return {
+    newPerDay: deck?.newPerDay ?? DEFAULT_NEW_PER_DAY,
+    reviewsPerDay: deck?.reviewsPerDay ?? DEFAULT_REVIEWS_PER_DAY,
+  };
+}
+
+// ---- Review queue -----------------------------------------------------------
+// Learning/relearning cards that are due come first (they're the "again in a
+// few minutes" cards), then due reviews, then new cards — the latter two
+// capped by their deck's daily limits.
+
+export function getReviewQueue(deckId = state.selectedDeckId, now = Date.now()) {
+  const byDue = (a, b) => a.due - b.due;
+  const learning = [];
+  const review = [];
+  const fresh = [];
+  for (const card of cardsInDeck(deckId)) {
+    const cardState = card.state || "new";
+    if (cardState === "learning" || cardState === "relearning") {
+      if (card.due <= now) learning.push(card);
+    } else if (cardState === "review") {
+      if (card.due <= now) review.push(card);
+    } else {
+      fresh.push(card);
+    }
+  }
+  review.sort(byDue);
+  fresh.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  // Apply per-deck daily allowances (each card counts against its own deck,
+  // so the "All decks" view respects every deck's limit).
+  const allowance = new Map();
+  const remaining = (card, kind) => {
+    const id = card.deckId || DEFAULT_DECK_ID;
+    if (!allowance.has(id)) {
+      const limits = deckLimits(id);
+      const stats = getDailyStats(id, now);
+      allowance.set(id, {
+        new: Math.max(0, limits.newPerDay - stats.newSeen),
+        review: Math.max(0, limits.reviewsPerDay - stats.reviews),
+      });
+    }
+    const slot = allowance.get(id);
+    if (slot[kind] <= 0) return false;
+    slot[kind] -= 1;
+    return true;
+  };
+
+  return [
+    ...learning.sort(byDue),
+    ...review.filter((card) => remaining(card, "review")),
+    ...fresh.filter((card) => remaining(card, "new")),
+  ];
+}
+
+// Counts for the review panel: how much work is on the table right now.
+export function getQueueCounts(deckId = state.selectedDeckId, now = Date.now()) {
+  const queue = getReviewQueue(deckId, now);
+  const counts = { new: 0, learning: 0, review: 0 };
+  for (const card of queue) {
+    const cardState = card.state || "new";
+    if (cardState === "learning" || cardState === "relearning") counts.learning += 1;
+    else if (cardState === "review") counts.review += 1;
+    else counts.new += 1;
+  }
+  return counts;
+}
+
+// Earliest future due among learning cards — drives the "next card in 3m"
+// countdown when the queue is momentarily empty.
+export function nextLearningDue(deckId = state.selectedDeckId, now = Date.now()) {
+  let earliest = null;
+  for (const card of cardsInDeck(deckId)) {
+    const cardState = card.state || "new";
+    if (cardState !== "learning" && cardState !== "relearning") continue;
+    if (card.due > now && (earliest === null || card.due < earliest)) {
+      earliest = card.due;
+    }
+  }
+  return earliest;
+}
+
+// Back-compat alias used for "due" badges: everything the queue would serve.
+export function getDueCards(deckId = state.selectedDeckId) {
+  return getReviewQueue(deckId);
+}
+
+// The card currently up for review, or null when the queue is empty.
 export function getCurrentReviewCard() {
-  return getDueCards()[0] || null;
+  return getReviewQueue()[0] || null;
 }
 
 export function saveCards() {

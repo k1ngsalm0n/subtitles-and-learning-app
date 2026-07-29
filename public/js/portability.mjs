@@ -11,6 +11,7 @@ import {
   DEFAULT_DECK_ID,
   BUILTIN_TEMPLATE_IDS,
 } from "./carddata.mjs";
+import { migrateSchedules } from "./scheduler.mjs";
 
 export const EXPORT_VERSION = 2;
 
@@ -113,7 +114,7 @@ export function mergeImport(current, incoming) {
   const existingIds = new Set(cards.map((card) => card.id));
   const deckIds = new Set(decks.map((deck) => deck.id));
   const templateIds = new Set(templates.map((tpl) => tpl.id));
-  const { cards: migrated } = migrateCards(data.cards);
+  const { cards: migrated } = migrateSchedules(migrateCards(data.cards).cards);
   for (const card of migrated) {
     if (!card.id || existingIds.has(card.id)) {
       report.cards.skipped++;
