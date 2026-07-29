@@ -34,7 +34,6 @@ import {
 import {
   renderAll,
   renderTranscript,
-  renderActiveSubtitle,
   startHighlightLoop,
   setupTranscriptDelegation,
   renderSources,
@@ -63,8 +62,6 @@ const els = {
   queueUrl: document.querySelector("#queueUrl"),
   sourceStatus: document.querySelector("#sourceStatus"),
   transcript: document.querySelector("#transcript"),
-  activeOriginal: document.querySelector("#activeOriginal"),
-  activeTranslation: document.querySelector("#activeTranslation"),
   subtitleCount: document.querySelector("#subtitleCount"),
   cardCount: document.querySelector("#cardCount"),
   reviewDue: document.querySelector("#reviewDue"),

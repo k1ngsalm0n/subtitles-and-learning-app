@@ -43,8 +43,9 @@ blocked; evaluate-play works headless because chromium mutes).
 - Playwright auto-scrolls the page to reach buttons lower on the page
   (Sample / file inputs are below the fold). `window.scrollTo(0,0)` +
   ~600 ms wait before measuring "top of page" layout, or measurements lie.
-- Useful flows: karaoke stage `#activeOriginal` (word highlight while
-  playing), mini player (scroll down with a video loaded →
+- Useful flows: karaoke highlight `#transcript .line.active .word.spoken`
+  (word highlight while playing; transcript auto-centers the active
+  line), mini player (scroll down with a video loaded →
   `#playerWrap.mini`, drag via `#miniDrag`, position persists in
   localStorage `miraaStudio.miniPlayerPos`), transcript word click →
   word bubble (needs LLM key in `.env` for real lookups).
