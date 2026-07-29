@@ -450,7 +450,7 @@ rt {
   grid-template-columns: 380px 1fr;
   gap: 20px;
 }
-.review-panel, .deck-panel, .panel {
+.review-panel, .card-panel, .panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -468,15 +468,15 @@ rt {
   text-align: center;
 }
 .review-card strong { font-size: 30px; }
-.deck-list, .source-list { display: grid; gap: 8px; margin-top: 12px; }
-.deck-item, .source-item {
+.card-list, .source-list { display: grid; gap: 8px; margin-top: 12px; }
+.card-item, .source-item {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
   background: var(--surface-2);
 }
-.deck-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
-.deck-item p { color: var(--muted); margin-top: 2px; }
+.card-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+.card-item p { color: var(--muted); margin-top: 2px; }
 .danger { color: var(--danger); }
 
 /* Dialog */
@@ -723,14 +723,14 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
               <button id="markGood" type="button">Good</button>
             </div>
           </section>
-          <section class="deck-panel">
-            <div class="section-title"><h2>Deck</h2><button id="exportCards" type="button">Export</button></div>
+          <section class="card-panel">
+            <div class="section-title"><h2>All cards</h2><button id="exportCards" type="button">Export</button></div>
             <form id="manualCardForm" class="manual-card">
               <input id="manualFront" type="text" placeholder="Word or phrase" required />
               <input id="manualBack" type="text" placeholder="Meaning" required />
               <button type="submit">Add</button>
             </form>
-            <div id="deckList" class="deck-list"></div>
+            <div id="cardList" class="card-list"></div>
           </section>
         </div>
       </section>

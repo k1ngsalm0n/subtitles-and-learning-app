@@ -11,7 +11,7 @@ export function renderAll(els) {
   const e = els || _els;
   renderTranscript(e);
   renderActiveSubtitle(e);
-  renderDeck(e);
+  renderCardList(e);
   renderReviewCard(e);
   renderSources(e);
   updateStats(e);
@@ -283,12 +283,12 @@ export function stopHighlightLoop() {
   }
 }
 
-export function renderDeck(els) {
+export function renderCardList(els) {
   const e = els || _els;
-  e.deckList.innerHTML =
+  e.cardList.innerHTML =
     state.cards
       .map(
-        (card) => `<article class="deck-item">
+        (card) => `<article class="card-item">
       <div>
         <strong>${escapeHtml(card.front)}</strong>
         <p>${escapeHtml(card.back)}</p>
@@ -299,7 +299,7 @@ export function renderDeck(els) {
       .join("") ||
     `<p class="muted">Click words in the transcript or add cards manually.</p>`;
 
-  e.deckList.querySelectorAll(".delete-card").forEach((button) => {
+  e.cardList.querySelectorAll(".delete-card").forEach((button) => {
     button.addEventListener("click", () => {
       state.cards = state.cards.filter((card) => card.id !== button.dataset.id);
       saveCards();

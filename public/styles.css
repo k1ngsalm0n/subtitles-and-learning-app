@@ -156,7 +156,7 @@ h2 {
 .media-pane,
 .learning-pane,
 .review-panel,
-.deck-panel {
+.card-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
@@ -380,7 +380,7 @@ video {
 }
 
 .review-panel,
-.deck-panel {
+.card-panel {
   padding: 16px;
 }
 
@@ -399,14 +399,14 @@ video {
   font-size: 34px;
 }
 
-.deck-list,
+.card-list,
 .source-list {
   display: grid;
   gap: 10px;
   margin-top: 14px;
 }
 
-.deck-item,
+.card-item,
 .source-item {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -414,14 +414,14 @@ video {
   background: var(--surface-2);
 }
 
-.deck-item {
+.card-item {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 12px;
   align-items: center;
 }
 
-.deck-item p {
+.card-item p {
   color: var(--muted);
   margin-top: 4px;
 }

@@ -1,5 +1,5 @@
 import { state, saveCards, getCurrentReviewCard } from "./state.mjs";
-import { renderAll, renderDeck, renderReviewCard, updateStats } from "./ui.mjs";
+import { renderAll, renderCardList, renderReviewCard, updateStats } from "./ui.mjs";
 
 export function addCard(front, back, example) {
   const card = {
@@ -14,7 +14,7 @@ export function addCard(front, back, example) {
   if (!card.front || !card.back) return;
   state.cards.unshift(card);
   saveCards();
-  renderDeck();
+  renderCardList();
   renderReviewCard();
   updateStats();
 }
