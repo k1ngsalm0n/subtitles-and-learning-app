@@ -1,6 +1,9 @@
 import {
   state,
   saveSources,
+  saveSession,
+  loadSession,
+  clearSession,
   saveDecks,
   getDeck,
   cardsInDeck,
@@ -174,7 +177,7 @@ function init() {
     localStorage.getItem(STORAGE_KEYS.theme) || "dark";
   bindEvents();
   populateLanguageSelects(els);
-  loadSubtitles(sampleOriginal, sampleTranslation);
+  restoreSession();
   renderAll(els);
   setupTranscriptDelegation(els);
   setupMiniPlayer(els);
@@ -197,6 +200,10 @@ function bindEvents() {
   els.originalInput.addEventListener("change", () => readSubtitleInputs());
   els.translationInput.addEventListener("change", () => readSubtitleInputs());
   els.video.addEventListener("timeupdate", () => syncToVideo(els));
+  els.video.addEventListener("pause", persistPlaybackTime);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persistPlaybackTime();
+  });
   startHighlightLoop(els);
   els.searchInput.addEventListener("input", () => renderTranscript(els));
   els.loopLine.addEventListener("click", () => loopActiveLine(els));
@@ -366,6 +373,62 @@ function handleVideoInput(event) {
   els.emptyPlayer.classList.add("hidden");
   // A local file isn't a library source; cards made from it carry no link.
   state.currentSourceId = null;
+  // A blob video can't be brought back after a reload, so drop any saved
+  // import session — otherwise a refresh would resurrect the old imported
+  // transcript over this local video.
+  clearSession();
+}
+
+// On startup, bring back the last imported video and its real subtitles rather
+// than the sample, so a reload — or a browser tab-restore that keeps the video
+// element alive — doesn't leave a live video sitting over the sample
+// transcript. Falls back to the sample when there's no resumable session or the
+// source's video is gone.
+function restoreSession() {
+  const session = loadSession();
+  const source =
+    session && state.sources.find((s) => s.id === session.sourceId);
+  if (!source || !source.videoUrl) {
+    loadSubtitles(sampleOriginal, sampleTranslation);
+    return;
+  }
+  els.video.src = source.videoUrl;
+  els.emptyPlayer.classList.add("hidden");
+  els.video.addEventListener(
+    "error",
+    () => {
+      showToast("The saved video is gone — re-import the URL to restore it.");
+      clearSession();
+    },
+    { once: true },
+  );
+  // Resume where playback left off (see persistPlaybackTime).
+  if (session.time) {
+    els.video.addEventListener(
+      "loadedmetadata",
+      () => {
+        els.video.currentTime = session.time;
+      },
+      { once: true },
+    );
+  }
+  state.currentSourceId = source.id;
+  if (session.learningLang) {
+    state.learningLang = session.learningLang;
+    syncTranslateLangs(els);
+  }
+  loadSubtitles(session.original || "", session.translation || "");
+}
+
+// Persist playback position so a reload resumes where you left off. Written on
+// pause and when the tab is hidden (covers reloads and browser tab-discards)
+// rather than on every timeupdate, to avoid hammering localStorage. Only the
+// currently loaded import owns the saved session, so guard on the source id.
+function persistPlaybackTime() {
+  const session = loadSession();
+  if (!session || session.sourceId !== state.currentSourceId) return;
+  session.time = els.video.currentTime || 0;
+  saveSession(session);
 }
 
 // Jump back to the moment a card came from: seek if the source is already
@@ -518,6 +581,14 @@ async function importSourceUrl() {
       state.learningLang = lang === "chinese" ? "zh" : lang;
       syncTranslateLangs(els);
     }
+    // Remember this loaded video + transcript so a reload restores it instead
+    // of the sample (see restoreSession).
+    saveSession({
+      sourceId: source.id,
+      original: result.subtitles || "",
+      translation: result.translation || "",
+      learningLang: state.learningLang,
+    });
     source.status =
       result.source === "whisper"
         ? "transcribed"

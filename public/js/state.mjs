@@ -17,6 +17,7 @@ export const STORAGE_KEYS = {
   dailyStats: "miraaStudio.dailyStats",
   sources: "miraaStudio.sources",
   theme: "miraaStudio.theme",
+  session: "miraaStudio.session",
 };
 
 // Per-deck daily caps (used when a deck doesn't set its own).
@@ -273,4 +274,24 @@ export function setLastDeck(deckId) {
 
 export function saveSources() {
   storeString(STORAGE_KEYS.sources, JSON.stringify(state.sources));
+}
+
+// The player session that survives a reload: which imported source is loaded,
+// its raw subtitles, and the lookup language. Restored on startup so a live
+// video (a server-hosted import the browser brings back on tab-restore) keeps
+// its real transcript instead of snapping back to the sample.
+export function saveSession(session) {
+  storeString(STORAGE_KEYS.session, JSON.stringify(session));
+}
+
+export function loadSession() {
+  return loadJson(STORAGE_KEYS.session, null);
+}
+
+export function clearSession() {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.session);
+  } catch {
+    // storage unavailable — nothing persisted to clear
+  }
 }
