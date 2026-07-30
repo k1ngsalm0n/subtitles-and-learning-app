@@ -91,7 +91,10 @@ function getWorker() {
 
 // Translate an SRT string via the shared worker. Resolves with the translated
 // SRT string, or rejects if the language is unsupported / the worker fails.
-export async function translateViaWorker(srt, from, to = "en") {
+// `langs`, when given, is a per-entry list of detected source-language codes
+// (same length/order as the SRT's cues) that lets translate.py route each
+// line by its own language instead of assuming the whole file is `from`.
+export async function translateViaWorker(srt, from, to = "en", langs = null) {
   const state = getWorker();
   try {
     await state.ready;
@@ -107,7 +110,7 @@ export async function translateViaWorker(srt, from, to = "en") {
       reject(new Error("Translation timed out."));
     }, REQUEST_TIMEOUT_MS);
     state.pending.set(id, { resolve, reject, timer });
-    state.child.stdin.write(`${JSON.stringify({ id, srt, from, to })}\n`);
+    state.child.stdin.write(`${JSON.stringify({ id, srt, from, to, langs })}\n`);
   });
 }
 
