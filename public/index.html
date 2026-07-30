@@ -35,6 +35,8 @@
   --shadow: 0 4px 24px rgba(0,0,0,0.06);
 }
 * { box-sizing: border-box; margin: 0; }
+/* Author display values (flex/grid) must not defeat the hidden attribute. */
+[hidden] { display: none !important; }
 body {
   min-height: 100vh;
   background: var(--bg);
@@ -149,14 +151,20 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
 .view { display: none; }
 .view.active { display: block; }
 
-/* Study view — video left, transcript right */
+/* Study view — video + controls on the left, transcript docked on the right.
+   The transcript spans both left-column rows and scrolls internally, so the
+   page itself rarely scrolls on desktop. */
 .workspace {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 1.3fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "media transcript"
+    "controls transcript";
   gap: 20px;
-  max-width: 1100px;
-  margin: 0 auto;
 }
+.media-pane { grid-area: media; }
+.learning-pane { grid-area: controls; align-self: start; }
 .media-pane {
   border-radius: var(--radius);
   overflow: hidden;
@@ -165,12 +173,104 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
   display: flex;
   flex-direction: column;
 }
-.player-wrap {
+/* The shell owns the layout slot: 16:9, capped so the video never outgrows the
+   viewport (topbar + paddings ≈ 130px). The player-wrap fills the shell, and
+   detaches from it in mini mode. */
+.player-shell {
   position: relative;
-  background: #000;
   aspect-ratio: 16/9;
+  max-height: calc(100vh - 130px);
+  max-height: calc(100dvh - 130px);
+  min-height: 200px;
+  background: #000;
 }
-video { width: 100%; height: 100%; display: block; }
+.player-wrap {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+.player-shell.detached::after {
+  content: "Playing in the mini player";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* Floating mini player: fixed, draggable, positioned via left/top from JS. */
+.player-wrap.mini {
+  position: fixed;
+  inset: auto;
+  width: clamp(240px, 38vw, 420px);
+  height: auto;
+  aspect-ratio: 16/9;
+  z-index: 60;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.mini-drag {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  z-index: 2;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  background: linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0));
+  color: #fff;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.player-wrap.mini .mini-drag { display: flex; }
+/* In mini mode the whole video body drags, except the bottom strip where the
+   native controls (seek bar, play button) live. A plain click — no movement —
+   passes through as play/pause via JS. */
+.mini-drag-surface {
+  display: none;
+  position: absolute;
+  inset: 0 0 48px 0;
+  z-index: 1;
+  cursor: grab;
+  touch-action: none;
+}
+.player-wrap.mini .mini-drag-surface { display: block; }
+.mini-drag-surface:active { cursor: grabbing; }
+.player-wrap.mini:hover .mini-drag { opacity: 1; }
+.mini-drag:active { cursor: grabbing; }
+#miniExpand {
+  height: 22px;
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+/* Resize handles: invisible hit zones just inside each corner and edge
+   (inside, because the mini player clips overflow for its rounded corners).
+   Active only in mini mode; aspect stays 16:9, so width drives height. */
+.mini-rz { display: none; position: absolute; z-index: 3; touch-action: none; }
+.player-wrap.mini .mini-rz { display: block; }
+.mini-rz[data-dir="n"] { top: 0; left: 14px; right: 14px; height: 7px; cursor: ns-resize; }
+.mini-rz[data-dir="s"] { bottom: 0; left: 14px; right: 14px; height: 7px; cursor: ns-resize; }
+.mini-rz[data-dir="e"] { right: 0; top: 14px; bottom: 14px; width: 7px; cursor: ew-resize; }
+.mini-rz[data-dir="w"] { left: 0; top: 14px; bottom: 14px; width: 7px; cursor: ew-resize; }
+.mini-rz[data-dir="nw"] { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+.mini-rz[data-dir="se"] { bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+.mini-rz[data-dir="ne"] { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+.mini-rz[data-dir="sw"] { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .empty-player {
   position: absolute;
   inset: 0;
@@ -216,20 +316,24 @@ video { width: 100%; height: 100%; display: block; }
 }
 .file-button input { display: none; }
 
-/* Subtitle display — large, centered above transcript */
+/* Learning pane — translate bar + import controls */
 .learning-pane {
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
-  display: grid;
-  grid-template-rows: auto auto;
   min-width: 0;
 }
-/* The transcript is its own, wider container below the player/stage. */
+/* Right-hand transcript column: sticky under the topbar, capped to the
+   viewport, with the line list scrolling inside it. */
 .transcript-pane {
-  max-width: 1500px;
-  margin: 20px auto 0;
+  grid-area: transcript;
+  position: sticky;
+  top: 72px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 92px);
+  max-height: calc(100dvh - 92px);
   border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -240,22 +344,21 @@ video { width: 100%; height: 100%; display: block; }
 .translate-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
-  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  padding: 10px;
   background: var(--surface-2);
   flex-wrap: wrap;
 }
 .translate-langs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex: 1 1 auto;
 }
 .translate-field {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--muted);
   font-size: 12px;
   flex: 1 1 0;
@@ -282,39 +385,12 @@ video { width: 100%; height: 100%; display: block; }
   font-size: 12px;
   min-height: 16px;
 }
-.subtitle-stage {
-  padding: 32px 24px;
-  display: grid;
-  gap: 8px;
-  align-content: center;
-  min-height: 140px;
-  background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%);
-  border-bottom: 1px solid var(--border);
-}
-.active-original {
-  font-size: clamp(20px, 2.5vw, 36px);
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-}
-.active-translation { color: var(--accent-2); font-size: 16px; line-height: 1.4; }
-.stage-word {
-  padding: 4px 8px;
-  border-radius: 8px;
-  transition: background 0.1s, box-shadow 0.1s;
-}
-.stage-word.spoken {
-  background: rgba(110, 231, 183, 0.25);
-  box-shadow: 0 0 0 2.5px var(--accent);
-}
-:root[data-theme="light"] .stage-word.spoken {
-  background: rgba(5, 150, 105, 0.15);
-  box-shadow: 0 0 0 2.5px var(--accent);
-}
-.transcript { overflow-y: auto; padding: 8px; max-height: 70vh; }
+/* No idle gap: collapse the status row entirely when it carries no message. */
+.translate-status:empty { display: none; }
+.transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
 .line {
   display: grid;
-  grid-template-columns: 60px 1fr;
+  grid-template-columns: 48px 1fr;
   gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
@@ -323,15 +399,31 @@ video { width: 100%; height: 100%; display: block; }
 }
 .line:hover { background: var(--surface-2); }
 .line.active { background: var(--surface-2); border-left: 3px solid var(--accent); }
-.time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 16px; padding-top: 2px; }
-.original { line-height: 2.1; font-size: 38px; }
+.time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 4px; }
+/* Sized for the narrow side column; karaoke highlight runs on the active line. */
+.original { line-height: 2; font-size: 26px; }
 .word {
+  /* inline-block so the box (background + karaoke outline) wraps the whole
+     stacked unit — pinyin reading and character together, not just the base. */
+  display: inline-block;
   padding: 2px 3px;
   border-radius: 4px;
   cursor: pointer;
+  transition: background 0.1s, box-shadow 0.1s;
 }
 .word:hover { background: rgba(110,231,183,0.15); }
-.translation { margin-top: 8px; line-height: 1.5; color: var(--muted); font-size: 20px; }
+/* Karaoke highlight: the word currently being spoken on the active line. */
+.word.spoken {
+  background: rgba(110, 231, 183, 0.25);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+:root[data-theme="light"] .word.spoken {
+  background: rgba(5, 150, 105, 0.15);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* Words that already have a flashcard */
+.word.saved { border-bottom: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+.translation { margin-top: 4px; line-height: 1.5; color: var(--muted); font-size: 15px; }
 /* Pronunciation stacked over each character (ruby/furigana). */
 ruby { ruby-position: over; ruby-align: center; }
 rt {
@@ -340,19 +432,117 @@ rt {
   font-weight: 400;
   line-height: 1.2;
   user-select: none;
+  /* Breathing room between the reading and the character below it. */
+  padding-bottom: 4px;
 }
+/* Karaoke highlight sweeps the whole word, reading included. */
+.word.spoken rt { color: var(--text); }
 
 /* Cards & Library views */
-.cards-layout, .library-layout {
+.cards-layout {
+  display: grid;
+  grid-template-columns: 230px 360px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.library-layout {
   display: grid;
   grid-template-columns: 380px 1fr;
   gap: 20px;
 }
-.review-panel, .deck-panel, .panel {
+.review-panel, .card-panel, .deck-sidebar, .panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   padding: 16px;
+}
+
+/* Deck sidebar */
+.deck-nav { display: grid; gap: 4px; }
+.deck-nav-item {
+  height: auto;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+}
+.deck-nav-item:hover { background: var(--surface-2); color: var(--text); }
+.deck-nav-item.active { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.deck-nav-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.deck-nav-counts { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.deck-count {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-3);
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.deck-due {
+  font-size: 11px;
+  font-weight: 600;
+  color: #000;
+  background: var(--accent-2);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.deck-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.deck-delete-choice { display: flex; align-items: center; gap: 8px; }
+.deck-delete-choice input { width: auto; }
+
+/* Grade buttons: label on top, predicted interval underneath */
+.card-actions .grade-button, .card-actions #flipCard { flex: 1; }
+.grade-button {
+  flex-direction: column;
+  gap: 0;
+  height: 46px;
+  padding: 0 8px;
+  line-height: 1.2;
+}
+.grade-int { font-size: 10px; color: var(--muted); font-weight: 400; }
+.grade-again:hover { border-color: var(--danger); }
+.grade-hard:hover { border-color: var(--accent-2); }
+.grade-good:hover, .grade-easy:hover { border-color: var(--accent); }
+.review-keys { font-size: 11px; text-align: center; margin-top: 8px; }
+.deck-settings-row { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+.card-practice { color: var(--accent); }
+#cardSearch { width: 160px; }
+.card-source {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  justify-self: start;
+}
+.card-source:hover { color: var(--accent); }
+.review-card .card-source { margin-top: 10px; }
+.card-move {
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 6px;
+  max-width: 130px;
 }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .review-card {
@@ -366,20 +556,28 @@ rt {
   text-align: center;
 }
 .review-card strong { font-size: 30px; }
-.deck-list, .source-list { display: grid; gap: 8px; margin-top: 12px; }
-.deck-item, .source-item {
+.card-list, .source-list { display: grid; gap: 8px; margin-top: 12px; }
+.card-item, .source-item {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
   background: var(--surface-2);
 }
-.deck-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
-.deck-item p { color: var(--muted); margin-top: 2px; }
+.card-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+.card-item p { color: var(--muted); margin-top: 2px; }
+.card-item-body { display: grid; gap: 4px; min-width: 0; }
+.card-item-back .cf { color: var(--muted); }
+.card-item-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.card-item-actions button { height: 30px; padding: 0 10px; font-size: 12px; }
 .danger { color: var(--danger); }
 
 /* Dialog */
 dialog {
   width: min(440px, calc(100vw - 32px));
+  /* The global `* { margin: 0 }` reset kills the UA dialog's `margin: auto`,
+     which is what centers a showModal() dialog — restore it here. */
+  margin: auto;
+  max-height: calc(100vh - 32px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -392,11 +590,26 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
 menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .icon-button { width: 36px; padding: 0; }
 
+/* Catches the dismissing click so it can't reach controls behind the popup. */
+.bubble-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: rgba(0, 0, 0, 0.25);
+}
+:root[data-theme="light"] .bubble-backdrop { background: rgba(0, 0, 0, 0.12); }
 .word-bubble {
-  position: absolute;
+  /* Centered pop-up: fixed to the viewport, not anchored to the word. */
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   z-index: 100;
-  width: 280px;
+  width: min(340px, calc(100vw - 32px));
+  max-height: 75vh;
+  overflow-y: auto;
   padding: 20px 22px;
+  animation: bubble-pop 0.15s ease-out;
   border: none;
   border-radius: 18px;
   background: rgba(40, 40, 46, 0.95);
@@ -409,6 +622,10 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   background: rgba(255, 255, 255, 0.96);
   color: #1a1a1a;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+}
+@keyframes bubble-pop {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 .bubble-word {
   font-size: 28px;
@@ -501,8 +718,392 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   background: rgba(0, 0, 0, 0.1);
 }
 
+/* Toasts */
+.toast-container {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(30, 30, 36, 0.95);
+  color: #f0ece4;
+  font-size: 13px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: toast-pop 0.15s ease-out;
+}
+@keyframes toast-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+:root[data-theme="light"] .toast { background: rgba(30, 30, 36, 0.92); color: #fff; }
+.toast button {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--accent);
+}
+.toast button:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* Shared card faces (see public/js/cardface.mjs) — used identically by the
+   modal preview, the review screen, and the card list. */
+.card-face { display: grid; gap: 6px; justify-items: center; text-align: center; }
+.card-face .cf-word { font-size: 30px; font-weight: 700; }
+.card-face .cf-pinyin { color: var(--muted); font-size: 15px; }
+.card-face .cf-translation { font-size: 18px; }
+.card-face .cf-example { font-size: 15px; line-height: 1.5; }
+.card-face .cf-examplePinyin, .card-face .cf-exampleTranslation { color: var(--muted); font-size: 13px; }
+.card-face .cf-empty { color: var(--muted); opacity: 0.6; }
+.card-face .cf-strokes { justify-self: center; }
+.cf-audio { border: none; background: var(--surface-3); border-radius: 50%; width: 34px; height: 34px; padding: 0; font-size: 15px; }
+.card-face-compact { justify-items: start; text-align: left; gap: 2px; }
+.card-face-compact .cf-word { font-size: 16px; }
+.card-face-compact .cf-translation { font-size: 13px; }
+.card-face-compact .cf-pinyin { font-size: 12px; }
+.card-face-compact .cf-example, .card-face-compact .cf-examplePinyin, .card-face-compact .cf-exampleTranslation { font-size: 12px; }
+
+/* Template manager + editor */
+.card-tools { display: flex; gap: 8px; align-items: center; }
+.card-tools input[type="search"] { width: 180px; }
+.overflow-menu { position: relative; }
+.overflow-summary {
+  list-style: none;
+  width: 36px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+.overflow-summary::-webkit-details-marker { display: none; }
+.overflow-menu[open] .overflow-summary { border-color: var(--accent); background: var(--surface-3); }
+.overflow-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.overflow-list button,
+.overflow-list .file-button {
+  width: 100%;
+  height: 34px;
+  justify-content: flex-start;
+  border-color: transparent;
+  background: transparent;
+}
+.overflow-list button:hover,
+.overflow-list .file-button:hover { background: var(--surface-2); border-color: transparent; }
+.overflow-list button.danger:hover { background: color-mix(in srgb, var(--danger, #e5484d) 16%, transparent); }
+.overflow-sep { border: none; border-top: 1px solid var(--border); margin: 4px 0; width: 100%; }
+.tpl-list { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.tpl-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+.tpl-item-body p { margin-top: 2px; font-size: 12px; }
+.tpl-item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.tpl-item-actions button { height: 30px; padding: 0 10px; font-size: 12px; }
+.tpl-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-3);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 6px;
+}
+.tpl-badge-default { color: #000; background: var(--accent); font-weight: 600; }
+.tpl-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tpl-side { border: 1px solid var(--border); border-radius: 8px; padding: 10px; min-width: 0; }
+.tpl-side legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
+.tpl-fields { display: grid; gap: 6px; }
+.tpl-field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.tpl-field input { width: auto; }
+.tpl-field.disabled { opacity: 0.45; }
+.tpl-strokes-row { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.tpl-strokes-row input { width: auto; }
+.tpl-error { min-height: 18px; font-size: 13px; }
+
+/* Add/edit card modal */
+dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
+.card-modal .word-form { gap: 6px; }
+.card-modal .section-title { margin-bottom: 4px; }
+/* An empty error line still reserves a grid row + gap — collapse it. */
+#modalError:empty { display: none; }
+.modal-section-label {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.template-select {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.template-desc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.preview-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 10px 14px 18px;
+}
+.preview-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.preview-topbar button { height: 28px; min-height: 28px; padding: 0 10px; font-size: 12px; }
+.preview-face { min-height: 110px; align-content: center; }
+.preview-button {
+  justify-self: start;
+  width: fit-content;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.preview-button:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.modal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal-field { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+.modal-field.loading input {
+  background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 18%, transparent), transparent);
+  background-size: 200% 100%;
+  animation: field-shimmer 1.2s linear infinite;
+}
+@keyframes field-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.info-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: help;
+  vertical-align: middle;
+}
+.deck-list { display: grid; gap: 4px; }
+.deck-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.deck-item:hover { background: var(--surface-2); }
+.deck-item.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+.deck-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: var(--text);
+}
+.deck-item-name { flex: 1; font-size: 14px; font-weight: 600; }
+.deck-chevron { flex: none; color: var(--muted); font-size: 18px; line-height: 1; }
+.deck-create { border-top: 1px solid var(--border); border-radius: 0; margin-top: 2px; padding-top: 9px; }
+.deck-create .deck-item-name { font-weight: 600; }
+.deck-icon-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--text);
+}
+.new-deck-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.new-deck-row input { flex: 1 1 140px; }
+.new-deck-row .danger { font-size: 12px; flex-basis: 100%; }
+/* Emoji picker for personalising a new deck: one trigger button opens a small
+   popup modal with a searchable free input + a grid of common emojis. */
+.emoji-trigger {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+.emoji-trigger .deck-emoji { width: auto; }
+.emoji-dialog { width: min(340px, calc(100vw - 32px)); padding: 14px; }
+.emoji-dialog-form { display: flex; flex-direction: column; gap: 10px; }
+.emoji-dialog-head { display: flex; align-items: center; gap: 8px; }
+.emoji-input { flex: 1; height: 34px; font-size: 14px; }
+.emoji-chips {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.emoji-chip {
+  width: 100%;
+  height: 34px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+}
+.emoji-chip:hover { background: var(--surface-2); border-color: transparent; }
+.emoji-chip.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.emoji-chip-none .deck-icon { width: 20px; height: 20px; }
+/* Deck emoji shown in the modal deck list + the sidebar nav */
+.deck-emoji { flex: none; width: 22px; font-size: 18px; line-height: 1; text-align: center; }
+.deck-nav-emoji { margin-right: 6px; }
+
+/* Stroke practice (see public/js/practice.mjs) */
+.practice-status { display: flex; align-items: baseline; gap: 12px; }
+.practice-char { font-size: 28px; font-weight: 700; }
+.practice-board {
+  width: min(340px, 78vw);
+  aspect-ratio: 1;
+  display: block;
+  margin: 0 auto;
+  background: var(--surface-2);
+  border-radius: 12px;
+  touch-action: none;
+  cursor: crosshair;
+}
+.practice-feedback { min-height: 20px; font-size: 13px; color: var(--muted); }
+.practice-feedback.danger { color: var(--danger); }
+.practice-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.practice-actions button.suggested { border-color: var(--accent); font-weight: 600; }
+.pboard-stroke {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 34;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pboard-stroke.pboard-wrong { stroke: var(--danger); }
+.pboard-accepted { fill: var(--text); }
+.pboard-revealed { fill: var(--muted); opacity: 0.75; }
+.pboard-ghost { fill: var(--text); opacity: 0.15; }
+.pboard-hint-line {
+  fill: none;
+  stroke: var(--accent-2);
+  stroke-width: 90;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+
+/* Stroke order charts (see public/js/strokes.mjs) */
+.stroke-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.stroke-block { position: relative; }
+.stroke-anim { width: 96px; height: 96px; display: block; background: var(--surface-2); border-radius: 8px; }
+.stroke-chart { display: flex; flex-wrap: wrap; gap: 4px; max-width: 240px; }
+.stroke-step { width: 44px; height: 44px; background: var(--surface-2); border-radius: 6px; }
+.stroke-grid { fill: none; stroke: var(--border); stroke-width: 10; }
+.stroke-grid-inner { stroke-dasharray: 28 28; opacity: 0.7; }
+.stroke-done { fill: var(--muted); opacity: 0.5; }
+.stroke-now { fill: var(--accent); }
+.stroke-ghost { fill: var(--text); opacity: 0.12; }
+.stroke-draw {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 128;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.stroke-replay {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  height: 22px;
+  min-height: 22px;
+  width: 22px;
+  padding: 0;
+  font-size: 12px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+:root[data-theme="light"] .stroke-replay { background: rgba(0, 0, 0, 0.15); color: #333; }
+
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "media"
+      "controls"
+      "transcript";
+  }
+  .transcript-pane { position: static; max-height: 70vh; }
+}
+@media (max-width: 1250px) {
+  .cards-layout { grid-template-columns: 210px 1fr; }
+  .deck-sidebar { grid-row: span 2; }
+}
 @media (max-width: 900px) {
-  .workspace, .cards-layout, .library-layout { grid-template-columns: 1fr; }
+  .cards-layout, .library-layout { grid-template-columns: 1fr; }
+  .deck-sidebar { grid-row: auto; }
 }
     </style>
   </head>
@@ -531,24 +1132,25 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
       <section id="studyView" class="view active">
         <div class="workspace">
           <section class="media-pane">
-            <div class="player-wrap">
-              <video id="video" controls playsinline></video>
-              <div id="emptyPlayer" class="empty-player">
-                <span>Import a local video or load the sample lesson.</span>
-              </div>
-            </div>
-            <div class="import-bar">
-              <label class="file-button">Video<input id="videoInput" type="file" accept="video/*" /></label>
-              <label class="file-button">Original SRT/VTT<input id="originalInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
-              <label class="file-button">Translation SRT/VTT<input id="translationInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
-              <button id="sampleButton" type="button">Sample</button>
-            </div>
-            <div class="url-row">
-              <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
-              <button id="queueUrl" type="button">Import</button>
-              <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
-              <div id="progressWrap" class="progress-wrap">
-                <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>
+            <div id="playerShell" class="player-shell">
+              <div id="playerWrap" class="player-wrap">
+                <video id="video" controls playsinline></video>
+                <div id="emptyPlayer" class="empty-player">
+                  <span>Import a local video or load the sample lesson.</span>
+                </div>
+                <div id="miniDragSurface" class="mini-drag-surface"></div>
+                <div id="miniDrag" class="mini-drag">
+                  <span>⠿ Drag</span>
+                  <button id="miniExpand" type="button" title="Back to full player" aria-label="Back to full player">⤢</button>
+                </div>
+                <div class="mini-rz" data-dir="n"></div>
+                <div class="mini-rz" data-dir="s"></div>
+                <div class="mini-rz" data-dir="e"></div>
+                <div class="mini-rz" data-dir="w"></div>
+                <div class="mini-rz" data-dir="nw"></div>
+                <div class="mini-rz" data-dir="ne"></div>
+                <div class="mini-rz" data-dir="sw"></div>
+                <div class="mini-rz" data-dir="se"></div>
               </div>
             </div>
           </section>
@@ -569,41 +1171,91 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
               <button id="translateButton" type="button">Translate</button>
               <p id="translateStatus" class="translate-status" role="status" aria-live="polite"></p>
             </div>
-            <div class="subtitle-stage">
-              <p id="activeOriginal" class="active-original">Load subtitles to begin.</p>
-              <p id="activeTranslation" class="active-translation"></p>
+            <div class="import-bar">
+              <label class="file-button">Video<input id="videoInput" type="file" accept="video/*" /></label>
+              <label class="file-button">Original SRT/VTT<input id="originalInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
+              <label class="file-button">Translation SRT/VTT<input id="translationInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
+            </div>
+            <div class="url-row">
+              <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
+              <button id="queueUrl" type="button">Import</button>
+              <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
+              <div id="progressWrap" class="progress-wrap">
+                <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>
+              </div>
             </div>
           </section>
+
+          <section class="transcript-pane">
+            <div class="toolbar-row">
+              <div class="search-box"><input id="searchInput" type="search" placeholder="Search transcript" /></div>
+              <button id="loopLine" type="button" aria-pressed="false">Loop Line</button>
+              <button id="saveLine" type="button">Save Line</button>
+            </div>
+            <div id="transcript" class="transcript" aria-label="Transcript"></div>
+          </section>
         </div>
-        <section class="transcript-pane">
-          <div class="toolbar-row">
-            <div class="search-box"><input id="searchInput" type="search" placeholder="Search transcript" /></div>
-            <button id="loopLine" type="button" aria-pressed="false">Loop Line</button>
-            <button id="saveLine" type="button">Save Line</button>
-          </div>
-          <div id="transcript" class="transcript" aria-label="Transcript"></div>
-        </section>
       </section>
 
       <section id="cardsView" class="view">
         <div class="cards-layout">
+          <aside class="deck-sidebar">
+            <div class="section-title"><h2>Decks</h2><button id="newDeck" type="button">+ New</button></div>
+            <form id="newDeckForm" class="new-deck-row" hidden>
+              <input id="newDeckName" type="text" placeholder="Deck name" maxlength="40" aria-label="New deck name" />
+              <button type="submit">Add</button>
+              <span id="newDeckError" class="danger"></span>
+            </form>
+            <nav id="deckNav" class="deck-nav" aria-label="Decks"></nav>
+          </aside>
+
           <section class="review-panel">
-            <div class="section-title"><h2>Review</h2><button id="shuffleCards" type="button">Shuffle</button></div>
+            <div class="section-title">
+              <h2>Review</h2>
+              <span id="reviewProgress" class="muted"></span>
+              <button id="shuffleCards" type="button">Shuffle</button>
+            </div>
             <div id="reviewCard" class="review-card"><p>No flashcards yet.</p></div>
             <div class="card-actions">
               <button id="flipCard" type="button">Flip</button>
-              <button id="markHard" type="button">Hard</button>
-              <button id="markGood" type="button">Good</button>
+              <button class="grade-button grade-again" type="button" data-grade="again">Again<span class="grade-int"></span></button>
+              <button class="grade-button grade-hard" type="button" data-grade="hard">Hard<span class="grade-int"></span></button>
+              <button class="grade-button grade-good" type="button" data-grade="good">Good<span class="grade-int"></span></button>
+              <button class="grade-button grade-easy" type="button" data-grade="easy">Easy<span class="grade-int"></span></button>
             </div>
+            <p class="review-keys muted">Space to flip · 1–4 to grade</p>
           </section>
-          <section class="deck-panel">
-            <div class="section-title"><h2>Deck</h2><button id="exportCards" type="button">Export</button></div>
-            <form id="manualCardForm" class="manual-card">
-              <input id="manualFront" type="text" placeholder="Word or phrase" required />
-              <input id="manualBack" type="text" placeholder="Meaning" required />
-              <button type="submit">Add</button>
+
+          <section class="card-panel">
+            <div class="section-title">
+              <h2 id="deckTitle">All decks</h2>
+              <div class="card-tools">
+                <input id="cardSearch" type="search" placeholder="Search cards" aria-label="Search cards" />
+                <details class="overflow-menu">
+                  <summary class="overflow-summary" aria-label="More actions" title="More actions">⋯</summary>
+                  <div class="overflow-list">
+                    <button id="renameDeck" type="button" hidden>Rename deck</button>
+                    <button id="deckSettings" type="button" hidden>Daily limits</button>
+                    <button id="deleteDeck" type="button" class="danger" hidden>Delete deck</button>
+                    <hr id="deckMenuSep" class="overflow-sep" />
+                    <button id="manageTemplates" type="button">Manage templates</button>
+                    <button id="exportCards" type="button" title="Export cards, decks, and templates as JSON">Export (JSON)</button>
+                    <button id="exportAnki" type="button" title="Export a tab-separated file for Anki">Export for Anki</button>
+                    <label class="file-button" title="Import a previously exported JSON file">Import…<input id="importFile" type="file" accept=".json,application/json" /></label>
+                  </div>
+                </details>
+              </div>
+            </div>
+            <form id="renameDeckForm" class="new-deck-row" hidden>
+              <input id="renameDeckName" type="text" maxlength="40" aria-label="New deck name" />
+              <button type="submit">Save</button>
+              <button type="button" id="renameDeckCancel">Cancel</button>
+              <span id="renameDeckError" class="danger"></span>
             </form>
-            <div id="deckList" class="deck-list"></div>
+            <div class="manual-card">
+              <button id="newCardButton" type="button">+ New card</button>
+            </div>
+            <div id="cardList" class="card-list"></div>
           </section>
         </div>
       </section>
@@ -635,17 +1287,173 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
       </section>
     </main>
 
-    <dialog id="wordDialog">
+    <dialog id="cardModal" class="card-modal" aria-labelledby="cardModalTitle">
       <form method="dialog" class="word-form">
         <div class="section-title">
-          <h2 id="dialogWord">Word</h2>
+          <h2 id="cardModalTitle">New flashcard</h2>
           <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
         </div>
-        <label>Meaning<input id="dialogMeaning" type="text" /></label>
-        <label>Example<textarea id="dialogExample" rows="3"></textarea></label>
+        <p class="modal-section-label">Card type
+          <span class="info-dot" tabindex="0" role="img" aria-label="About card types"
+            title="Each card type lays out different fields on the front and back. Pick the one you want to study with.">i</span>
+        </p>
+        <select id="templateSelect" class="template-select" aria-label="Card type"></select>
+        <p id="templateDesc" class="template-desc"></p>
+        <button type="button" id="openPreview" class="preview-button">Preview &amp; edit card</button>
+        <p class="modal-section-label">Choose a deck</p>
+        <div id="modalDeckList" class="deck-list" role="radiogroup" aria-label="Deck"></div>
+        <button type="button" id="modalNewDeck" class="deck-item deck-create">
+          <span class="deck-icon deck-icon-plus" aria-hidden="true">+</span>
+          <span class="deck-item-name">Create a new deck</span>
+        </button>
+        <div id="modalNewDeckRow" class="new-deck-row" hidden>
+          <button type="button" id="deckEmojiTrigger" class="emoji-trigger" aria-label="Choose deck icon" title="Choose an icon" aria-haspopup="dialog"></button>
+          <input id="modalNewDeckName" type="text" placeholder="New deck name" maxlength="40" aria-label="New deck name" />
+          <button type="button" id="modalNewDeckCreate">Create deck</button>
+          <span id="modalDeckError" class="danger"></span>
+        </div>
+        <p id="modalError" class="danger tpl-error" role="alert" aria-live="polite"></p>
         <menu>
           <button value="cancel" type="submit">Cancel</button>
-          <button id="addWordCard" value="default" type="button">Add Flashcard</button>
+          <button id="modalSave" type="button">Add card</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="previewDialog" class="card-modal" aria-labelledby="previewDialogTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="previewDialogTitle">Preview &amp; edit</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div class="preview-wrap">
+          <div class="preview-topbar">
+            <span id="previewSide" class="muted">Front</span>
+            <button type="button" id="previewFlip">Flip to back</button>
+          </div>
+          <div id="previewFace" class="preview-face card-face" aria-live="polite"></div>
+        </div>
+        <p class="modal-section-label">Fields</p>
+        <div id="modalFields" class="modal-fields"></div>
+        <menu>
+          <button id="previewDone" value="cancel" type="submit">Done</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="emojiDialog" class="emoji-dialog" aria-label="Choose deck icon">
+      <form method="dialog" class="emoji-dialog-form">
+        <div class="emoji-dialog-head">
+          <input id="deckEmojiInput" class="emoji-input" type="text" maxlength="16"
+            placeholder="Type or paste any emoji…" aria-label="Custom deck emoji" />
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="deckEmojiChips" class="emoji-chips" role="listbox" aria-label="Deck icon"></div>
+      </form>
+    </dialog>
+
+    <dialog id="practiceDialog" aria-labelledby="practiceTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="practiceTitle">Stroke practice</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="practiceMain">
+          <div class="practice-status">
+            <span id="practiceChar" class="practice-char"></span>
+            <span id="practiceProgress" class="muted"></span>
+          </div>
+          <svg id="practiceBoard" class="practice-board" viewBox="0 0 1024 1024" aria-label="Drawing area"></svg>
+          <p id="practiceFeedback" class="practice-feedback" role="status" aria-live="polite"></p>
+          <div class="practice-actions">
+            <button type="button" id="practiceHint">Hint</button>
+            <button type="button" id="practiceReveal">Reveal stroke</button>
+          </div>
+        </div>
+        <div id="practiceSummary" hidden>
+          <p id="practiceSummaryText"></p>
+          <div id="practiceGradeRow" class="practice-actions" hidden>
+            <span class="muted">Grade this card:</span>
+            <button type="button" data-pgrade="again">Again</button>
+            <button type="button" data-pgrade="hard">Hard</button>
+            <button type="button" data-pgrade="good">Good</button>
+          </div>
+          <menu><button value="cancel" type="submit">Close</button></menu>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="deckSettingsDialog" aria-labelledby="deckSettingsTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="deckSettingsTitle">Deck limits</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <label class="deck-settings-row">New cards per day
+          <input id="deckNewPerDay" type="number" min="0" max="9999" />
+        </label>
+        <label class="deck-settings-row">Reviews per day
+          <input id="deckReviewsPerDay" type="number" min="0" max="9999" />
+        </label>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="deckSettingsSave" type="button">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="deckDeleteDialog" aria-labelledby="deckDeleteTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="deckDeleteTitle">Delete deck</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <p id="deckDeleteText"></p>
+        <label class="deck-delete-choice"><input type="radio" name="deckDeleteMode" value="move" checked /> Move its cards to the Default deck</label>
+        <label class="deck-delete-choice"><input type="radio" name="deckDeleteMode" value="delete" /> Delete the cards too</label>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="deckDeleteConfirm" type="button" class="danger">Delete deck</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="templatesDialog" aria-labelledby="templatesTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="templatesTitle">Card templates</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="templatesList" class="tpl-list"></div>
+        <menu>
+          <button id="newTemplate" type="button">Create template</button>
+          <button value="cancel" type="submit">Done</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="templateDialog" aria-labelledby="tplEditorTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="tplEditorTitle">New template</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <label>Name<input id="tplName" type="text" maxlength="40" /></label>
+        <div class="tpl-sides">
+          <fieldset class="tpl-side">
+            <legend>Front</legend>
+            <div id="tplFrontFields" class="tpl-fields"></div>
+          </fieldset>
+          <fieldset class="tpl-side">
+            <legend>Back</legend>
+            <div id="tplBackFields" class="tpl-fields"></div>
+          </fieldset>
+        </div>
+        <label class="tpl-strokes-row"><input id="tplStrokes" type="checkbox" /> Show stroke order with the word (Chinese)</label>
+        <p id="tplError" class="danger tpl-error" role="alert" aria-live="polite"></p>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="tplSave" type="button">Save template</button>
         </menu>
       </form>
     </dialog>

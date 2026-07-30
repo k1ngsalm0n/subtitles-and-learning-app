@@ -16,6 +16,9 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+sys.path.insert(0, os.path.join(HERE, "..", "server"))
+import happy_eyeballs  # noqa: E402,F401 — RFC 8305 connect race (see module docstring)
+
 
 def nllb_model_name() -> str:
     """Read MODEL_NAME straight from translate.py to stay in sync."""

@@ -166,10 +166,43 @@ python -m unittest discover -s test -p "test_*.py"
 - Bilingual transcript synced to video time.
 - Pronunciation line above the source subtitles (pinyin / romaji / transliteration).
 - Language bar above the subtitles: pick the source and target language (or let it auto-detect the source) and re-translate the loaded subtitles on demand with the offline Marian/NLLB models. (Currently limited to Chinese ↔ English.)
-- Clickable words with AI explanations (any OpenAI-compatible API, or offline fallback) that can be saved as flashcards.
-- Manual flashcard creation, review, simple spaced repetition, shuffle, delete, and JSON export.
+- Clickable words that can be saved as flashcards: one-click quick add with an
+  undo toast, or a full editor with live preview and per-field lookups
+  (pinyin, meaning, example translation).
+- Flashcard **templates**: three built-ins (Default, Reverse, Stroke order)
+  plus custom ones — pick which fields appear on each face, set a default.
+- **Decks**: create/rename/delete, move cards between them, per-deck counts,
+  and review scoped to the selected deck. Card editing and duplicate detection.
+- **Spaced repetition** with a minimal SM-2 scheduler: four grades
+  (Again/Hard/Good/Easy), each button previewing the interval it will produce.
+  Again keeps the card in the current session via short learning steps rather
+  than pushing it a day away; lapses reduce the interval and ease instead of
+  resetting. Per-deck daily new/review limits (editable) keep a big import from
+  producing an unmanageable day.
+- **Stroke order** for Han characters: per-stroke charts and stroke-by-stroke
+  animation, fully offline (see attribution below). Honors
+  `prefers-reduced-motion`.
+- **Stroke practice**: draw a character stroke by stroke (mouse/trackpad/touch)
+  and get graded against the real stroke medians, with order enforced, hints
+  after repeated misses, and an optional suggested grade fed back into the
+  scheduler.
+- Cards remember the video moment they came from and can jump back to it.
+- Words that already have a card are underlined in the transcript.
+- **Import/export**: versioned JSON (cards + decks + templates) with a merging
+  import, plus an Anki-ready TSV export (front / back / deck columns).
 - AI translation mode placeholder for testing the workflow locally.
+
+## Attribution
+
+Stroke-order data comes from
+[Make Me a Hanzi](https://github.com/skishore/makemeahanzi)
+(`data/graphics.txt`, downloaded by `npm run sync`, not committed). Its
+graphics derive from Arphic Technology fonts released under the
+[Arphic Public License](https://github.com/skishore/makemeahanzi/blob/master/APL.txt).
 
 ## Notes
 
-The app does not bypass access controls. Keep URL ingestion limited to content you own, created, or are otherwise authorized to process.
+- Card audio uses the browser's built-in `speechSynthesis` voices; when no
+  voice matches the learning language (common on Linux), audio fields are
+  hidden. Offline TTS through the Python side is a possible follow-up.
+- The app does not bypass access controls. Keep URL ingestion limited to content you own, created, or are otherwise authorized to process.

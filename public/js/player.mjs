@@ -1,7 +1,11 @@
-import { state } from "./state.mjs";
+import { state, deckName } from "./state.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { addCard } from "./flashcards.mjs";
-import { renderTranscript, renderActiveSubtitle } from "./ui.mjs";
+import { showToast } from "./toast.mjs";
+import {
+  renderTranscript,
+  scrollActiveLineIntoView,
+} from "./ui.mjs";
 
 // Tracks the active A–B loop, if any: { index, listener }. Only ever one.
 let activeLoop = null;
@@ -25,7 +29,9 @@ export function syncToVideo(els) {
     if (activeLoop && activeLoop.index !== index) stopLoop(els);
     state.activeIndex = index;
     renderTranscript(els);
-    renderActiveSubtitle(els);
+    // Playback moved to a new line — keep it centered in the transcript so the
+    // karaoke highlight stays on screen.
+    scrollActiveLineIntoView(els);
   }
 }
 
@@ -36,7 +42,6 @@ export function activateLine(index, seek, els) {
     els.video.currentTime = state.subtitles[index].start;
   }
   renderTranscript(els);
-  renderActiveSubtitle(els);
 }
 
 export function loopActiveLine(els) {
@@ -71,8 +76,19 @@ export function loopActiveLine(els) {
   }
 }
 
+// Whole-line save goes through the same card system as everything else:
+// default template, last-used deck, and a link back to this video moment.
 export function saveActiveLine(els) {
   const line = state.subtitles[state.activeIndex];
   if (!line) return;
-  addCard(line.text, getTranslation(line), line.text);
+  const result = addCard({
+    word: line.text,
+    translation: getTranslation(line),
+    example: line.text,
+    sourceId: state.currentSourceId,
+    sourceTime: line.start,
+  });
+  showToast(
+    result.error ? result.error : `Saved the line to ${deckName(result.card.deckId)}.`,
+  );
 }
