@@ -8,7 +8,6 @@ import {
   getDefaultTemplate,
   getDeck,
   deckName,
-  findCardByWord,
 } from "./state.mjs";
 import { getField, isAudioField, CARD_FIELDS } from "./carddata.mjs";
 import { addCard, updateCard, addDeck } from "./flashcards.mjs";
@@ -32,6 +31,41 @@ let _showingBack = false;
 let _dirty = new Set(); // fields the user has typed in — prefetch keeps out
 let _fetchToken = 0;
 let _opener = null; // element to restore focus to on close
+
+// A broad set of widely-supported emojis (older Unicode versions that render
+// on essentially every platform — no flags/skin-tones/brand-new additions that
+// vary), grouped roughly by category. Kept as data rather than a dependency so
+// the app stays offline and build-free; the free-form input covers anything
+// not listed here. "" is the no-icon default.
+const DECK_EMOJIS = [
+  // Faces & emotion
+  "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇",
+  "🙂", "🙃", "😉", "😌", "😍", "😘", "😋", "😜", "🤗", "🤔",
+  "😐", "😏", "🙄", "😴", "😎", "🤓", "🥳", "😭", "😤", "😡",
+  "🤯", "😱", "🤩", "😬", "🤠", "👍", "👎", "👌", "👏", "🙌",
+  "🙏", "💪", "👀", "🧠", "❤️", "🧡", "💛", "💚", "💙", "💜",
+  "🖤", "💯", "✅", "❌", "❗", "❓", "⚠️", "💡", "🔥", "✨",
+  "⭐", "🌟", "💫", "🎉", "🎊", "🏆", "🎯", "🚀",
+  // Animals & nature
+  "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
+  "🦁", "🐮", "🐷", "🐸", "🐵", "🐔", "🐧", "🐦", "🦆", "🦉",
+  "🐴", "🦄", "🐝", "🐛", "🦋", "🐢", "🐍", "🐙", "🐠", "🐬",
+  "🐳", "🌱", "🌿", "🍀", "🌵", "🌴", "🌸", "🌻", "🌹", "🍁",
+  "🌍", "🌙", "☀️", "☁️", "🌈", "⚡", "❄️", "🌊",
+  // Food & drink
+  "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🍒", "🍑",
+  "🍍", "🥝", "🍅", "🥑", "🌽", "🍄", "🍞", "🧀", "🍔", "🍟",
+  "🍕", "🌮", "🍿", "🍩", "🍪", "🎂", "🍰", "🍫", "🍭", "☕",
+  "🍵", "🍺",
+  // Activities & objects
+  "⚽", "🏀", "🏈", "⚾", "🎾", "🎱", "🏓", "🎮", "🎲", "🧩",
+  "🎸", "🎹", "🎺", "🎻", "🥁", "🎤", "🎧", "🎵", "🎨", "📷",
+  "🎥", "📺", "📱", "💻", "⌚", "⏰", "🔑", "🔒", "💰", "💎",
+  "🎁", "🎈", "🔍", "📌", "🔖", "✂️", "📎", "🗂️",
+  // Study / books
+  "📚", "📕", "📗", "📘", "📙", "📖", "📝", "✏️", "🖊️", "🀄",
+];
+let _newDeckEmoji = ""; // emoji chosen for the deck being created
 
 export function setupCardModal(els) {
   _els = els;
@@ -62,65 +96,91 @@ export function setupCardModal(els) {
     renderPreview();
   });
 
-  // Template picker: radiogroup with arrow-key navigation.
-  els.templatePicker.addEventListener("click", (event) => {
-    const option = event.target.closest("[role=radio]");
-    if (!option) return;
-    if (option.dataset.action === "create") {
+  // Card type: a compact dropdown. The "+ Create template…" option opens the
+  // editor; picking a real option applies that template.
+  els.templateSelect.addEventListener("change", () => {
+    const value = els.templateSelect.value;
+    if (value === CREATE_OPTION) {
       openTemplateEditor(null, (template) => {
         if (template) applyTemplate(template.id);
         renderTemplatePicker();
       });
+      renderTemplatePicker(); // reset the select off the "create" option
       return;
     }
-    applyTemplate(option.dataset.id);
+    applyTemplate(value);
     renderTemplatePicker();
   });
-  els.templatePicker.addEventListener("keydown", (event) => {
-    const options = [...els.templatePicker.querySelectorAll("[role=radio]")];
-    const index = options.indexOf(document.activeElement);
-    if (index === -1) return;
-    let next = -1;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-      next = (index + 1) % options.length;
-    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-      next = (index + options.length - 1) % options.length;
-    } else if (event.key === " " || event.key === "Enter") {
-      event.preventDefault();
-      options[index].click();
-      return;
-    }
-    if (next !== -1) {
-      event.preventDefault();
-      options[next].focus();
-      if (!options[next].dataset.action) {
-        applyTemplate(options[next].dataset.id);
-        renderTemplatePicker(true);
-      }
-    }
+
+  // The preview + editable fields live in their own window to keep the main
+  // add-card modal compact; open it and (re)render the current draft.
+  els.openPreview.addEventListener("click", () => {
+    _showingBack = false;
+    renderPreview();
+    els.previewDialog.showModal();
+    els.modalFields.querySelector("input")?.focus();
   });
 
-  els.modalDeck.addEventListener("change", () => {
-    if (_draft) _draft.deckId = els.modalDeck.value;
+  // Deck list: tap a row to pick that deck (highlighted); the picked deck is
+  // stored on the draft and committed on save.
+  els.modalDeckList.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-deck-id]");
+    if (!row || !_draft) return;
+    _draft.deckId = row.dataset.deckId;
+    renderDeckList();
   });
 
   // Inline deck creation: validate, create, select — no window.prompt.
   els.modalNewDeck.addEventListener("click", () => {
     const hidden = els.modalNewDeckRow.hidden;
     els.modalNewDeckRow.hidden = !hidden;
-    if (hidden) els.modalNewDeckName.focus();
+    if (hidden) {
+      setDeckEmoji("", true);
+      els.modalNewDeckName.focus();
+    }
   });
+
+  // Emoji picker lives in its own small modal. The trigger opens it; clicking a
+  // chip (or the "none" chip) sets the deck's icon and closes it.
+  els.deckEmojiTrigger.addEventListener("click", () => {
+    renderEmojiPicker();
+    els.emojiDialog.showModal();
+    els.deckEmojiInput.focus();
+  });
+  els.deckEmojiChips.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-emoji]");
+    if (!chip) return;
+    setDeckEmoji(chip.dataset.emoji, true);
+    els.emojiDialog.close();
+    els.deckEmojiTrigger.focus();
+  });
+  // Free-form input covers every emoji the curated grid doesn't: the user's OS
+  // emoji keyboard (or a paste) drops any emoji here. We don't re-sync the
+  // field itself, so typing isn't interrupted.
+  els.deckEmojiInput.addEventListener("input", () => {
+    setDeckEmoji(els.deckEmojiInput.value, false);
+  });
+  // Enter confirms the typed emoji and closes the picker.
+  els.deckEmojiInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      els.emojiDialog.close();
+      els.deckEmojiTrigger.focus();
+    }
+  });
+
   const createDeck = () => {
-    const result = addDeck(els.modalNewDeckName.value);
+    const result = addDeck(els.modalNewDeckName.value, _newDeckEmoji);
     if (result.error) {
       els.modalDeckError.textContent = result.error;
       return;
     }
     els.modalDeckError.textContent = "";
     els.modalNewDeckName.value = "";
+    setDeckEmoji("", true);
     els.modalNewDeckRow.hidden = true;
     _draft.deckId = result.deck.id;
-    renderDeckOptions();
+    renderDeckList();
   };
   els.modalNewDeckCreate.addEventListener("click", createDeck);
   els.modalNewDeckName.addEventListener("keydown", (event) => {
@@ -128,11 +188,6 @@ export function setupCardModal(els) {
       event.preventDefault();
       createDeck();
     }
-  });
-
-  els.dupeOpen.addEventListener("click", () => {
-    const existing = findCardByWord(_draft?.word);
-    if (existing) openCardModal({ card: existing });
   });
 
   els.modalSave.addEventListener("click", save);
@@ -154,38 +209,98 @@ function applyTemplate(templateId) {
   renderPreview();
 }
 
-function renderTemplatePicker(keepFocus = false) {
-  const els = _els;
-  const strokeless = !hasHan(_draft?.word || "");
-  const options = state.templates
-    // A stroke-order card for non-Han text would just be an empty chart —
-    // hide those templates instead.
-    .filter((template) => !(template.showStrokes && strokeless))
-    .map((template) => {
-      const active = template.id === _draft?.templateId;
-      return `<button type="button" role="radio" aria-checked="${active}"
-        tabindex="${active ? 0 : -1}" data-id="${template.id}"
-        class="template-option${active ? " active" : ""}">${escapeHtml(template.name)}</button>`;
-    });
-  options.push(
-    `<button type="button" role="radio" aria-checked="false" tabindex="-1"
-      data-action="create" class="template-option template-create">+ Create template</button>`,
-  );
-  els.templatePicker.innerHTML = options.join("");
-  if (keepFocus) {
-    els.templatePicker.querySelector('[aria-checked="true"]')?.focus();
-  }
+const CREATE_OPTION = "__create__";
+
+// A one-line "Front: … · Back: …" summary of a template's faces, shown under
+// the dropdown so the user sees what the card will look like without opening
+// the preview.
+function describeTemplate(template) {
+  const labels = (keys) =>
+    keys
+      .map((key) => getField(key)?.label || key)
+      .join(", ") || "—";
+  const strokes = template.showStrokes ? " · stroke order" : "";
+  return `Front: ${labels(template.frontFields)} · Back: ${labels(template.backFields)}${strokes}`;
 }
 
-function renderDeckOptions() {
+function renderTemplatePicker() {
   const els = _els;
-  els.modalDeck.innerHTML = state.decks
-    .map(
-      (deck) =>
-        `<option value="${deck.id}">${escapeHtml(deck.name)}</option>`,
-    )
+  const strokeless = !hasHan(_draft?.word || "");
+  // A stroke-order card for non-Han text would just be an empty chart — hide
+  // those templates.
+  const templates = state.templates.filter(
+    (template) => !(template.showStrokes && strokeless),
+  );
+  // The current template can drop out of the list (e.g. word changed to a
+  // non-Han script while a stroke template was selected) — fall back to the
+  // first available one.
+  if (_draft && !templates.some((t) => t.id === _draft.templateId) && templates[0]) {
+    applyTemplate(templates[0].id);
+  }
+  const options = templates.map(
+    (template) =>
+      `<option value="${template.id}">${escapeHtml(template.name)}</option>`,
+  );
+  options.push(`<option value="${CREATE_OPTION}">+ Create template…</option>`);
+  els.templateSelect.innerHTML = options.join("");
+  els.templateSelect.value = _draft?.templateId || templates[0]?.id || "";
+
+  const current = getTemplate(_draft?.templateId);
+  els.templateDesc.textContent = current ? describeTemplate(current) : "";
+}
+
+const DECK_ICON = `<svg class="deck-icon" viewBox="0 0 24 24" aria-hidden="true">
+  <rect x="6" y="6" width="12" height="14" rx="2" transform="rotate(-9 12 13)"></rect>
+  <rect x="8" y="5" width="12" height="14" rx="2"></rect>
+</svg>`;
+
+// Set the chosen deck emoji from any source (grid chip or the free input),
+// capped to a couple of grapheme units so it stays icon-sized. `syncInput`
+// writes the value back into the text field (for chip clicks); the input's own
+// handler passes false so typing is never interrupted.
+function setDeckEmoji(value, syncInput) {
+  _newDeckEmoji = [...String(value || "").trim()].slice(0, 4).join("");
+  if (syncInput) _els.deckEmojiInput.value = _newDeckEmoji;
+  renderEmojiPicker();
+}
+
+function renderEmojiPicker() {
+  const els = _els;
+  // The trigger shows exactly what the deck's icon will be: the chosen emoji,
+  // or the default card icon when none is picked.
+  els.deckEmojiTrigger.innerHTML = _newDeckEmoji
+    ? `<span class="deck-emoji" aria-hidden="true">${escapeHtml(_newDeckEmoji)}</span>`
+    : DECK_ICON;
+
+  const noneChip = `<button type="button" role="option" aria-selected="${!_newDeckEmoji}"
+    data-emoji="" title="No icon"
+    class="emoji-chip emoji-chip-none${!_newDeckEmoji ? " active" : ""}">${DECK_ICON}</button>`;
+  const chips = DECK_EMOJIS.map((emoji) => {
+    const active = emoji === _newDeckEmoji;
+    return `<button type="button" role="option" aria-selected="${active}"
+      data-emoji="${escapeHtml(emoji)}"
+      class="emoji-chip${active ? " active" : ""}">${escapeHtml(emoji)}</button>`;
+  });
+  els.deckEmojiChips.innerHTML = [noneChip, ...chips].join("");
+}
+
+function renderDeckList() {
+  const els = _els;
+  const selected = getDeck(_draft.deckId) ? _draft.deckId : state.decks[0]?.id;
+  els.modalDeckList.innerHTML = state.decks
+    .map((deck) => {
+      const active = deck.id === selected;
+      const icon = deck.emoji
+        ? `<span class="deck-emoji" aria-hidden="true">${escapeHtml(deck.emoji)}</span>`
+        : DECK_ICON;
+      return `<button type="button" role="radio" aria-checked="${active}"
+        data-deck-id="${deck.id}" class="deck-item${active ? " active" : ""}">
+        ${icon}
+        <span class="deck-item-name">${escapeHtml(deck.name)}</span>
+        <span class="deck-chevron" aria-hidden="true">›</span>
+      </button>`;
+    })
     .join("");
-  els.modalDeck.value = getDeck(_draft.deckId) ? _draft.deckId : "default";
 }
 
 function renderPreview() {
@@ -324,29 +439,30 @@ export function openCardModal(options = {}) {
     };
   }
 
-  els.cardModalTitle.textContent = _editingId ? "Edit flashcard" : "New flashcard";
+  els.cardModalTitle.textContent = _editingId
+    ? "Edit flashcard"
+    : _draft.word
+      ? `Add “${_draft.word}” to the flashcard`
+      : "New flashcard";
   els.modalSave.textContent = _editingId ? "Save" : "Add card";
   els.modalError.textContent = "";
   els.modalDeckError.textContent = "";
   els.modalNewDeckRow.hidden = true;
+  if (els.emojiDialog.open) els.emojiDialog.close();
+  setDeckEmoji("", true);
 
   for (const key of TEXT_FIELDS) {
     setFieldInput(key, _draft[key] || "");
     setFieldLoading(key, false);
   }
 
-  // Duplicate detection (new cards only): offer the existing card instead.
-  const existing = _editingId ? null : findCardByWord(_draft.word);
-  els.dupeNotice.hidden = !existing;
-  if (existing) {
-    els.dupeText.textContent = `“${_draft.word}” is already in ${deckName(existing.deckId)}.`;
-  }
-
   renderTemplatePicker();
-  renderDeckOptions();
+  renderDeckList();
   renderPreview();
   els.cardModal.showModal();
-  els.modalFields.querySelector("input")?.focus();
+  // The preview/fields now live in a separate window, so land focus on the
+  // card-type dropdown.
+  els.templateSelect.focus();
 
   prefetch(_draft);
 }

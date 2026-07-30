@@ -574,6 +574,10 @@ rt {
 /* Dialog */
 dialog {
   width: min(440px, calc(100vw - 32px));
+  /* The global `* { margin: 0 }` reset kills the UA dialog's `margin: auto`,
+     which is what centers a showModal() dialog — restore it here. */
+  margin: auto;
+  max-height: calc(100vh - 32px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -773,7 +777,44 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .card-face-compact .cf-example, .card-face-compact .cf-examplePinyin, .card-face-compact .cf-exampleTranslation { font-size: 12px; }
 
 /* Template manager + editor */
-.card-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.card-tools { display: flex; gap: 8px; align-items: center; }
+.card-tools input[type="search"] { width: 180px; }
+.overflow-menu { position: relative; }
+.overflow-summary {
+  list-style: none;
+  width: 36px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+.overflow-summary::-webkit-details-marker { display: none; }
+.overflow-menu[open] .overflow-summary { border-color: var(--accent); background: var(--surface-3); }
+.overflow-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.overflow-list button,
+.overflow-list .file-button {
+  width: 100%;
+  height: 34px;
+  justify-content: flex-start;
+  border-color: transparent;
+  background: transparent;
+}
+.overflow-list button:hover,
+.overflow-list .file-button:hover { background: var(--surface-2); border-color: transparent; }
+.overflow-list button.danger:hover { background: color-mix(in srgb, var(--danger, #e5484d) 16%, transparent); }
+.overflow-sep { border: none; border-top: 1px solid var(--border); margin: 4px 0; width: 100%; }
 .tpl-list { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; }
 .tpl-item {
   display: grid;
@@ -810,28 +851,35 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .tpl-error { min-height: 18px; font-size: 13px; }
 
 /* Add/edit card modal */
-dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
-.dupe-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent-2) 15%, transparent);
-  font-size: 13px;
-}
-.dupe-notice button { height: 28px; min-height: 28px; padding: 0 10px; font-size: 12px; }
-.template-picker { display: flex; gap: 6px; flex-wrap: wrap; }
-.template-option {
-  height: 30px;
-  min-height: 30px;
-  padding: 0 12px;
+dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
+.card-modal .word-form { gap: 6px; }
+.card-modal .section-title { margin-bottom: 4px; }
+/* An empty error line still reserves a grid row + gap — collapse it. */
+#modalError:empty { display: none; }
+.modal-section-label {
+  margin: 2px 0 0;
   font-size: 12px;
-  border-radius: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
 }
-.template-option.active { background: var(--accent); color: #000; border-color: transparent; font-weight: 600; }
-.template-create { color: var(--muted); border-style: dashed; }
+.template-select {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.template-desc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
 .preview-wrap {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -847,6 +895,19 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
 }
 .preview-topbar button { height: 28px; min-height: 28px; padding: 0 10px; font-size: 12px; }
 .preview-face { min-height: 110px; align-content: center; }
+.preview-button {
+  justify-self: start;
+  width: fit-content;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.preview-button:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
 .modal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .modal-field { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
 .modal-field.loading input {
@@ -858,20 +919,102 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }
 }
-.deck-row { display: flex; align-items: end; gap: 8px; }
-.deck-label { flex: 1; display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
-.deck-label select {
-  height: 36px;
+.info-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border-radius: 50%;
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: help;
+  vertical-align: middle;
+}
+.deck-list { display: grid; gap: 4px; }
+.deck-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
   color: var(--text);
-  padding: 0 8px;
-  font-size: 13px;
+  cursor: pointer;
+}
+.deck-item:hover { background: var(--surface-2); }
+.deck-item.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+.deck-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: var(--text);
+}
+.deck-item-name { flex: 1; font-size: 14px; font-weight: 600; }
+.deck-chevron { flex: none; color: var(--muted); font-size: 18px; line-height: 1; }
+.deck-create { border-top: 1px solid var(--border); border-radius: 0; margin-top: 2px; padding-top: 9px; }
+.deck-create .deck-item-name { font-weight: 600; }
+.deck-icon-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--text);
 }
 .new-deck-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .new-deck-row input { flex: 1 1 140px; }
 .new-deck-row .danger { font-size: 12px; flex-basis: 100%; }
+/* Emoji picker for personalising a new deck: one trigger button opens a small
+   popup modal with a searchable free input + a grid of common emojis. */
+.emoji-trigger {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+.emoji-trigger .deck-emoji { width: auto; }
+.emoji-dialog { width: min(340px, calc(100vw - 32px)); padding: 14px; }
+.emoji-dialog-form { display: flex; flex-direction: column; gap: 10px; }
+.emoji-dialog-head { display: flex; align-items: center; gap: 8px; }
+.emoji-input { flex: 1; height: 34px; font-size: 14px; }
+.emoji-chips {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.emoji-chip {
+  width: 100%;
+  height: 34px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+}
+.emoji-chip:hover { background: var(--surface-2); border-color: transparent; }
+.emoji-chip.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.emoji-chip-none .deck-icon { width: 20px; height: 20px; }
+/* Deck emoji shown in the modal deck list + the sidebar nav */
+.deck-emoji { flex: none; width: 22px; font-size: 18px; line-height: 1; text-align: center; }
+.deck-nav-emoji { margin-right: 6px; }
 
 /* Stroke practice (see public/js/practice.mjs) */
 .practice-status { display: flex; align-items: baseline; gap: 12px; }
@@ -1088,13 +1231,19 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
               <h2 id="deckTitle">All decks</h2>
               <div class="card-tools">
                 <input id="cardSearch" type="search" placeholder="Search cards" aria-label="Search cards" />
-                <button id="renameDeck" type="button" hidden>Rename</button>
-                <button id="deckSettings" type="button" hidden>Limits</button>
-                <button id="deleteDeck" type="button" class="danger" hidden>Delete deck</button>
-                <button id="manageTemplates" type="button">Templates</button>
-                <button id="exportCards" type="button" title="Export cards, decks, and templates as JSON">Export</button>
-                <button id="exportAnki" type="button" title="Export a tab-separated file for Anki">Anki TSV</button>
-                <label class="file-button" title="Import a previously exported JSON file">Import<input id="importFile" type="file" accept=".json,application/json" /></label>
+                <details class="overflow-menu">
+                  <summary class="overflow-summary" aria-label="More actions" title="More actions">⋯</summary>
+                  <div class="overflow-list">
+                    <button id="renameDeck" type="button" hidden>Rename deck</button>
+                    <button id="deckSettings" type="button" hidden>Daily limits</button>
+                    <button id="deleteDeck" type="button" class="danger" hidden>Delete deck</button>
+                    <hr id="deckMenuSep" class="overflow-sep" />
+                    <button id="manageTemplates" type="button">Manage templates</button>
+                    <button id="exportCards" type="button" title="Export cards, decks, and templates as JSON">Export (JSON)</button>
+                    <button id="exportAnki" type="button" title="Export a tab-separated file for Anki">Export for Anki</button>
+                    <label class="file-button" title="Import a previously exported JSON file">Import…<input id="importFile" type="file" accept=".json,application/json" /></label>
+                  </div>
+                </details>
               </div>
             </div>
             <form id="renameDeckForm" class="new-deck-row" hidden>
@@ -1144,28 +1293,23 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
           <h2 id="cardModalTitle">New flashcard</h2>
           <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
         </div>
-        <p id="dupeNotice" class="dupe-notice" hidden>
-          <span id="dupeText"></span>
-          <button type="button" id="dupeOpen">Edit that card</button>
+        <p class="modal-section-label">Card type
+          <span class="info-dot" tabindex="0" role="img" aria-label="About card types"
+            title="Each card type lays out different fields on the front and back. Pick the one you want to study with.">i</span>
         </p>
-        <div id="templatePicker" class="template-picker" role="radiogroup" aria-label="Card template"></div>
-        <div class="preview-wrap">
-          <div class="preview-topbar">
-            <span id="previewSide" class="muted">Front</span>
-            <button type="button" id="previewFlip">Flip to back</button>
-          </div>
-          <div id="previewFace" class="preview-face card-face" aria-live="polite"></div>
-        </div>
-        <div id="modalFields" class="modal-fields"></div>
-        <div class="deck-row">
-          <label class="deck-label">Deck
-            <select id="modalDeck" aria-label="Deck"></select>
-          </label>
-          <button type="button" id="modalNewDeck">+ New deck</button>
-        </div>
+        <select id="templateSelect" class="template-select" aria-label="Card type"></select>
+        <p id="templateDesc" class="template-desc"></p>
+        <button type="button" id="openPreview" class="preview-button">Preview &amp; edit card</button>
+        <p class="modal-section-label">Choose a deck</p>
+        <div id="modalDeckList" class="deck-list" role="radiogroup" aria-label="Deck"></div>
+        <button type="button" id="modalNewDeck" class="deck-item deck-create">
+          <span class="deck-icon deck-icon-plus" aria-hidden="true">+</span>
+          <span class="deck-item-name">Create a new deck</span>
+        </button>
         <div id="modalNewDeckRow" class="new-deck-row" hidden>
-          <input id="modalNewDeckName" type="text" placeholder="Deck name" maxlength="40" aria-label="New deck name" />
-          <button type="button" id="modalNewDeckCreate">Create</button>
+          <button type="button" id="deckEmojiTrigger" class="emoji-trigger" aria-label="Choose deck icon" title="Choose an icon" aria-haspopup="dialog"></button>
+          <input id="modalNewDeckName" type="text" placeholder="New deck name" maxlength="40" aria-label="New deck name" />
+          <button type="button" id="modalNewDeckCreate">Create deck</button>
           <span id="modalDeckError" class="danger"></span>
         </div>
         <p id="modalError" class="danger tpl-error" role="alert" aria-live="polite"></p>
@@ -1173,6 +1317,38 @@ dialog.card-modal { width: min(560px, calc(100vw - 32px)); }
           <button value="cancel" type="submit">Cancel</button>
           <button id="modalSave" type="button">Add card</button>
         </menu>
+      </form>
+    </dialog>
+
+    <dialog id="previewDialog" class="card-modal" aria-labelledby="previewDialogTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="previewDialogTitle">Preview &amp; edit</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div class="preview-wrap">
+          <div class="preview-topbar">
+            <span id="previewSide" class="muted">Front</span>
+            <button type="button" id="previewFlip">Flip to back</button>
+          </div>
+          <div id="previewFace" class="preview-face card-face" aria-live="polite"></div>
+        </div>
+        <p class="modal-section-label">Fields</p>
+        <div id="modalFields" class="modal-fields"></div>
+        <menu>
+          <button id="previewDone" value="cancel" type="submit">Done</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="emojiDialog" class="emoji-dialog" aria-label="Choose deck icon">
+      <form method="dialog" class="emoji-dialog-form">
+        <div class="emoji-dialog-head">
+          <input id="deckEmojiInput" class="emoji-input" type="text" maxlength="16"
+            placeholder="Type or paste any emoji…" aria-label="Custom deck emoji" />
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="deckEmojiChips" class="emoji-chips" role="listbox" aria-label="Deck icon"></div>
       </form>
     </dialog>
 

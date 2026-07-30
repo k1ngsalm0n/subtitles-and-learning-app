@@ -13,7 +13,7 @@ import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
-import { addCard, removeCard, moveCardToDeck } from "./flashcards.mjs";
+import { removeCard, moveCardToDeck } from "./flashcards.mjs";
 import { renderCardFace, renderCardSide } from "./cardface.mjs";
 import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
@@ -267,18 +267,21 @@ export function stopHighlightLoop() {
 
 export function renderDeckNav(els) {
   const e = els || _els;
-  const item = (deckId, label) => {
+  const item = (deckId, label, emoji = "") => {
     const total = cardsInDeck(deckId).length;
     const due = getDueCards(deckId).length;
     const active = state.selectedDeckId === deckId;
+    const icon = emoji
+      ? `<span class="deck-nav-emoji" aria-hidden="true">${escapeHtml(emoji)}</span>`
+      : "";
     return `<button type="button" class="deck-nav-item ${active ? "active" : ""}" data-deck="${escapeHtml(deckId)}">
-      <span class="deck-nav-name">${escapeHtml(label)}</span>
+      <span class="deck-nav-name">${icon}${escapeHtml(label)}</span>
       <span class="deck-nav-counts">${due ? `<span class="deck-due">${due} due</span>` : ""}<span class="deck-count">${total}</span></span>
     </button>`;
   };
   e.deckNav.innerHTML = [
     item("all", "All decks"),
-    ...state.decks.map((deck) => item(deck.id, deck.name)),
+    ...state.decks.map((deck) => item(deck.id, deck.name, deck.emoji)),
   ].join("");
 
   e.deckNav.querySelectorAll(".deck-nav-item").forEach((button) => {
@@ -304,6 +307,8 @@ export function renderDeckHeader(els) {
   e.renameDeck.hidden = !editable;
   e.deleteDeck.hidden = !editable;
   e.deckSettings.hidden = !deck;
+  // The separator only makes sense when the per-deck actions above it exist.
+  if (e.deckMenuSep) e.deckMenuSep.hidden = !deck;
   if (!editable) e.renameDeckForm.hidden = true;
 }
 
@@ -639,53 +644,13 @@ async function openWordBubble(anchor, context, els) {
     ${posHtml}
     <div class="bubble-actions">
       <button type="button" class="bubble-save">+ Flashcard</button>
-      <button type="button" class="bubble-edit">Edit…</button>
     </div>`;
   positionBubble(bubble);
 
-  // Quick add: one click, default template + last-used deck, undo toast.
-  // The full modal stays one step away via Edit.
+  // "+ Flashcard" opens the full add-card modal, where the template (Default /
+  // Reverse / Stroke order / a custom one), a live preview, and the deck
+  // (Default or a new one) are chosen before saving.
   bubble.querySelector(".bubble-save").addEventListener("click", () => {
-    const line = state.subtitles[state.activeIndex];
-    const added = addCard({
-      word,
-      pinyin: result.pronunciation || "",
-      translation: result.meaning || (result.defs || [])[0] || "",
-      example: context,
-      sourceId: state.currentSourceId,
-      sourceTime: line?.start ?? null,
-    });
-    if (added.error) {
-      showToast(added.error, {
-        actions: [
-          {
-            label: "Edit…",
-            onClick: () =>
-              openCardModal({
-                word,
-                example: context,
-                prefill: {
-                  pinyin: result.pronunciation || "",
-                  translation: result.meaning || (result.defs || [])[0] || "",
-                },
-                sourceId: state.currentSourceId,
-                sourceTime: line?.start ?? null,
-              }),
-          },
-        ],
-      });
-    } else {
-      const card = added.card;
-      showToast(`Added to ${deckName(card.deckId)}`, {
-        actions: [
-          { label: "Undo", onClick: () => removeCard(card.id) },
-          { label: "Edit…", onClick: () => openCardModal({ card }) },
-        ],
-      });
-    }
-    closeBubble();
-  });
-  bubble.querySelector(".bubble-edit").addEventListener("click", () => {
     closeBubble();
     const line = state.subtitles[state.activeIndex];
     openCardModal({

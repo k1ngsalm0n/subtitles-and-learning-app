@@ -1,6 +1,9 @@
 import {
   state,
   saveSources,
+  saveSession,
+  loadSession,
+  clearSession,
   saveDecks,
   getDeck,
   cardsInDeck,
@@ -93,17 +96,21 @@ const els = {
   progressFill: document.querySelector("#progressFill"),
   cardModal: document.querySelector("#cardModal"),
   cardModalTitle: document.querySelector("#cardModalTitle"),
-  dupeNotice: document.querySelector("#dupeNotice"),
-  dupeText: document.querySelector("#dupeText"),
-  dupeOpen: document.querySelector("#dupeOpen"),
-  templatePicker: document.querySelector("#templatePicker"),
+  templateSelect: document.querySelector("#templateSelect"),
+  templateDesc: document.querySelector("#templateDesc"),
   previewSide: document.querySelector("#previewSide"),
   previewFlip: document.querySelector("#previewFlip"),
   previewFace: document.querySelector("#previewFace"),
   modalFields: document.querySelector("#modalFields"),
-  modalDeck: document.querySelector("#modalDeck"),
+  openPreview: document.querySelector("#openPreview"),
+  previewDialog: document.querySelector("#previewDialog"),
+  modalDeckList: document.querySelector("#modalDeckList"),
   modalNewDeck: document.querySelector("#modalNewDeck"),
   modalNewDeckRow: document.querySelector("#modalNewDeckRow"),
+  deckEmojiTrigger: document.querySelector("#deckEmojiTrigger"),
+  emojiDialog: document.querySelector("#emojiDialog"),
+  deckEmojiInput: document.querySelector("#deckEmojiInput"),
+  deckEmojiChips: document.querySelector("#deckEmojiChips"),
   modalNewDeckName: document.querySelector("#modalNewDeckName"),
   modalNewDeckCreate: document.querySelector("#modalNewDeckCreate"),
   modalDeckError: document.querySelector("#modalDeckError"),
@@ -122,6 +129,8 @@ const els = {
   renameDeckCancel: document.querySelector("#renameDeckCancel"),
   renameDeckError: document.querySelector("#renameDeckError"),
   deleteDeck: document.querySelector("#deleteDeck"),
+  deckMenu: document.querySelector(".overflow-menu"),
+  deckMenuSep: document.querySelector("#deckMenuSep"),
   practiceDialog: document.querySelector("#practiceDialog"),
   practiceMain: document.querySelector("#practiceMain"),
   practiceChar: document.querySelector("#practiceChar"),
@@ -167,7 +176,7 @@ function init() {
     localStorage.getItem(STORAGE_KEYS.theme) || "dark";
   bindEvents();
   populateLanguageSelects(els);
-  loadSubtitles(sampleOriginal, sampleTranslation);
+  restoreSession();
   renderAll(els);
   setupTranscriptDelegation(els);
   setupMiniPlayer(els);
@@ -190,6 +199,10 @@ function bindEvents() {
   els.originalInput.addEventListener("change", () => readSubtitleInputs());
   els.translationInput.addEventListener("change", () => readSubtitleInputs());
   els.video.addEventListener("timeupdate", () => syncToVideo(els));
+  els.video.addEventListener("pause", persistPlaybackTime);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persistPlaybackTime();
+  });
   startHighlightLoop(els);
   els.searchInput.addEventListener("input", () => renderTranscript(els));
   els.loopLine.addEventListener("click", () => loopActiveLine(els));
@@ -302,6 +315,19 @@ function bindDeckEvents() {
     renderCardList(els);
   });
 
+  // Overflow (⋯) menu: <details> handles open/close, but we still need to close
+  // it after an action is chosen and when the user clicks away.
+  if (els.deckMenu) {
+    els.deckMenu.addEventListener("click", (event) => {
+      if (event.target.closest("button, .file-button")) els.deckMenu.open = false;
+    });
+    document.addEventListener("click", (event) => {
+      if (els.deckMenu.open && !els.deckMenu.contains(event.target)) {
+        els.deckMenu.open = false;
+      }
+    });
+  }
+
   els.deckSettings.addEventListener("click", () => {
     const deck = getDeck(state.selectedDeckId);
     if (!deck) return;
@@ -346,6 +372,62 @@ function handleVideoInput(event) {
   els.emptyPlayer.classList.add("hidden");
   // A local file isn't a library source; cards made from it carry no link.
   state.currentSourceId = null;
+  // A blob video can't be brought back after a reload, so drop any saved
+  // import session — otherwise a refresh would resurrect the old imported
+  // transcript over this local video.
+  clearSession();
+}
+
+// On startup, bring back the last imported video and its real subtitles rather
+// than the sample, so a reload — or a browser tab-restore that keeps the video
+// element alive — doesn't leave a live video sitting over the sample
+// transcript. Falls back to the sample when there's no resumable session or the
+// source's video is gone.
+function restoreSession() {
+  const session = loadSession();
+  const source =
+    session && state.sources.find((s) => s.id === session.sourceId);
+  if (!source || !source.videoUrl) {
+    loadSubtitles(sampleOriginal, sampleTranslation);
+    return;
+  }
+  els.video.src = source.videoUrl;
+  els.emptyPlayer.classList.add("hidden");
+  els.video.addEventListener(
+    "error",
+    () => {
+      showToast("The saved video is gone — re-import the URL to restore it.");
+      clearSession();
+    },
+    { once: true },
+  );
+  // Resume where playback left off (see persistPlaybackTime).
+  if (session.time) {
+    els.video.addEventListener(
+      "loadedmetadata",
+      () => {
+        els.video.currentTime = session.time;
+      },
+      { once: true },
+    );
+  }
+  state.currentSourceId = source.id;
+  if (session.learningLang) {
+    state.learningLang = session.learningLang;
+    syncTranslateLangs(els);
+  }
+  loadSubtitles(session.original || "", session.translation || "");
+}
+
+// Persist playback position so a reload resumes where you left off. Written on
+// pause and when the tab is hidden (covers reloads and browser tab-discards)
+// rather than on every timeupdate, to avoid hammering localStorage. Only the
+// currently loaded import owns the saved session, so guard on the source id.
+function persistPlaybackTime() {
+  const session = loadSession();
+  if (!session || session.sourceId !== state.currentSourceId) return;
+  session.time = els.video.currentTime || 0;
+  saveSession(session);
 }
 
 // Jump back to the moment a card came from: seek if the source is already
@@ -498,6 +580,14 @@ async function importSourceUrl() {
       state.learningLang = lang === "chinese" ? "zh" : lang;
       syncTranslateLangs(els);
     }
+    // Remember this loaded video + transcript so a reload restores it instead
+    // of the sample (see restoreSession).
+    saveSession({
+      sourceId: source.id,
+      original: result.subtitles || "",
+      translation: result.translation || "",
+      learningLang: state.learningLang,
+    });
     source.status =
       result.source === "whisper"
         ? "transcribed"
