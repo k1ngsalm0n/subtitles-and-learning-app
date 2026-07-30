@@ -977,45 +977,30 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 .new-deck-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .new-deck-row input { flex: 1 1 140px; }
 .new-deck-row .danger { font-size: 12px; flex-basis: 100%; }
-/* Emoji picker for personalising a new deck: one trigger button opens a
-   compact popover (Discord-style) instead of laying every choice out. */
-.emoji-menu { position: relative; flex: none; }
+/* Emoji picker for personalising a new deck: one trigger button opens a small
+   popup modal with a searchable free input + a grid of common emojis. */
 .emoji-trigger {
-  list-style: none;
+  flex: none;
   width: 40px;
   height: 40px;
   padding: 0;
   font-size: 20px;
   line-height: 1;
 }
-.emoji-trigger::-webkit-details-marker { display: none; }
-.emoji-menu[open] .emoji-trigger { border-color: var(--accent); background: var(--surface-3); }
 .emoji-trigger .deck-emoji { width: auto; }
-.emoji-panel {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 296px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-.emoji-input { height: 32px; font-size: 14px; }
+.emoji-dialog { width: min(340px, calc(100vw - 32px)); padding: 14px; }
+.emoji-dialog-form { display: flex; flex-direction: column; gap: 10px; }
+.emoji-dialog-head { display: flex; align-items: center; gap: 8px; }
+.emoji-input { flex: 1; height: 34px; font-size: 14px; }
 .emoji-chips {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 2px;
-  max-height: 176px;
+  max-height: 240px;
   overflow-y: auto;
 }
 .emoji-chip {
-  width: 34px;
+  width: 100%;
   height: 34px;
   padding: 0;
   font-size: 18px;
@@ -1322,14 +1307,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <span class="deck-item-name">Create a new deck</span>
         </button>
         <div id="modalNewDeckRow" class="new-deck-row" hidden>
-          <details id="deckEmojiMenu" class="emoji-menu">
-            <summary id="deckEmojiTrigger" class="emoji-trigger" aria-label="Choose deck icon" title="Choose an icon"></summary>
-            <div id="modalDeckEmojis" class="emoji-panel">
-              <input id="deckEmojiInput" class="emoji-input" type="text" maxlength="16"
-                placeholder="Type or paste any emoji…" aria-label="Custom deck emoji" />
-              <div id="deckEmojiChips" class="emoji-chips" role="listbox" aria-label="Deck icon"></div>
-            </div>
-          </details>
+          <button type="button" id="deckEmojiTrigger" class="emoji-trigger" aria-label="Choose deck icon" title="Choose an icon" aria-haspopup="dialog"></button>
           <input id="modalNewDeckName" type="text" placeholder="New deck name" maxlength="40" aria-label="New deck name" />
           <button type="button" id="modalNewDeckCreate">Create deck</button>
           <span id="modalDeckError" class="danger"></span>
@@ -1360,6 +1338,17 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         <menu>
           <button id="previewDone" value="cancel" type="submit">Done</button>
         </menu>
+      </form>
+    </dialog>
+
+    <dialog id="emojiDialog" class="emoji-dialog" aria-label="Choose deck icon">
+      <form method="dialog" class="emoji-dialog-form">
+        <div class="emoji-dialog-head">
+          <input id="deckEmojiInput" class="emoji-input" type="text" maxlength="16"
+            placeholder="Type or paste any emoji…" aria-label="Custom deck emoji" />
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="deckEmojiChips" class="emoji-chips" role="listbox" aria-label="Deck icon"></div>
       </form>
     </dialog>
 

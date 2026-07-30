@@ -32,17 +32,38 @@ let _dirty = new Set(); // fields the user has typed in — prefetch keeps out
 let _fetchToken = 0;
 let _opener = null; // element to restore focus to on close
 
-// A curated palette so decks can be personalised with an emoji, without pulling
-// in a full emoji-picker dependency. It lives behind a Discord-style trigger
-// (one icon button) that opens this list in a compact popover. "" is the
-// no-icon default.
+// A broad set of widely-supported emojis (older Unicode versions that render
+// on essentially every platform — no flags/skin-tones/brand-new additions that
+// vary), grouped roughly by category. Kept as data rather than a dependency so
+// the app stays offline and build-free; the free-form input covers anything
+// not listed here. "" is the no-icon default.
 const DECK_EMOJIS = [
-  "📕", "📗", "📘", "📙", "📚", "📖", "📝", "✏️",
-  "🖊️", "🔖", "🗂️", "📌", "🎯", "💡", "🧠", "🀄",
-  "⭐", "🌟", "✨", "🔥", "💯", "✅", "🏆", "🚀",
-  "❤️", "🧡", "💛", "💚", "💙", "💜", "🩷", "🖤",
-  "🌱", "🌿", "🍀", "🌸", "🌍", "🌊", "⛰️", "🌙",
-  "🎧", "🎵", "🎮", "🧩", "🙂", "😎", "🤓", "🥳",
+  // Faces & emotion
+  "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇",
+  "🙂", "🙃", "😉", "😌", "😍", "😘", "😋", "😜", "🤗", "🤔",
+  "😐", "😏", "🙄", "😴", "😎", "🤓", "🥳", "😭", "😤", "😡",
+  "🤯", "😱", "🤩", "😬", "🤠", "👍", "👎", "👌", "👏", "🙌",
+  "🙏", "💪", "👀", "🧠", "❤️", "🧡", "💛", "💚", "💙", "💜",
+  "🖤", "💯", "✅", "❌", "❗", "❓", "⚠️", "💡", "🔥", "✨",
+  "⭐", "🌟", "💫", "🎉", "🎊", "🏆", "🎯", "🚀",
+  // Animals & nature
+  "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
+  "🦁", "🐮", "🐷", "🐸", "🐵", "🐔", "🐧", "🐦", "🦆", "🦉",
+  "🐴", "🦄", "🐝", "🐛", "🦋", "🐢", "🐍", "🐙", "🐠", "🐬",
+  "🐳", "🌱", "🌿", "🍀", "🌵", "🌴", "🌸", "🌻", "🌹", "🍁",
+  "🌍", "🌙", "☀️", "☁️", "🌈", "⚡", "❄️", "🌊",
+  // Food & drink
+  "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🍒", "🍑",
+  "🍍", "🥝", "🍅", "🥑", "🌽", "🍄", "🍞", "🧀", "🍔", "🍟",
+  "🍕", "🌮", "🍿", "🍩", "🍪", "🎂", "🍰", "🍫", "🍭", "☕",
+  "🍵", "🍺",
+  // Activities & objects
+  "⚽", "🏀", "🏈", "⚾", "🎾", "🎱", "🏓", "🎮", "🎲", "🧩",
+  "🎸", "🎹", "🎺", "🎻", "🥁", "🎤", "🎧", "🎵", "🎨", "📷",
+  "🎥", "📺", "📱", "💻", "⌚", "⏰", "🔑", "🔒", "💰", "💎",
+  "🎁", "🎈", "🔍", "📌", "🔖", "✂️", "📎", "🗂️",
+  // Study / books
+  "📚", "📕", "📗", "📘", "📙", "📖", "📝", "✏️", "🖊️", "🀄",
 ];
 let _newDeckEmoji = ""; // emoji chosen for the deck being created
 
@@ -116,19 +137,21 @@ export function setupCardModal(els) {
     if (hidden) {
       setDeckEmoji("", true);
       els.modalNewDeckName.focus();
-    } else {
-      els.deckEmojiMenu.open = false;
     }
   });
 
-  // Emoji palette (Discord-style): the trigger opens a popover; clicking a chip
-  // sets the deck's icon and closes it. The "none" chip clears back to the
-  // default card icon.
-  els.modalDeckEmojis.addEventListener("click", (event) => {
+  // Emoji picker lives in its own small modal. The trigger opens it; clicking a
+  // chip (or the "none" chip) sets the deck's icon and closes it.
+  els.deckEmojiTrigger.addEventListener("click", () => {
+    renderEmojiPicker();
+    els.emojiDialog.showModal();
+    els.deckEmojiInput.focus();
+  });
+  els.deckEmojiChips.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-emoji]");
     if (!chip) return;
     setDeckEmoji(chip.dataset.emoji, true);
-    els.deckEmojiMenu.open = false;
+    els.emojiDialog.close();
     els.deckEmojiTrigger.focus();
   });
   // Free-form input covers every emoji the curated grid doesn't: the user's OS
@@ -137,18 +160,12 @@ export function setupCardModal(els) {
   els.deckEmojiInput.addEventListener("input", () => {
     setDeckEmoji(els.deckEmojiInput.value, false);
   });
-  // Enter confirms the typed emoji and closes the popover.
+  // Enter confirms the typed emoji and closes the picker.
   els.deckEmojiInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      els.deckEmojiMenu.open = false;
-      els.modalNewDeckName.focus();
-    }
-  });
-  // Close the popover when clicking outside it.
-  document.addEventListener("click", (event) => {
-    if (els.deckEmojiMenu.open && !els.deckEmojiMenu.contains(event.target)) {
-      els.deckEmojiMenu.open = false;
+      els.emojiDialog.close();
+      els.deckEmojiTrigger.focus();
     }
   });
 
@@ -161,7 +178,6 @@ export function setupCardModal(els) {
     els.modalDeckError.textContent = "";
     els.modalNewDeckName.value = "";
     setDeckEmoji("", true);
-    els.deckEmojiMenu.open = false;
     els.modalNewDeckRow.hidden = true;
     _draft.deckId = result.deck.id;
     renderDeckList();
@@ -432,7 +448,7 @@ export function openCardModal(options = {}) {
   els.modalError.textContent = "";
   els.modalDeckError.textContent = "";
   els.modalNewDeckRow.hidden = true;
-  els.deckEmojiMenu.open = false;
+  if (els.emojiDialog.open) els.emojiDialog.close();
   setDeckEmoji("", true);
 
   for (const key of TEXT_FIELDS) {
