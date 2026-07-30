@@ -93,17 +93,22 @@ const els = {
   progressFill: document.querySelector("#progressFill"),
   cardModal: document.querySelector("#cardModal"),
   cardModalTitle: document.querySelector("#cardModalTitle"),
-  dupeNotice: document.querySelector("#dupeNotice"),
-  dupeText: document.querySelector("#dupeText"),
-  dupeOpen: document.querySelector("#dupeOpen"),
-  templatePicker: document.querySelector("#templatePicker"),
+  templateSelect: document.querySelector("#templateSelect"),
+  templateDesc: document.querySelector("#templateDesc"),
   previewSide: document.querySelector("#previewSide"),
   previewFlip: document.querySelector("#previewFlip"),
   previewFace: document.querySelector("#previewFace"),
   modalFields: document.querySelector("#modalFields"),
-  modalDeck: document.querySelector("#modalDeck"),
+  openPreview: document.querySelector("#openPreview"),
+  previewDialog: document.querySelector("#previewDialog"),
+  modalDeckList: document.querySelector("#modalDeckList"),
   modalNewDeck: document.querySelector("#modalNewDeck"),
   modalNewDeckRow: document.querySelector("#modalNewDeckRow"),
+  deckEmojiMenu: document.querySelector("#deckEmojiMenu"),
+  deckEmojiTrigger: document.querySelector("#deckEmojiTrigger"),
+  modalDeckEmojis: document.querySelector("#modalDeckEmojis"),
+  deckEmojiInput: document.querySelector("#deckEmojiInput"),
+  deckEmojiChips: document.querySelector("#deckEmojiChips"),
   modalNewDeckName: document.querySelector("#modalNewDeckName"),
   modalNewDeckCreate: document.querySelector("#modalNewDeckCreate"),
   modalDeckError: document.querySelector("#modalDeckError"),
@@ -122,6 +127,8 @@ const els = {
   renameDeckCancel: document.querySelector("#renameDeckCancel"),
   renameDeckError: document.querySelector("#renameDeckError"),
   deleteDeck: document.querySelector("#deleteDeck"),
+  deckMenu: document.querySelector(".overflow-menu"),
+  deckMenuSep: document.querySelector("#deckMenuSep"),
   practiceDialog: document.querySelector("#practiceDialog"),
   practiceMain: document.querySelector("#practiceMain"),
   practiceChar: document.querySelector("#practiceChar"),
@@ -301,6 +308,19 @@ function bindDeckEvents() {
     state.cardSearch = els.cardSearch.value;
     renderCardList(els);
   });
+
+  // Overflow (⋯) menu: <details> handles open/close, but we still need to close
+  // it after an action is chosen and when the user clicks away.
+  if (els.deckMenu) {
+    els.deckMenu.addEventListener("click", (event) => {
+      if (event.target.closest("button, .file-button")) els.deckMenu.open = false;
+    });
+    document.addEventListener("click", (event) => {
+      if (els.deckMenu.open && !els.deckMenu.contains(event.target)) {
+        els.deckMenu.open = false;
+      }
+    });
+  }
 
   els.deckSettings.addEventListener("click", () => {
     const deck = getDeck(state.selectedDeckId);

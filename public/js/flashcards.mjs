@@ -79,9 +79,10 @@ export function restoreCard(card) {
   renderAll();
 }
 
-// Create a deck by name. Returns { deck } or { error } (empty or duplicate
-// names are rejected with a message, never silently).
-export function addDeck(name) {
+// Create a deck by name (and an optional emoji to personalise it). Returns
+// { deck } or { error } (empty or duplicate names are rejected with a message,
+// never silently).
+export function addDeck(name, emoji = "") {
   const trimmed = String(name || "").trim();
   if (!trimmed) return { error: "Deck name can't be empty." };
   const clash = state.decks.find(
@@ -91,11 +92,17 @@ export function addDeck(name) {
   const deck = {
     id: `deck-${crypto.randomUUID()}`,
     name: trimmed,
+    // Emojis can be multi-codepoint (ZWJ) sequences; keep the first couple of
+    // grapheme-ish units and drop anything longer to stay a small label.
+    emoji: [...String(emoji || "").trim()].slice(0, 8).join(""),
     createdAt: Date.now(),
     builtIn: false,
   };
   state.decks.push(deck);
   saveDecks();
+  // Refresh the sidebar deck nav right away so a deck created from the
+  // add-card modal shows up immediately (not only on the next full render).
+  renderDeckNav();
   return { deck };
 }
 
