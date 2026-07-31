@@ -12,6 +12,8 @@ import {
   validateTemplate,
   fieldText,
   isAudioField,
+  orderByIds,
+  moveById,
   DEFAULT_DECK_ID,
   BUILTIN_TEMPLATE_IDS,
 } from "../public/js/carddata.mjs";
@@ -149,4 +151,33 @@ test("template validation enforces names and non-empty faces", () => {
   );
   // Renaming a template to its own name is fine.
   assert.equal(validateTemplate(existing[0], existing), null);
+});
+
+const ORDER = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+const ids = (list) => list.map((item) => item.id).join("");
+
+test("orderByIds rearranges a list to match a dropped order", () => {
+  assert.equal(ids(orderByIds(ORDER, ["d", "c", "b", "a"])), "dcba");
+  assert.equal(ids(orderByIds(ORDER, ["a", "d", "b", "c"])), "adbc");
+  assert.equal(ids(ORDER), "abcd", "input is left untouched");
+  // Same order in, same array back — callers skip the save/render on this.
+  assert.equal(orderByIds(ORDER, ["a", "b", "c", "d"]), ORDER);
+});
+
+test("orderByIds can't lose or invent items", () => {
+  // Unknown ids are ignored; unmentioned items keep their order, at the end.
+  assert.equal(ids(orderByIds(ORDER, ["zz", "c", "a"])), "cabd");
+  assert.equal(orderByIds(ORDER, []), ORDER);
+  assert.equal(orderByIds(ORDER, undefined), ORDER);
+  assert.equal(ids(orderByIds([], ["a"])), "");
+});
+
+test("moveById steps an item and clamps at the ends", () => {
+  assert.equal(ids(moveById(ORDER, "c", -1)), "acbd");
+  assert.equal(ids(moveById(ORDER, "c", 1)), "abdc");
+  assert.equal(ids(moveById(ORDER, "a", -3)), "abcd");
+  assert.equal(moveById(ORDER, "a", -1), ORDER, "no-op returns the same list");
+  assert.equal(moveById(ORDER, "d", 1), ORDER);
+  assert.equal(moveById(ORDER, "nope", 1), ORDER);
+  assert.equal(ids(ORDER), "abcd", "input is left untouched");
 });

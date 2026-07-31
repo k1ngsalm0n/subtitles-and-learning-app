@@ -11,7 +11,13 @@ import {
   setSelectedDeck,
   recordStudy,
 } from "./state.mjs";
-import { createCard, syncFlattened, DEFAULT_DECK_ID } from "./carddata.mjs";
+import {
+  createCard,
+  syncFlattened,
+  orderByIds,
+  moveById,
+  DEFAULT_DECK_ID,
+} from "./carddata.mjs";
 import { schedule } from "./scheduler.mjs";
 import { buildExport, mergeImport, buildAnkiTsv } from "./portability.mjs";
 import {
@@ -143,6 +149,26 @@ export function deleteDeck(id, mode = "move") {
   saveCards();
   renderAll();
   return {};
+}
+
+// Commit a drag-reorder from the sidebar: `ids` is the order the rows ended up
+// in. The order *is* state.decks' order, persisted with the decks themselves.
+export function setDeckOrder(ids) {
+  const next = orderByIds(state.decks, ids);
+  if (next === state.decks) return;
+  state.decks = next;
+  saveDecks();
+  renderDeckNav();
+}
+
+// Keyboard equivalent (Alt+Arrow on a focused deck), so reordering isn't
+// mouse-only. `delta` is -1 (up) or 1 (down).
+export function moveDeckBy(deckId, delta) {
+  const next = moveById(state.decks, deckId, delta);
+  if (next === state.decks) return;
+  state.decks = next;
+  saveDecks();
+  renderDeckNav();
 }
 
 export function moveCardToDeck(cardId, deckId) {
