@@ -151,6 +151,26 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
 .view { display: none; }
 .view.active { display: block; }
 
+/* First-paint correction for the restored tab. main.mjs runs as a deferred
+   module, so without this the markup's hard-coded Study tab paints first and
+   visibly jumps once the stored view is applied. The inline <head> script
+   stamps data-view on <html> before paint; main.mjs drops the attribute as
+   soon as the .active classes agree, so styling stays class-driven. */
+:root[data-view="cards"] #studyView,
+:root[data-view="library"] #studyView { display: none; }
+:root[data-view="cards"] #cardsView,
+:root[data-view="library"] #libraryView { display: block; }
+:root[data-view="cards"] .nav-tab[data-view="study"],
+:root[data-view="library"] .nav-tab[data-view="study"] {
+  background: transparent;
+  color: var(--muted);
+}
+:root[data-view="cards"] .nav-tab[data-view="cards"],
+:root[data-view="library"] .nav-tab[data-view="library"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 /* Study view — video + controls on the left, transcript docked on the right.
    The transcript spans both left-column rows and scrolls internally, so the
    page itself rarely scrolls on desktop. */
@@ -566,9 +586,11 @@ rt {
 .card-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
 .card-item p { color: var(--muted); margin-top: 2px; }
 .card-item-body { display: grid; gap: 4px; min-width: 0; }
+.card-item-back { border-top: 1px dashed var(--border); margin-top: 2px; padding-top: 6px; }
 .card-item-back .cf { color: var(--muted); }
 .card-item-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
 .card-item-actions button { height: 30px; padding: 0 10px; font-size: 12px; }
+.card-reveal { border-color: var(--accent); color: var(--accent); }
 .danger { color: var(--danger); }
 
 /* Dialog */
@@ -1106,6 +1128,21 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   .deck-sidebar { grid-row: auto; }
 }
     </style>
+    <script>
+      // Apply the last-open tab before the first paint. main.mjs restores it
+      // too, but as a deferred module it only runs after the page has painted,
+      // so the markup's default (Study) would flash and then jump. Pairs with
+      // the :root[data-view] rules above; main.mjs clears the attribute once
+      // the .active classes say the same thing.
+      try {
+        var lastView = localStorage.getItem("miraaStudio.view");
+        if (lastView === "cards" || lastView === "library") {
+          document.documentElement.dataset.view = lastView;
+        }
+      } catch (e) {
+        // storage unavailable — fall through to the markup's default
+      }
+    </script>
   </head>
   <body>
     <header class="topbar">

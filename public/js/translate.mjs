@@ -1,4 +1,4 @@
-import { state } from "./state.mjs";
+import { state, setTranslateTo } from "./state.mjs";
 import { parseSubtitle, alignTranslations } from "./subtitle.mjs";
 import { renderTranscript, setElements } from "./ui.mjs";
 import { LANGUAGES, detectLanguage, languageName } from "./languages.mjs";
@@ -37,8 +37,10 @@ export function populateLanguageSelects(els) {
   els.translateTo.innerHTML = optionsHtml;
   // A freshly-populated <select> adopts its first <option> as its value
   // (Afrikaans, alphabetically first), so set the real default explicitly
-  // instead of relying on the empty-value guard in syncTranslateLangs.
-  els.translateTo.value = "en";
+  // instead of relying on the empty-value guard in syncTranslateLangs. The
+  // stored target is a user choice, so it wins over the "en" default.
+  els.translateTo.value = state.translateTo || "en";
+  if (!els.translateTo.value) els.translateTo.value = "en";
   syncTranslateLangs(els);
 }
 
@@ -60,6 +62,7 @@ export function swapLanguages(els) {
   if (from === AUTO) return; // nothing concrete to swap into the target
   els.translateFrom.value = to;
   els.translateTo.value = from;
+  setTranslateTo(from);
 }
 
 function setStatus(els, message) {

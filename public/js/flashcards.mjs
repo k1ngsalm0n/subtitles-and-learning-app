@@ -8,6 +8,7 @@ import {
   getDefaultTemplate,
   getDeck,
   setLastDeck,
+  setSelectedDeck,
   recordStudy,
 } from "./state.mjs";
 import { createCard, syncFlattened, DEFAULT_DECK_ID } from "./carddata.mjs";
@@ -136,7 +137,7 @@ export function deleteDeck(id, mode = "move") {
       if (card.deckId === id) card.deckId = DEFAULT_DECK_ID;
     }
   }
-  if (state.selectedDeckId === id) state.selectedDeckId = "all";
+  if (state.selectedDeckId === id) setSelectedDeck("all");
   if (state.lastDeckId === id) setLastDeck(DEFAULT_DECK_ID);
   saveDecks();
   saveCards();
