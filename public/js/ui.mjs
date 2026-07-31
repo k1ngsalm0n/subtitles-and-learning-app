@@ -382,10 +382,30 @@ function cardListItem(card, e) {
   const front = document.createElement("div");
   renderCardFace(front, card, card.frontFields, { lang: state.learningLang });
   front.classList.add("card-face-compact");
+  body.append(front);
+
+  // The answer stays hidden so browsing this list while studying doesn't spoil
+  // it. A per-card toggle reveals it on demand; the Edit button opens the full
+  // editor for anyone who actually wants to change it.
   const back = document.createElement("div");
   renderCardFace(back, card, card.backFields, { lang: state.learningLang });
   back.classList.add("card-face-compact", "card-item-back");
-  body.append(front, back);
+  const hasBack = back.textContent.trim().length > 0;
+  let reveal = null;
+  if (hasBack) {
+    back.hidden = true;
+    body.append(back);
+    reveal = document.createElement("button");
+    reveal.type = "button";
+    reveal.className = "card-reveal";
+    reveal.textContent = "Show answer";
+    reveal.setAttribute("aria-expanded", "false");
+    reveal.addEventListener("click", () => {
+      back.hidden = !back.hidden;
+      reveal.textContent = back.hidden ? "Show answer" : "Hide answer";
+      reveal.setAttribute("aria-expanded", String(!back.hidden));
+    });
+  }
 
   // Deck chip when browsing all decks, so cards show where they live.
   if (state.selectedDeckId === "all") {
@@ -426,6 +446,7 @@ function cardListItem(card, e) {
   move.value = getDeck(card.deckId) ? card.deckId : "default";
   move.addEventListener("change", () => moveCardToDeck(card.id, move.value));
 
+  if (reveal) actions.append(reveal);
   actions.append(edit, move, del);
 
   item.append(body, actions);
