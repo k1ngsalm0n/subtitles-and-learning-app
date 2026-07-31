@@ -638,12 +638,20 @@ function setupCardMenuDismiss(container) {
   });
 }
 
+// The cards the browse list is showing right now: the selected deck, narrowed
+// by the search box. Exported because "empty this list" acts on exactly this
+// set — what you see is what gets deleted.
+export function visibleCards() {
+  const query = (state.cardSearch || "").trim().toLowerCase();
+  return cardsInDeck(state.selectedDeckId).filter((card) =>
+    cardMatchesSearch(card, query),
+  );
+}
+
 export function renderCardList(els) {
   const e = els || _els;
   const query = (state.cardSearch || "").trim().toLowerCase();
-  const cards = cardsInDeck(state.selectedDeckId).filter((card) =>
-    cardMatchesSearch(card, query),
-  );
+  const cards = visibleCards();
   setupCardMenuDismiss(e.cardList);
   e.cardList.textContent = "";
   if (!cards.length) {

@@ -6,6 +6,7 @@ import {
   clearSession,
   saveDecks,
   getDeck,
+  deckName,
   cardsInDeck,
   DEFAULT_NEW_PER_DAY,
   DEFAULT_REVIEWS_PER_DAY,
@@ -27,6 +28,7 @@ import {
   addDeck,
   renameDeck,
   deleteDeck,
+  removeCards,
 } from "./flashcards.mjs";
 import { describeReport } from "./portability.mjs";
 import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
@@ -47,6 +49,7 @@ import {
   renderSources,
   renderCardList,
   renderReviewCard,
+  visibleCards,
   setElements,
   setSourceStatus,
   setSourceJumper,
@@ -152,6 +155,10 @@ const els = {
   deckNewPerDay: document.querySelector("#deckNewPerDay"),
   deckReviewsPerDay: document.querySelector("#deckReviewsPerDay"),
   deckSettingsSave: document.querySelector("#deckSettingsSave"),
+  emptyCards: document.querySelector("#emptyCards"),
+  emptyCardsDialog: document.querySelector("#emptyCardsDialog"),
+  emptyCardsText: document.querySelector("#emptyCardsText"),
+  emptyCardsConfirm: document.querySelector("#emptyCardsConfirm"),
   deckDeleteDialog: document.querySelector("#deckDeleteDialog"),
   deckDeleteText: document.querySelector("#deckDeleteText"),
   deckDeleteConfirm: document.querySelector("#deckDeleteConfirm"),
@@ -320,6 +327,36 @@ function bindDeckEvents() {
     const result = deleteDeck(state.selectedDeckId, mode);
     els.deckDeleteDialog.close();
     if (result.error) showToast(result.error);
+  });
+
+  // "Empty this list" deletes exactly what the list is showing — the selected
+  // deck, narrowed by the search box — so the confirmation spells out which
+  // that is rather than saying "all cards".
+  els.emptyCards.addEventListener("click", () => {
+    const cards = visibleCards();
+    if (!cards.length) {
+      showToast("There's nothing in this list to delete.");
+      return;
+    }
+    const count = `${cards.length} card${cards.length === 1 ? "" : "s"}`;
+    const query = (state.cardSearch || "").trim();
+    const where =
+      state.selectedDeckId === "all"
+        ? "across every deck"
+        : `from "${deckName(state.selectedDeckId)}"`;
+    els.emptyCardsText.textContent = query
+      ? `Delete the ${count} matching "${query}" ${where}?`
+      : `Delete ${count} ${where}?`;
+    els.emptyCardsDialog.showModal();
+  });
+  els.emptyCardsConfirm.addEventListener("click", () => {
+    const doomed = visibleCards();
+    els.emptyCardsDialog.close();
+    const { removed, undo } = removeCards(doomed.map((card) => card.id));
+    if (!removed) return;
+    showToast(`Deleted ${removed} card${removed === 1 ? "" : "s"}.`, {
+      actions: [{ label: "Undo", onClick: undo }],
+    });
   });
 
   els.cardSearch.addEventListener("input", () => {
