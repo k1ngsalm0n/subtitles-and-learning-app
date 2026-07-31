@@ -10,6 +10,11 @@ import {
   DEFAULT_NEW_PER_DAY,
   DEFAULT_REVIEWS_PER_DAY,
   STORAGE_KEYS,
+  setLastView,
+  setSelectedDeck,
+  setCardSearch,
+  setTranscriptSearch,
+  setTranslateTo,
 } from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import {
@@ -177,6 +182,7 @@ function init() {
   bindEvents();
   populateLanguageSelects(els);
   restoreSession();
+  restoreUiState();
   renderAll(els);
   setupTranscriptDelegation(els);
   setupMiniPlayer(els);
@@ -204,7 +210,13 @@ function bindEvents() {
     if (document.visibilityState === "hidden") persistPlaybackTime();
   });
   startHighlightLoop(els);
-  els.searchInput.addEventListener("input", () => renderTranscript(els));
+  els.searchInput.addEventListener("input", () => {
+    setTranscriptSearch(els.searchInput.value);
+    renderTranscript(els);
+  });
+  els.translateTo.addEventListener("change", () =>
+    setTranslateTo(els.translateTo.value),
+  );
   els.loopLine.addEventListener("click", () => loopActiveLine(els));
   els.saveLine.addEventListener("click", () => saveActiveLine(els));
   els.swapLangs.addEventListener("click", () => swapLanguages(els));
@@ -266,7 +278,7 @@ function bindDeckEvents() {
     }
     els.newDeckForm.reset();
     els.newDeckForm.hidden = true;
-    state.selectedDeckId = result.deck.id;
+    setSelectedDeck(result.deck.id);
     renderAll(els);
   });
 
@@ -311,7 +323,7 @@ function bindDeckEvents() {
   });
 
   els.cardSearch.addEventListener("input", () => {
-    state.cardSearch = els.cardSearch.value;
+    setCardSearch(els.cardSearch.value);
     renderCardList(els);
   });
 
@@ -355,6 +367,27 @@ function switchView(view) {
     );
   document.querySelectorAll(".view").forEach((panel) => panel.classList.remove("active"));
   document.querySelector(`#${view}View`).classList.add("active");
+  setLastView(view);
+}
+
+// Put the UI back the way it was left: the open tab and the two search boxes.
+// (The deck filter and translate target restore themselves — they're read from
+// state, which loads them.) A stored view with no matching tab (older build,
+// hand-edited storage) falls back to Study rather than hiding every panel.
+function restoreUiState() {
+  const known = [...document.querySelectorAll(".nav-tab")].some(
+    (button) => button.dataset.view === state.lastView,
+  );
+  switchView(known ? state.lastView : "study");
+  // Both filters live in the DOM, so put the stored text back in the boxes —
+  // renderTranscript/renderCardList read from them. Setting .value fires no
+  // input event, so this doesn't loop back through the setters.
+  els.searchInput.value = state.transcriptSearch;
+  els.cardSearch.value = state.cardSearch;
+  // The inline <head> script stamped this so the right tab painted immediately.
+  // The .active classes now agree with it, so drop it and leave styling purely
+  // class-driven (keeps :hover and later switches working normally).
+  delete document.documentElement.dataset.view;
 }
 
 function toggleTheme() {

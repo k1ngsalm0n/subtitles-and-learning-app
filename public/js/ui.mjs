@@ -7,6 +7,7 @@ import {
   cardsInDeck,
   deckName,
   getDeck,
+  setSelectedDeck,
 } from "./state.mjs";
 import { previewIntervals, formatInterval } from "./scheduler.mjs";
 import { hasHan } from "./strokes.mjs";
@@ -286,7 +287,7 @@ export function renderDeckNav(els) {
 
   e.deckNav.querySelectorAll(".deck-nav-item").forEach((button) => {
     button.addEventListener("click", () => {
-      state.selectedDeckId = button.dataset.deck;
+      setSelectedDeck(button.dataset.deck);
       state.showingBack = false;
       renderDeckNav(e);
       renderDeckHeader(e);

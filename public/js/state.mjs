@@ -18,6 +18,11 @@ export const STORAGE_KEYS = {
   sources: "miraaStudio.sources",
   theme: "miraaStudio.theme",
   session: "miraaStudio.session",
+  view: "miraaStudio.view",
+  selectedDeck: "miraaStudio.selectedDeck",
+  cardSearch: "miraaStudio.cardSearch",
+  transcriptSearch: "miraaStudio.transcriptSearch",
+  translateTo: "miraaStudio.translateTo",
 };
 
 // Per-deck daily caps (used when a deck doesn't set its own).
@@ -64,13 +69,18 @@ export const state = {
   showingBack: false,
   learningLang: "zh",
   // Deck filter in the cards view: "all" or a deck id. Review draws from it.
-  selectedDeckId: "all",
+  selectedDeckId: loadString(STORAGE_KEYS.selectedDeck, "all"),
   defaultTemplateId: loadString(
     STORAGE_KEYS.defaultTemplate,
     BUILTIN_TEMPLATE_IDS.default,
   ),
   lastDeckId: loadString(STORAGE_KEYS.lastDeck, DEFAULT_DECK_ID),
-  cardSearch: "",
+  // Tab open in the nav bar, so a reload lands you back where you were.
+  lastView: loadString(STORAGE_KEYS.view, "study"),
+  cardSearch: loadString(STORAGE_KEYS.cardSearch, ""),
+  // Study view: the transcript filter and the translate bar's target language.
+  transcriptSearch: loadString(STORAGE_KEYS.transcriptSearch, ""),
+  translateTo: loadString(STORAGE_KEYS.translateTo, "en"),
   // Source currently loaded into the player (id into state.sources), so new
   // cards can link back to the exact video moment they came from.
   currentSourceId: null,
@@ -92,6 +102,12 @@ if (!state.decks.some((deck) => deck.id === state.lastDeckId)) {
 }
 if (!state.templates.some((tpl) => tpl.id === state.defaultTemplateId)) {
   state.defaultTemplateId = BUILTIN_TEMPLATE_IDS.default;
+}
+if (
+  state.selectedDeckId !== "all" &&
+  !state.decks.some((deck) => deck.id === state.selectedDeckId)
+) {
+  state.selectedDeckId = "all";
 }
 
 export function getDeck(deckId) {
@@ -270,6 +286,35 @@ export function setDefaultTemplate(templateId) {
 export function setLastDeck(deckId) {
   state.lastDeckId = deckId || DEFAULT_DECK_ID;
   storeString(STORAGE_KEYS.lastDeck, state.lastDeckId);
+}
+
+export function setLastView(view) {
+  state.lastView = view || "study";
+  storeString(STORAGE_KEYS.view, state.lastView);
+}
+
+// The rest of the per-view UI state that should survive a reload: which deck
+// is being browsed, the two search boxes, and the translate target. Each goes
+// through a setter so every call site persists it — assigning the state field
+// directly would leave storage stale.
+export function setSelectedDeck(deckId) {
+  state.selectedDeckId = deckId || "all";
+  storeString(STORAGE_KEYS.selectedDeck, state.selectedDeckId);
+}
+
+export function setCardSearch(query) {
+  state.cardSearch = query || "";
+  storeString(STORAGE_KEYS.cardSearch, state.cardSearch);
+}
+
+export function setTranscriptSearch(query) {
+  state.transcriptSearch = query || "";
+  storeString(STORAGE_KEYS.transcriptSearch, state.transcriptSearch);
+}
+
+export function setTranslateTo(code) {
+  state.translateTo = code || "en";
+  storeString(STORAGE_KEYS.translateTo, state.translateTo);
 }
 
 export function saveSources() {
