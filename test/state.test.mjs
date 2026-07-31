@@ -7,6 +7,7 @@ import {
   state,
   findCardByWord,
   cardsInDeck,
+  cardsDirectlyInDeck,
   getDueCards,
   getReviewQueue,
   getQueueCounts,
@@ -83,5 +84,32 @@ test("queue serves learning first, then reviews, then capped new cards", () => {
     assert.deepEqual(counts, { new: 20, learning: 1, review: 1 });
   } finally {
     state.cards.length = 0;
+  }
+});
+
+test("a parent deck's cards include its sub-decks'", () => {
+  const parent = { id: "lang", name: "Chinese", parentId: null };
+  const child = { id: "verbs", name: "Verbs", parentId: "lang" };
+  state.decks.push(parent, child);
+  const inParent = createCard({ word: "書" }, builtinTemplates()[0], "lang");
+  const inChild = createCard({ word: "看" }, builtinTemplates()[0], "verbs");
+  state.cards.push(inParent, inChild);
+  try {
+    assert.deepEqual(
+      cardsInDeck("lang").map((card) => card.word).sort(),
+      ["書", "看"].sort(),
+      "the parent rolls its sub-deck up",
+    );
+    assert.deepEqual(cardsInDeck("verbs").map((card) => card.word), ["看"]);
+    assert.deepEqual(
+      cardsDirectlyInDeck("lang").map((card) => card.word),
+      ["書"],
+      "the direct view stops at the deck itself",
+    );
+    // Each card still belongs to exactly one deck, so limits bill correctly.
+    assert.equal(inChild.deckId, "verbs");
+  } finally {
+    state.decks = state.decks.filter((deck) => deck !== parent && deck !== child);
+    state.cards = state.cards.filter((card) => card !== inParent && card !== inChild);
   }
 });

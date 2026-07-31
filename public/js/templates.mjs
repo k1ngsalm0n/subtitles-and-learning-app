@@ -207,7 +207,7 @@ function describeTemplate(template) {
     keys
       .map((key) => CARD_FIELDS.find((field) => field.key === key)?.label || key)
       .join(", ");
-  const strokes = template.showStrokes ? " · stroke order" : "";
+  const strokes = template.showStrokes ? " · stroke order on the back" : "";
   return `Front: ${label(template.frontFields)} — Back: ${label(template.backFields)}${strokes}`;
 }
 

@@ -497,6 +497,81 @@ rt {
 }
 .deck-nav-item:hover { background: var(--surface-2); color: var(--text); }
 .deck-nav-item.active { background: var(--surface-2); color: var(--text); font-weight: 600; }
+/* Sub-decks: indented under their parent, with a guide line so the grouping
+   reads at a glance in a narrow sidebar. */
+.deck-nav-item.deck-depth-1 { padding-left: 22px; }
+.deck-nav-item.deck-depth-1 .deck-nav-name::before {
+  content: "";
+  position: absolute;
+  left: 26px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--border);
+}
+.deck-nav-item.deck-depth-1 { position: relative; }
+.deck-nav-item.deck-depth-1 .deck-nav-name { padding-left: 10px; }
+/* Fold control on a parent deck (a span, not a button — it lives inside one). */
+.deck-twisty {
+  flex: 0 0 auto;
+  width: 12px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.deck-twisty:hover { color: var(--text); }
+.deck-twisty-empty { visibility: hidden; cursor: default; }
+/* "+" on a top-level deck row: opens the sub-deck name box below it. Faint
+   until the row is hovered, so a column of them doesn't shout. */
+.deck-add {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  opacity: 0.4;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.deck-nav-item:hover .deck-add, .deck-nav-item.active .deck-add { opacity: 0.8; }
+.deck-add:hover { opacity: 1; color: var(--accent); background: var(--surface-3); }
+/* The inline "Sub-deck name" box, sitting under its parent row. */
+.subdeck-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 2px 0 2px 22px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+.subdeck-form input {
+  flex: 1 1 100px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.subdeck-form button { height: 30px; padding: 0 10px; font-size: 12px; }
+.subdeck-error { font-size: 11px; flex-basis: 100%; }
+.subdeck-error:empty { display: none; }
+.deck-item.deck-depth-1 { padding-left: 28px; }
+.nest-deck-row { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
+.nest-deck-row select { width: 100%; height: 34px; }
+.nest-deck-note { font-size: 12px; }
+#nestDeckError:empty { display: none; }
+#nestDeckDialog { width: min(340px, calc(100vw - 32px)); padding: 14px 16px; }
+#nestDeckDialog .word-form { gap: 10px; }
+#nestDeckDialog h2 { font-size: 16px; }
+
 /* Drag to reorder decks. The grip is the handle — faint until you hover the
    row, solid under the cursor — and the row it belongs to fades while it's in
    flight. The list itself reorders live (FLIP animation in ui.mjs). */
@@ -550,8 +625,33 @@ rt {
 .deck-delete-choice { display: flex; align-items: center; gap: 8px; }
 .deck-delete-choice input { width: auto; }
 
+/* The review panel is a single centered column: card, buttons, hint. The
+   shared .card-actions rule is meant for the toolbars under the player, whose
+   inset padding and divider line look like a stray band in here. */
+.review-panel .card-actions {
+  padding: 14px 0 0;
+  border-top: none;
+  justify-content: center;
+  align-items: stretch;
+  /* Keeps the buttons a sane size on a wide panel instead of stretching them
+     the full width of the column. */
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
 /* Grade buttons: label on top, predicted interval underneath */
 .card-actions .grade-button, .card-actions #flipCard { flex: 1; }
+/* Once the answer is up, flipping back is a way out, not a fifth grade —
+   it shrinks to a quiet ghost button beside the grades. */
+.card-actions #flipCard.showing-back {
+  flex: 0 0 auto;
+  height: 46px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.card-actions #flipCard.showing-back:hover { color: var(--text); border-color: var(--accent); }
 .grade-button {
   flex-direction: column;
   gap: 0;
@@ -600,7 +700,10 @@ rt {
   justify-self: start;
 }
 .card-source:hover { color: var(--accent); }
-.review-card .card-source { margin-top: 10px; }
+/* .card-source is left-aligned in the browse list, but the review card is a
+   centered column — left-aligning these two chips broke that line. Spacing
+   comes from the card's grid gap, so the old margin would double up. */
+.review-card .card-source { justify-self: center; }
 .card-move {
   height: 30px;
   border: 1px solid var(--border);
@@ -620,9 +723,16 @@ rt {
   background: var(--surface-2);
   padding: 32px 28px;
   display: grid;
+  /* place-items only centres each row *within* itself — without align-content
+     the stack (face, hint, source chip) packs at the top and leaves the rest
+     of a 440px-tall card empty underneath. */
   place-items: center;
+  place-content: center;
+  gap: 12px;
   text-align: center;
 }
+/* The hint is blank once the answer is up; an empty row still costs a gap. */
+.review-hint:empty { display: none; }
 .review-card strong { font-size: 38px; }
 /* The card under review gets its own type scale — the shared .card-face sizes
    are tuned for the modal preview, which is much narrower. */
@@ -1382,6 +1492,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                   <div class="overflow-list">
                     <button id="renameDeck" type="button" hidden>Rename deck</button>
                     <button id="deckSettings" type="button" hidden>Daily limits</button>
+                    <button id="nestDeck" type="button" hidden title="Make this a sub-deck of another deck, or move it back to the top level">Move into…</button>
                     <button id="deleteDeck" type="button" class="danger" hidden>Delete deck</button>
                     <hr id="deckMenuSep" class="overflow-sep" />
                     <button id="manageTemplates" type="button">Manage templates</button>
@@ -1550,6 +1661,24 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
       </form>
     </dialog>
 
+    <dialog id="nestDeckDialog" aria-labelledby="nestDeckTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="nestDeckTitle">Move into</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <label class="nest-deck-row">Put <span id="nestDeckName"></span> inside
+          <select id="nestDeckParent" aria-label="Parent deck"></select>
+        </label>
+        <p class="muted nest-deck-note">Decks nest one level deep. Studying a deck includes its sub-decks' cards.</p>
+        <p id="nestDeckError" class="danger" role="alert" aria-live="polite"></p>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="nestDeckSave" type="button">Move</button>
+        </menu>
+      </form>
+    </dialog>
+
     <dialog id="emptyCardsDialog" aria-labelledby="emptyCardsTitle">
       <form method="dialog" class="word-form">
         <div class="section-title">
@@ -1572,8 +1701,8 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
         </div>
         <p id="deckDeleteText"></p>
-        <label class="deck-delete-choice"><input type="radio" name="deckDeleteMode" value="move" checked /> Move its cards to the Default deck</label>
-        <label class="deck-delete-choice"><input type="radio" name="deckDeleteMode" value="delete" /> Delete the cards too</label>
+        <label class="deck-delete-choice"><input type="radio" name="deckDeleteMode" value="move" checked /> Move its cards to the Default deck, keep any sub-decks</label>
+        <label class="deck-delete-choice"><input type="radio" name="deckDeleteMode" value="delete" /> Delete the cards and sub-decks too</label>
         <menu>
           <button value="cancel" type="submit">Cancel</button>
           <button id="deckDeleteConfirm" type="button" class="danger">Delete deck</button>
@@ -1612,7 +1741,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             <div id="tplBackFields" class="tpl-fields"></div>
           </fieldset>
         </div>
-        <label class="tpl-strokes-row"><input id="tplStrokes" type="checkbox" /> Show stroke order with the word (Chinese)</label>
+        <label class="tpl-strokes-row"><input id="tplStrokes" type="checkbox" /> Show stroke order on the back (Chinese)</label>
         <p id="tplError" class="danger tpl-error" role="alert" aria-live="polite"></p>
         <menu>
           <button value="cancel" type="submit">Cancel</button>

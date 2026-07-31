@@ -3,6 +3,8 @@ import {
   builtinDecks,
   builtinTemplates,
   migrateCards,
+  childDecks,
+  subtreeIds,
   DEFAULT_DECK_ID,
   BUILTIN_TEMPLATE_IDS,
 } from "./carddata.mjs";
@@ -122,6 +124,19 @@ if (
   state.selectedDeckId = "all";
 }
 
+// Nesting repair: drop parent links that point at a missing deck, at the deck
+// itself, or at a deck that is already a sub-deck. Decks nest one level, and
+// the renderer trusts that — a file hand-edited (or written by a future
+// version) can't be allowed to produce a cycle or a hidden deck.
+{
+  const byId = new Map(state.decks.map((deck) => [deck.id, deck]));
+  for (const deck of state.decks) {
+    if (!deck.parentId) continue;
+    const parent = byId.get(deck.parentId);
+    if (!parent || parent.id === deck.id || parent.parentId) deck.parentId = null;
+  }
+}
+
 export function getDeck(deckId) {
   return state.decks.find((deck) => deck.id === deckId) || null;
 }
@@ -139,11 +154,34 @@ export function getDefaultTemplate() {
   return getTemplate(state.defaultTemplateId) || state.templates[0];
 }
 
+// A deck's cards include its sub-decks' cards: selecting a parent studies and
+// browses the whole group, which is the point of nesting. Cards themselves
+// always belong to exactly one deck (their own `deckId`), so the daily limits
+// below still bill each card to the sub-deck it actually lives in.
 export function cardsInDeck(deckId) {
   if (deckId === "all") return state.cards;
+  const ids = new Set(subtreeIds(state.decks, deckId));
+  return state.cards.filter((card) => ids.has(card.deckId || DEFAULT_DECK_ID));
+}
+
+// Cards filed directly in this deck, ignoring sub-decks (deletion, counts).
+export function cardsDirectlyInDeck(deckId) {
   return state.cards.filter(
     (card) => (card.deckId || DEFAULT_DECK_ID) === deckId,
   );
+}
+
+export function getChildDecks(deckId) {
+  return childDecks(state.decks, deckId);
+}
+
+// "Parent / Child" for a sub-deck, plain name otherwise — used where the deck
+// needs to be identifiable on its own (the panel heading, pickers).
+export function deckPath(deckId) {
+  const deck = getDeck(deckId);
+  if (!deck) return deckName(deckId);
+  const parent = deck.parentId ? getDeck(deck.parentId) : null;
+  return parent ? `${parent.name} / ${deck.name}` : deck.name;
 }
 
 // Duplicate detection: the existing card for a word, if any.
