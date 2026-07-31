@@ -14,7 +14,12 @@ import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
-import { removeCard, moveCardToDeck } from "./flashcards.mjs";
+import {
+  removeCard,
+  moveCardToDeck,
+  setDeckOrder,
+  moveDeckBy,
+} from "./flashcards.mjs";
 import { renderCardFace, renderCardSide } from "./cardface.mjs";
 import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
@@ -275,8 +280,16 @@ export function renderDeckNav(els) {
     const icon = emoji
       ? `<span class="deck-nav-emoji" aria-hidden="true">${escapeHtml(emoji)}</span>`
       : "";
-    return `<button type="button" class="deck-nav-item ${active ? "active" : ""}" data-deck="${escapeHtml(deckId)}">
-      <span class="deck-nav-name">${icon}${escapeHtml(label)}</span>
+    // "All decks" is a filter, not a deck — it stays pinned at the top and
+    // isn't draggable. Every real deck can be dragged anywhere in the list.
+    // Its grip is still rendered, just invisible, so no label shifts sideways.
+    const draggable = deckId !== "all";
+    const drag = draggable ? ` draggable="true"` : "";
+    const grip = `<span class="deck-grip${draggable ? "" : " deck-grip-empty"}"${
+      draggable ? ' title="Drag to reorder"' : ""
+    } aria-hidden="true">⠿</span>`;
+    return `<button type="button"${drag} class="deck-nav-item ${active ? "active" : ""}" data-deck="${escapeHtml(deckId)}">
+      ${grip}<span class="deck-nav-name">${icon}${escapeHtml(label)}</span>
       <span class="deck-nav-counts">${due ? `<span class="deck-due">${due} due</span>` : ""}<span class="deck-count">${total}</span></span>
     </button>`;
   };
@@ -284,6 +297,7 @@ export function renderDeckNav(els) {
     item("all", "All decks"),
     ...state.decks.map((deck) => item(deck.id, deck.name, deck.emoji)),
   ].join("");
+  setupDeckReorder(e.deckNav);
 
   e.deckNav.querySelectorAll(".deck-nav-item").forEach((button) => {
     button.addEventListener("click", () => {
@@ -294,6 +308,118 @@ export function renderDeckNav(els) {
       renderCardList(e);
       renderReviewCard(e);
     });
+  });
+}
+
+// Drag-to-reorder for the deck sidebar. Bound once to the nav container (which
+// outlives the innerHTML re-renders), so a re-render can't stack listeners.
+//
+// The list reorders live under the pointer rather than showing a drop line and
+// jumping on release: the dragged row is moved in the DOM as you pass each
+// neighbour, and every row that shifts is animated from its old position to its
+// new one (FLIP). Committing to state only happens on drop.
+let _deckReorderDelegated = false;
+function setupDeckReorder(nav) {
+  if (_deckReorderDelegated) return;
+  _deckReorderDelegated = true;
+  const DECK = ".deck-nav-item[draggable]";
+  let dragged = null; // row currently being dragged
+  let grabbed = null; // row whose grip was pressed (drags start from the grip)
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  // FLIP, keyed by deck id so it survives a full re-render of the nav as well
+  // as an in-place DOM move: measure, mutate, then play each row back from
+  // where it used to be. The dragged row is skipped — it follows the cursor.
+  const slide = (mutate) => {
+    const rows = () => nav.querySelectorAll(".deck-nav-item");
+    const draggedId = dragged?.dataset.deck;
+    const before = new Map();
+    for (const row of rows()) {
+      before.set(row.dataset.deck, row.getBoundingClientRect().top);
+    }
+    mutate();
+    if (reducedMotion.matches) return;
+    for (const row of rows()) {
+      if (row.dataset.deck === draggedId) continue;
+      const from = before.get(row.dataset.deck);
+      const dy = from === undefined ? 0 : from - row.getBoundingClientRect().top;
+      if (!dy) continue;
+      row.animate(
+        [{ transform: `translateY(${dy}px)` }, { transform: "translateY(0)" }],
+        { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+      );
+    }
+  };
+
+  // Persist whatever order the DOM ended up in.
+  const commit = () => {
+    if (!dragged) return;
+    dragged.classList.remove("dragging");
+    dragged = null;
+    grabbed = null;
+    setDeckOrder([...nav.querySelectorAll(DECK)].map((row) => row.dataset.deck));
+  };
+
+  // Only the grip starts a drag: the rest of the row is a button you click to
+  // select a deck, and dragging that by accident is annoying.
+  nav.addEventListener("pointerdown", (event) => {
+    grabbed = event.target.closest(".deck-grip")
+      ? event.target.closest(DECK)
+      : null;
+  });
+
+  nav.addEventListener("dragstart", (event) => {
+    const row = event.target.closest(DECK);
+    if (!row || row !== grabbed) {
+      event.preventDefault();
+      return;
+    }
+    dragged = row;
+    event.dataTransfer.effectAllowed = "move";
+    // Firefox won't start a drag unless the payload is set.
+    event.dataTransfer.setData("text/plain", row.dataset.deck);
+    // After the browser has snapshotted the drag image, or the image itself
+    // comes out faded.
+    requestAnimationFrame(() => row.classList.add("dragging"));
+  });
+
+  nav.addEventListener("dragover", (event) => {
+    if (!dragged) return;
+    event.preventDefault(); // permits the drop
+    event.dataTransfer.dropEffect = "move";
+    const row = event.target.closest(DECK);
+    if (!row || row === dragged) return;
+    // Past a row's midpoint means the dragged deck belongs on its far side.
+    const rect = row.getBoundingClientRect();
+    const reference =
+      event.clientY < rect.top + rect.height / 2 ? row : row.nextElementSibling;
+    // Already in that slot: don't re-insert (re-inserting the drag source
+    // mid-drag can cancel the drag) and don't replay the animation.
+    if (reference === dragged || reference === dragged.nextElementSibling) return;
+    slide(() => nav.insertBefore(dragged, reference));
+  });
+
+  nav.addEventListener("drop", (event) => {
+    if (!dragged) return;
+    event.preventDefault();
+    commit();
+  });
+  // Released outside the list (or cancelled): keep the arrangement on screen
+  // rather than snapping back to an order the user stopped seeing a while ago.
+  nav.addEventListener("dragend", commit);
+
+  // Alt+Up/Down moves the focused deck — same reorder without a mouse, and it
+  // animates through the same FLIP path.
+  nav.addEventListener("keydown", (event) => {
+    if (!event.altKey) return;
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    const row = event.target.closest(DECK);
+    if (!row) return;
+    event.preventDefault();
+    const id = row.dataset.deck;
+    slide(() => moveDeckBy(id, event.key === "ArrowUp" ? -1 : 1));
+    // renderDeckNav replaced the buttons; put focus back on the moved deck.
+    nav.querySelector(`${DECK}[data-deck="${CSS.escape(id)}"]`)?.focus();
   });
 }
 
@@ -386,8 +512,9 @@ function cardListItem(card, e) {
   body.append(front);
 
   // The answer stays hidden so browsing this list while studying doesn't spoil
-  // it. A per-card toggle reveals it on demand; the Edit button opens the full
-  // editor for anyone who actually wants to change it.
+  // it. Clicking anywhere on the row reveals it — the chevron is the visible
+  // affordance (and the keyboard/screen-reader control), not a labeled button,
+  // because a row of "Show answer" buttons is louder than the cards.
   const back = document.createElement("div");
   renderCardFace(back, card, card.backFields, { lang: state.learningLang });
   back.classList.add("card-face-compact", "card-item-back");
@@ -396,15 +523,28 @@ function cardListItem(card, e) {
   if (hasBack) {
     back.hidden = true;
     body.append(back);
+    item.classList.add("revealable");
     reveal = document.createElement("button");
     reveal.type = "button";
     reveal.className = "card-reveal";
-    reveal.textContent = "Show answer";
+    reveal.textContent = "⌄";
+    reveal.title = "Show answer";
+    reveal.setAttribute("aria-label", "Show answer");
     reveal.setAttribute("aria-expanded", "false");
-    reveal.addEventListener("click", () => {
+    const toggle = () => {
       back.hidden = !back.hidden;
-      reveal.textContent = back.hidden ? "Show answer" : "Hide answer";
+      item.classList.toggle("revealed", !back.hidden);
+      const label = back.hidden ? "Show answer" : "Hide answer";
+      reveal.title = label;
+      reveal.setAttribute("aria-label", label);
       reveal.setAttribute("aria-expanded", String(!back.hidden));
+    };
+    // The row itself is the big click target; anything interactive inside it
+    // (menu, deck select, source/practice links) keeps its own behaviour.
+    item.addEventListener("click", (event) => {
+      const interactive = event.target.closest("button, select, a, details");
+      if (interactive && interactive !== reveal) return;
+      toggle();
     });
   }
 
@@ -423,12 +563,12 @@ function cardListItem(card, e) {
   actions.className = "card-item-actions";
   const edit = document.createElement("button");
   edit.type = "button";
-  edit.textContent = "Edit";
+  edit.textContent = "Edit card";
   edit.addEventListener("click", () => openCardModal({ card }));
   const del = document.createElement("button");
   del.type = "button";
   del.className = "danger";
-  del.textContent = "Delete";
+  del.textContent = "Delete card";
   del.addEventListener("click", () => removeCard(card.id));
 
   const practiceButton = practiceLinkButton(card);
@@ -446,12 +586,56 @@ function cardListItem(card, e) {
   }
   move.value = getDeck(card.deckId) ? card.deckId : "default";
   move.addEventListener("change", () => moveCardToDeck(card.id, move.value));
+  const moveRow = document.createElement("label");
+  moveRow.className = "card-move-row";
+  const moveLabel = document.createElement("span");
+  moveLabel.textContent = "Move to";
+  moveRow.append(moveLabel, move);
+
+  // Browsing a deck is mostly reading, so the row stays quiet: edit, move and
+  // delete hide behind the same ⋯ menu the deck header uses, leaving only the
+  // answer toggle on screen.
+  const menu = document.createElement("details");
+  menu.className = "overflow-menu card-menu";
+  const summary = document.createElement("summary");
+  summary.className = "overflow-summary";
+  summary.textContent = "⋯";
+  summary.title = "Card actions";
+  summary.setAttribute("aria-label", "Card actions");
+  const menuList = document.createElement("div");
+  menuList.className = "overflow-list";
+  menuList.append(edit, moveRow, del);
+  menu.append(summary, menuList);
+  // Close once an action is picked (the select stays open until it changes,
+  // and changing it re-renders the list anyway).
+  menu.addEventListener("click", (event) => {
+    if (event.target.closest("button")) menu.open = false;
+  });
 
   if (reveal) actions.append(reveal);
-  actions.append(edit, move, del);
+  actions.append(menu);
 
   item.append(body, actions);
   return item;
+}
+
+// One document-level handler for every card menu: clicking elsewhere (or
+// Escape) closes any open one, so at most a single menu is ever showing.
+let _cardMenusDelegated = false;
+function setupCardMenuDismiss(container) {
+  if (_cardMenusDelegated) return;
+  _cardMenusDelegated = true;
+  const closeAll = (except) => {
+    for (const menu of container.querySelectorAll(".card-menu[open]")) {
+      if (menu !== except) menu.open = false;
+    }
+  };
+  document.addEventListener("click", (event) => {
+    closeAll(event.target.closest?.(".card-menu"));
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeAll(null);
+  });
 }
 
 export function renderCardList(els) {
@@ -460,6 +644,7 @@ export function renderCardList(els) {
   const cards = cardsInDeck(state.selectedDeckId).filter((card) =>
     cardMatchesSearch(card, query),
   );
+  setupCardMenuDismiss(e.cardList);
   e.cardList.textContent = "";
   if (!cards.length) {
     e.cardList.innerHTML = `<p class="muted">${

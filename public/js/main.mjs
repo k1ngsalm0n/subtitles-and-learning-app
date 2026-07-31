@@ -134,7 +134,7 @@ const els = {
   renameDeckCancel: document.querySelector("#renameDeckCancel"),
   renameDeckError: document.querySelector("#renameDeckError"),
   deleteDeck: document.querySelector("#deleteDeck"),
-  deckMenu: document.querySelector(".overflow-menu"),
+  deckMenu: document.querySelector(".card-tools .overflow-menu"),
   deckMenuSep: document.querySelector("#deckMenuSep"),
   practiceDialog: document.querySelector("#practiceDialog"),
   practiceMain: document.querySelector("#practiceMain"),

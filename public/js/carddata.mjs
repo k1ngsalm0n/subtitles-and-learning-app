@@ -83,6 +83,42 @@ export function builtinDecks() {
   ];
 }
 
+// ---- Ordering (the deck sidebar is drag-reorderable) -----------------------
+// Both helpers return a new array and leave the input untouched; an id that
+// isn't in the list, or a no-op move, returns the list unchanged.
+
+// Rearrange `list` to follow the given id order (what the DOM ended up as
+// after a drag). Ids that aren't in the list are ignored; items the id list
+// doesn't mention keep their relative order at the end, so a stale or partial
+// list can never drop an item.
+export function orderByIds(list, ids) {
+  const items = list || [];
+  const remaining = new Map(items.map((item) => [item.id, item]));
+  const next = [];
+  for (const id of ids || []) {
+    const item = remaining.get(id);
+    if (!item) continue;
+    remaining.delete(id);
+    next.push(item);
+  }
+  next.push(...remaining.values());
+  const unchanged = next.every((item, index) => item === items[index]);
+  return unchanged ? items : next;
+}
+
+// Move `id` `delta` places (-1 up, 1 down), clamped to the ends of the list.
+export function moveById(list, id, delta) {
+  const items = list || [];
+  const from = items.findIndex((item) => item.id === id);
+  if (from === -1) return items;
+  const to = Math.max(0, Math.min(items.length - 1, from + delta));
+  if (to === from) return items;
+  const next = items.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
 export function fieldText(card, key) {
   const field = FIELD_BY_KEY.get(key);
   if (!field || !field.text) return "";

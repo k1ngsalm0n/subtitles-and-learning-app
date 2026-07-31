@@ -459,9 +459,11 @@ rt {
 .word.spoken rt { color: var(--text); }
 
 /* Cards & Library views */
+/* Review is the main event here, so it takes the wider flexible column and the
+   browse list gets the narrower one — it's for scanning, not for reading. */
 .cards-layout {
   display: grid;
-  grid-template-columns: 230px 360px 1fr;
+  grid-template-columns: 230px minmax(440px, 1.35fr) minmax(300px, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -495,7 +497,31 @@ rt {
 }
 .deck-nav-item:hover { background: var(--surface-2); color: var(--text); }
 .deck-nav-item.active { background: var(--surface-2); color: var(--text); font-weight: 600; }
-.deck-nav-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* Drag to reorder decks. The grip is the handle — faint until you hover the
+   row, solid under the cursor — and the row it belongs to fades while it's in
+   flight. The list itself reorders live (FLIP animation in ui.mjs). */
+.deck-grip {
+  flex: 0 0 auto;
+  width: 10px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  opacity: 0;
+  cursor: grab;
+  transition: opacity 0.15s ease;
+}
+.deck-nav-item:hover .deck-grip,
+.deck-nav-item:focus-visible .deck-grip { opacity: 0.5; }
+.deck-nav-item:hover .deck-grip:hover { opacity: 1; }
+.deck-grip:active { cursor: grabbing; }
+/* Keeps the "All decks" label aligned with every other row. */
+.deck-grip-empty { visibility: hidden; }
+.deck-nav-item { transition: opacity 0.15s ease; }
+.deck-nav-item.dragging { opacity: 0.4; }
+@media (prefers-reduced-motion: reduce) {
+  .deck-grip, .deck-nav-item { transition: none; }
+}
+.deck-nav-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .deck-nav-counts { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .deck-count {
   font-size: 11px;
@@ -538,7 +564,24 @@ rt {
 .grade-hard:hover { border-color: var(--accent-2); }
 .grade-good:hover, .grade-easy:hover { border-color: var(--accent); }
 .review-keys { font-size: 11px; text-align: center; margin-top: 8px; }
-.deck-settings-row { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+/* Deck limits: two numbers and two buttons — sized to that, not to the wide
+   default dialog. Label left, small input right, so no row is mostly padding. */
+#deckSettingsDialog { width: min(300px, calc(100vw - 32px)); padding: 14px 16px; }
+#deckSettingsDialog .word-form { gap: 10px; }
+#deckSettingsDialog .section-title { margin-bottom: 2px; }
+#deckSettingsDialog h2 { font-size: 16px; }
+#deckSettingsDialog .icon-button { width: 28px; height: 28px; min-height: 28px; }
+#deckSettingsDialog menu button { height: 30px; padding: 0 12px; font-size: 12px; }
+/* Beats `.word-form label { display: grid }` above. */
+.word-form .deck-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.deck-settings-row input { width: 80px; padding: 5px 8px; text-align: right; }
 .card-practice { color: var(--accent); }
 #cardSearch { width: 160px; }
 .card-source {
@@ -566,31 +609,81 @@ rt {
 }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .review-card {
-  min-height: 240px;
+  min-height: min(56vh, 440px);
+  min-height: min(56dvh, 440px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-2);
-  padding: 24px;
+  padding: 32px 28px;
   display: grid;
   place-items: center;
   text-align: center;
 }
-.review-card strong { font-size: 30px; }
-.card-list, .source-list { display: grid; gap: 8px; margin-top: 12px; }
+.review-card strong { font-size: 38px; }
+/* The card under review gets its own type scale — the shared .card-face sizes
+   are tuned for the modal preview, which is much narrower. */
+.review-card .card-face { gap: 10px; }
+.review-card .card-face .cf-word { font-size: 46px; }
+.review-card .card-face .cf-translation { font-size: 24px; }
+.review-card .card-face .cf-pinyin { font-size: 18px; }
+.review-card .card-face .cf-example { font-size: 18px; }
+.review-card .card-face .cf-examplePinyin,
+.review-card .card-face .cf-exampleTranslation { font-size: 15px; }
+.card-list, .source-list { display: grid; gap: 6px; margin-top: 12px; }
 .card-item, .source-item {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
   background: var(--surface-2);
 }
-.card-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+/* Compact browse rows: this list is for finding a card, not reading it. */
+.card-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 7px 9px; }
 .card-item p { color: var(--muted); margin-top: 2px; }
-.card-item-body { display: grid; gap: 4px; min-width: 0; }
-.card-item-back { border-top: 1px dashed var(--border); margin-top: 2px; padding-top: 6px; }
+.card-item-body { display: grid; gap: 2px; min-width: 0; }
+.card-item-back { border-top: 1px dashed var(--border); margin-top: 2px; padding-top: 5px; }
 .card-item-back .cf { color: var(--muted); }
-.card-item-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
-.card-item-actions button { height: 30px; padding: 0 10px; font-size: 12px; }
-.card-reveal { border-color: var(--accent); color: var(--accent); }
+.card-item .card-source { height: 22px; min-height: 22px; padding: 0 8px; font-size: 11px; }
+/* Right side of a row: two quiet icons, not two labeled buttons. They sit at
+   low contrast until the row is hovered or something inside it is focused. */
+.card-item-actions { display: flex; gap: 2px; align-items: center; }
+/* Only rows that actually have an answer to show are clickable. */
+.card-item.revealable { cursor: pointer; }
+.card-item.revealable:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.card-reveal, .card-menu .overflow-summary {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  opacity: 0.65;
+}
+.card-item:hover .card-reveal,
+.card-item:hover .overflow-summary,
+.card-item:focus-within .card-reveal,
+.card-item:focus-within .overflow-summary { opacity: 1; }
+.card-reveal { font-size: 14px; line-height: 1; transition: transform 0.15s ease; }
+.card-item.revealed .card-reveal { transform: rotate(180deg); color: var(--accent); opacity: 1; }
+.card-menu .overflow-summary { font-size: 15px; }
+.card-menu[open] .overflow-summary {
+  opacity: 1;
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+.card-menu .overflow-list { min-width: 180px; }
+.card-menu .overflow-list button { font-size: 13px; }
+.card-move-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.card-move-row .card-move { max-width: 110px; }
 .danger { color: var(--danger); }
 
 /* Dialog */
@@ -792,11 +885,23 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .card-face .cf-empty { color: var(--muted); opacity: 0.6; }
 .card-face .cf-strokes { justify-self: center; }
 .cf-audio { border: none; background: var(--surface-3); border-radius: 50%; width: 34px; height: 34px; padding: 0; font-size: 15px; }
-.card-face-compact { justify-items: start; text-align: left; gap: 2px; }
-.card-face-compact .cf-word { font-size: 16px; }
-.card-face-compact .cf-translation { font-size: 13px; }
-.card-face-compact .cf-pinyin { font-size: 12px; }
-.card-face-compact .cf-example, .card-face-compact .cf-examplePinyin, .card-face-compact .cf-exampleTranslation { font-size: 12px; }
+.card-face-compact { justify-items: start; text-align: left; gap: 1px; }
+.card-face-compact .cf-word { font-size: 15px; }
+.card-face-compact .cf-translation { font-size: 12px; }
+.card-face-compact .cf-pinyin { font-size: 11px; }
+.card-face-compact .cf-example, .card-face-compact .cf-examplePinyin, .card-face-compact .cf-exampleTranslation { font-size: 11px; }
+/* Example sentences would otherwise wrap to three lines and dominate the row;
+   one clipped line is enough to recognise the card. */
+.card-face-compact .cf-example,
+.card-face-compact .cf-examplePinyin,
+.card-face-compact .cf-exampleTranslation {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.card-face-compact .cf-audio { width: 26px; height: 26px; font-size: 12px; }
 
 /* Template manager + editor */
 .card-tools { display: flex; gap: 8px; align-items: center; }

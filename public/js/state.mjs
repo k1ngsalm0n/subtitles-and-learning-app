@@ -49,11 +49,23 @@ function storeString(key, value) {
 // Built-in decks/templates are re-seeded canonically on every load; stored
 // custom ones are kept as-is. This makes the seeds self-healing and keeps the
 // undeletable built-ins from drifting.
+//
+// The stored *order* is preserved for everything, built-ins included — the deck
+// sidebar is drag-reorderable, so a built-in must be able to sit below a custom
+// deck. Only built-ins missing from storage (first run, or a newly added seed)
+// are inserted, at the front in their canonical order.
 function withBuiltins(stored, builtins) {
-  const customs = (stored || []).filter(
-    (item) => !builtins.some((builtin) => builtin.id === item.id),
-  );
-  return [...builtins, ...customs.map((item) => ({ ...item, builtIn: false }))];
+  const byId = new Map(builtins.map((builtin) => [builtin.id, builtin]));
+  const seen = new Set();
+  const ordered = [];
+  for (const item of stored || []) {
+    if (seen.has(item.id)) continue; // defensive: duplicate ids in storage
+    seen.add(item.id);
+    const builtin = byId.get(item.id);
+    ordered.push(builtin ? { ...builtin } : { ...item, builtIn: false });
+  }
+  const missing = builtins.filter((builtin) => !seen.has(builtin.id));
+  return [...missing, ...ordered];
 }
 
 export const state = {
