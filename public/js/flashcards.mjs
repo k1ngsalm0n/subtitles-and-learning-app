@@ -86,6 +86,33 @@ export function restoreCard(card) {
   renderAll();
 }
 
+// Bulk delete for the browse list ("empty this list"). Returns { removed } plus
+// an `undo` that restores the exact previous array — order, positions and
+// review history included — so the confirmation can be backed out of.
+export function removeCards(ids) {
+  const doomed = new Set(ids || []);
+  if (!doomed.size) return { removed: 0 };
+  const snapshot = state.cards;
+  const kept = snapshot.filter((card) => !doomed.has(card.id));
+  const removed = snapshot.length - kept.length;
+  if (!removed) return { removed: 0 };
+  state.cards = kept;
+  saveCards();
+  renderAll();
+  return {
+    removed,
+    undo: () => {
+      // Anything saved while the toast was up is kept — undo puts the deleted
+      // cards back, it doesn't roll the whole deck back in time.
+      const before = new Set(snapshot.map((card) => card.id));
+      const since = state.cards.filter((card) => !before.has(card.id));
+      state.cards = [...since, ...snapshot];
+      saveCards();
+      renderAll();
+    },
+  };
+}
+
 // Create a deck by name (and an optional emoji to personalise it). Returns
 // { deck } or { error } (empty or duplicate names are rejected with a message,
 // never silently).

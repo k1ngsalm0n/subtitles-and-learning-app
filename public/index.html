@@ -567,6 +567,10 @@ rt {
 /* Deck limits: two numbers and two buttons — sized to that, not to the wide
    default dialog. Label left, small input right, so no row is mostly padding. */
 #deckSettingsDialog { width: min(300px, calc(100vw - 32px)); padding: 14px 16px; }
+#emptyCardsDialog { width: min(360px, calc(100vw - 32px)); padding: 14px 16px; }
+#emptyCardsDialog .word-form { gap: 10px; }
+#emptyCardsDialog h2 { font-size: 16px; }
+.empty-cards-note { font-size: 12px; }
 #deckSettingsDialog .word-form { gap: 10px; }
 #deckSettingsDialog .section-title { margin-bottom: 2px; }
 #deckSettingsDialog h2 { font-size: 16px; }
@@ -1384,6 +1388,8 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                     <button id="exportCards" type="button" title="Export cards, decks, and templates as JSON">Export (JSON)</button>
                     <button id="exportAnki" type="button" title="Export a tab-separated file for Anki">Export for Anki</button>
                     <label class="file-button" title="Import a previously exported JSON file">Import…<input id="importFile" type="file" accept=".json,application/json" /></label>
+                    <hr class="overflow-sep" />
+                    <button id="emptyCards" type="button" class="danger" title="Delete every card listed below — the selected deck, narrowed by the search box">Empty this list…</button>
                   </div>
                 </details>
               </div>
@@ -1540,6 +1546,21 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         <menu>
           <button value="cancel" type="submit">Cancel</button>
           <button id="deckSettingsSave" type="button">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="emptyCardsDialog" aria-labelledby="emptyCardsTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="emptyCardsTitle">Empty this list</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <p id="emptyCardsText"></p>
+        <p class="muted empty-cards-note">Their review history goes with them. You can undo this straight after.</p>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="emptyCardsConfirm" type="button" class="danger">Delete them</button>
         </menu>
       </form>
     </dialog>
