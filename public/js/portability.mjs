@@ -60,6 +60,7 @@ export function mergeImport(current, incoming) {
   // Decks: merge by id; a same-named deck under a different id is treated as
   // the same deck (its cards are remapped onto the existing one).
   const deckRemap = new Map();
+  const added = [];
   for (const deck of data.decks) {
     if (!deck || typeof deck.id !== "string" || typeof deck.name !== "string") continue;
     const byId = decks.find((d) => d.id === deck.id);
@@ -76,7 +77,20 @@ export function mergeImport(current, incoming) {
       continue;
     }
     decks.push({ ...deck, builtIn: false });
+    added.push(decks[decks.length - 1]);
     report.decks.added++;
+  }
+
+  // Parent links travel with the decks, so they need the same remap. Anything
+  // still dangling — or pointing at a deck that is itself a sub-deck, which
+  // would break the one-level rule — becomes a top-level deck rather than
+  // disappearing from the sidebar.
+  for (const deck of added) {
+    if (!deck.parentId) continue;
+    const parentId = deckRemap.get(deck.parentId) || deck.parentId;
+    const parent = decks.find((other) => other.id === parentId);
+    const usable = parent && parent.id !== deck.id && !parent.parentId;
+    deck.parentId = usable ? parent.id : null;
   }
 
   // Templates: same by-id/by-name merge. Cards carry their own field lists,

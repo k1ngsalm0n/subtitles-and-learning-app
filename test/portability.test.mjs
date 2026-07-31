@@ -135,3 +135,41 @@ test("describeReport summarizes counts", () => {
   assert.match(text, /1 decks added/);
   assert.ok(!text.includes("templates"));
 });
+
+test("import keeps sub-deck links, remapping or flattening as needed", () => {
+  const current = baseState();
+  current.decks.push({ id: "lang", name: "Chinese", parentId: null });
+  const incoming = {
+    version: EXPORT_VERSION,
+    decks: [
+      // Same name as an existing deck → merged, so children must follow it.
+      { id: "lang-copy", name: "Chinese" },
+      { id: "verbs", name: "Verbs", parentId: "lang-copy" },
+      // Parent that isn't in the file at all → lands at the top level.
+      { id: "loose", name: "Loose", parentId: "missing" },
+    ],
+    templates: [],
+    cards: [],
+  };
+  const merged = mergeImport(current, incoming);
+  const byId = Object.fromEntries(merged.decks.map((deck) => [deck.id, deck]));
+  assert.equal(byId.verbs.parentId, "lang", "remapped onto the merged parent");
+  assert.equal(byId.loose.parentId, null, "dangling parent dropped");
+});
+
+test("import can't create a deck nested two levels deep", () => {
+  const incoming = {
+    version: EXPORT_VERSION,
+    decks: [
+      { id: "a", name: "A" },
+      { id: "b", name: "B", parentId: "a" },
+      { id: "c", name: "C", parentId: "b" },
+    ],
+    templates: [],
+    cards: [],
+  };
+  const merged = mergeImport(baseState(), incoming);
+  const byId = Object.fromEntries(merged.decks.map((deck) => [deck.id, deck]));
+  assert.equal(byId.b.parentId, "a");
+  assert.equal(byId.c.parentId, null, "C's parent is itself a sub-deck");
+});

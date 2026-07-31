@@ -74,9 +74,11 @@ export function renderCardFace(el, card, fieldKeys, opts = {}) {
   return rendered;
 }
 
-// Whether stroke charts apply to this card (its template flag + Han check).
-export function cardShowsStrokes(card) {
-  return Boolean(card.showStrokes) && hasHan(card.word);
+// Whether stroke charts apply to this card (its template flag + Han check),
+// and to this face: strokes are the answer to "how do you write this?", so
+// they belong on the back. Showing them on the front gives the card away.
+export function cardShowsStrokes(card, side = "back") {
+  return side === "back" && Boolean(card.showStrokes) && hasHan(card.word);
 }
 
 // Convenience: render a card's own face ("front"/"back") from its copied
@@ -85,6 +87,6 @@ export function renderCardSide(el, card, side, opts = {}) {
   const fields = side === "back" ? card.backFields : card.frontFields;
   return renderCardFace(el, card, fields, {
     ...opts,
-    showStrokes: cardShowsStrokes(card),
+    showStrokes: cardShowsStrokes(card, side),
   });
 }

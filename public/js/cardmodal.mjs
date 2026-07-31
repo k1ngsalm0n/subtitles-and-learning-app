@@ -9,7 +9,7 @@ import {
   getDeck,
   deckName,
 } from "./state.mjs";
-import { getField, isAudioField, CARD_FIELDS } from "./carddata.mjs";
+import { getField, isAudioField, deckRows, CARD_FIELDS } from "./carddata.mjs";
 import { addCard, updateCard, addDeck } from "./flashcards.mjs";
 import { renderCardFace, cardShowsStrokes } from "./cardface.mjs";
 import { openTemplateEditor } from "./templates.mjs";
@@ -219,7 +219,7 @@ function describeTemplate(template) {
     keys
       .map((key) => getField(key)?.label || key)
       .join(", ") || "—";
-  const strokes = template.showStrokes ? " · stroke order" : "";
+  const strokes = template.showStrokes ? " · stroke order on the back" : "";
   return `Front: ${labels(template.frontFields)} · Back: ${labels(template.backFields)}${strokes}`;
 }
 
@@ -287,14 +287,15 @@ function renderEmojiPicker() {
 function renderDeckList() {
   const els = _els;
   const selected = getDeck(_draft.deckId) ? _draft.deckId : state.decks[0]?.id;
-  els.modalDeckList.innerHTML = state.decks
-    .map((deck) => {
+  // Tree order: sub-decks listed under their parent and indented.
+  els.modalDeckList.innerHTML = deckRows(state.decks)
+    .map(({ deck, depth }) => {
       const active = deck.id === selected;
       const icon = deck.emoji
         ? `<span class="deck-emoji" aria-hidden="true">${escapeHtml(deck.emoji)}</span>`
         : DECK_ICON;
       return `<button type="button" role="radio" aria-checked="${active}"
-        data-deck-id="${deck.id}" class="deck-item${active ? " active" : ""}">
+        data-deck-id="${deck.id}" class="deck-item deck-depth-${depth}${active ? " active" : ""}">
         ${icon}
         <span class="deck-item-name">${escapeHtml(deck.name)}</span>
         <span class="deck-chevron" aria-hidden="true">›</span>
@@ -313,7 +314,8 @@ function renderPreview() {
   renderCardFace(els.previewFace, _draft, fields, {
     lang: state.learningLang,
     placeholders: true,
-    showStrokes: cardShowsStrokes(_draft),
+    // Back only, exactly like the review screen — flip the preview to see it.
+    showStrokes: cardShowsStrokes(_draft, _showingBack ? "back" : "front"),
   });
 }
 

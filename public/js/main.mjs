@@ -7,6 +7,7 @@ import {
   saveDecks,
   getDeck,
   deckName,
+  getChildDecks,
   cardsInDeck,
   DEFAULT_NEW_PER_DAY,
   DEFAULT_REVIEWS_PER_DAY,
@@ -28,8 +29,10 @@ import {
   addDeck,
   renameDeck,
   deleteDeck,
+  nestDeck,
   removeCards,
 } from "./flashcards.mjs";
+import { validateNesting } from "./carddata.mjs";
 import { describeReport } from "./portability.mjs";
 import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
 import { setupCardModal, openCardModal } from "./cardmodal.mjs";
@@ -155,6 +158,12 @@ const els = {
   deckNewPerDay: document.querySelector("#deckNewPerDay"),
   deckReviewsPerDay: document.querySelector("#deckReviewsPerDay"),
   deckSettingsSave: document.querySelector("#deckSettingsSave"),
+  nestDeck: document.querySelector("#nestDeck"),
+  nestDeckDialog: document.querySelector("#nestDeckDialog"),
+  nestDeckName: document.querySelector("#nestDeckName"),
+  nestDeckParent: document.querySelector("#nestDeckParent"),
+  nestDeckError: document.querySelector("#nestDeckError"),
+  nestDeckSave: document.querySelector("#nestDeckSave"),
   emptyCards: document.querySelector("#emptyCards"),
   emptyCardsDialog: document.querySelector("#emptyCardsDialog"),
   emptyCardsText: document.querySelector("#emptyCardsText"),
@@ -311,12 +320,46 @@ function bindDeckEvents() {
     els.renameDeckForm.hidden = true;
   });
 
+  // "Move into…": the parent choices are the top-level decks that could hold
+  // this one — a deck that already has sub-decks can't become one itself.
+  els.nestDeck.addEventListener("click", () => {
+    const deck = getDeck(state.selectedDeckId);
+    if (!deck) return;
+    els.nestDeckName.textContent = `"${deck.name}"`;
+    els.nestDeckError.textContent = "";
+    els.nestDeckParent.textContent = "";
+    els.nestDeckParent.append(new Option("the top level (no parent)", ""));
+    for (const other of state.decks) {
+      if (other.id === deck.id || other.parentId) continue;
+      if (validateNesting(state.decks, deck.id, other.id)) continue;
+      const selected = other.id === deck.parentId;
+      els.nestDeckParent.append(
+        new Option(other.name, other.id, selected, selected),
+      );
+    }
+    els.nestDeckDialog.showModal();
+  });
+  els.nestDeckSave.addEventListener("click", () => {
+    const result = nestDeck(state.selectedDeckId, els.nestDeckParent.value);
+    if (result.error) {
+      els.nestDeckError.textContent = result.error;
+      return;
+    }
+    els.nestDeckDialog.close();
+  });
+
   els.deleteDeck.addEventListener("click", () => {
     const deck = getDeck(state.selectedDeckId);
     if (!deck) return;
+    // cardsInDeck rolls sub-decks up, so the count covers the whole group.
     const count = cardsInDeck(deck.id).length;
-    els.deckDeleteText.textContent = count
-      ? `Delete "${deck.name}"? It holds ${count} card${count === 1 ? "" : "s"}.`
+    const subs = getChildDecks(deck.id).length;
+    const holds = [
+      count ? `${count} card${count === 1 ? "" : "s"}` : "",
+      subs ? `${subs} sub-deck${subs === 1 ? "" : "s"}` : "",
+    ].filter(Boolean);
+    els.deckDeleteText.textContent = holds.length
+      ? `Delete "${deck.name}"? It holds ${holds.join(" and ")}.`
       : `Delete the empty deck "${deck.name}"?`;
     els.deckDeleteDialog.showModal();
   });

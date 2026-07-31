@@ -16,6 +16,8 @@ import {
   syncFlattened,
   orderByIds,
   moveById,
+  childDecks,
+  validateNesting,
   DEFAULT_DECK_ID,
 } from "./carddata.mjs";
 import { schedule } from "./scheduler.mjs";
@@ -116,16 +118,21 @@ export function removeCards(ids) {
 // Create a deck by name (and an optional emoji to personalise it). Returns
 // { deck } or { error } (empty or duplicate names are rejected with a message,
 // never silently).
-export function addDeck(name, emoji = "") {
+export function addDeck(name, emoji = "", parentId = null) {
   const trimmed = String(name || "").trim();
   if (!trimmed) return { error: "Deck name can't be empty." };
   const clash = state.decks.find(
     (deck) => deck.name.trim().toLowerCase() === trimmed.toLowerCase(),
   );
   if (clash) return { error: `A deck named "${clash.name}" already exists.` };
+  const parent = parentId ? getDeck(parentId) : null;
+  if (parentId && (!parent || parent.parentId)) {
+    return { error: "That deck can't hold sub-decks." };
+  }
   const deck = {
     id: `deck-${crypto.randomUUID()}`,
     name: trimmed,
+    parentId: parent ? parent.id : null,
     // Emojis can be multi-codepoint (ZWJ) sequences; keep the first couple of
     // grapheme-ish units and drop anything longer to stay a small label.
     emoji: [...String(emoji || "").trim()].slice(0, 8).join(""),
@@ -157,21 +164,42 @@ export function renameDeck(id, name) {
   return { deck };
 }
 
-// Delete a deck. Its cards either move to the Default deck
-// (mode "move", the default) or are deleted with it (mode "delete").
+// Move a deck into another one, or back to the top level (parentId null).
+// Rejected with a message when it would break the one-level rule.
+export function nestDeck(id, parentId) {
+  const error = validateNesting(state.decks, id, parentId || null);
+  if (error) return { error };
+  const deck = getDeck(id);
+  deck.parentId = parentId || null;
+  saveDecks();
+  renderAll();
+  return { deck };
+}
+
+// Delete a deck. Its cards either move to the Default deck (mode "move", the
+// default) or are deleted with it (mode "delete"). Sub-decks follow the same
+// choice: "move" promotes them to the top level and keeps their cards where
+// they are, "delete" takes the whole group down.
 export function deleteDeck(id, mode = "move") {
   const deck = getDeck(id);
   if (!deck || deck.builtIn) return { error: "The Default deck can't be deleted." };
-  state.decks = state.decks.filter((other) => other.id !== id);
+  const children = childDecks(state.decks, id);
+  const doomed = new Set(
+    mode === "delete" ? [id, ...children.map((child) => child.id)] : [id],
+  );
+  state.decks = state.decks.filter((other) => !doomed.has(other.id));
   if (mode === "delete") {
-    state.cards = state.cards.filter((card) => card.deckId !== id);
+    state.cards = state.cards.filter((card) => !doomed.has(card.deckId));
   } else {
+    for (const child of state.decks) {
+      if (child.parentId === id) child.parentId = null;
+    }
     for (const card of state.cards) {
       if (card.deckId === id) card.deckId = DEFAULT_DECK_ID;
     }
   }
-  if (state.selectedDeckId === id) setSelectedDeck("all");
-  if (state.lastDeckId === id) setLastDeck(DEFAULT_DECK_ID);
+  if (doomed.has(state.selectedDeckId)) setSelectedDeck("all");
+  if (doomed.has(state.lastDeckId)) setLastDeck(DEFAULT_DECK_ID);
   saveDecks();
   saveCards();
   renderAll();
@@ -188,11 +216,34 @@ export function setDeckOrder(ids) {
   renderDeckNav();
 }
 
+// Fold a parent deck's sub-decks away. Stored on the deck, so the sidebar
+// looks the same after a reload.
+export function toggleDeckCollapsed(id) {
+  const deck = getDeck(id);
+  if (!deck) return;
+  deck.collapsed = !deck.collapsed;
+  saveDecks();
+  renderDeckNav();
+}
+
 // Keyboard equivalent (Alt+Arrow on a focused deck), so reordering isn't
 // mouse-only. `delta` is -1 (up) or 1 (down).
 export function moveDeckBy(deckId, delta) {
-  const next = moveById(state.decks, deckId, delta);
-  if (next === state.decks) return;
+  const deck = getDeck(deckId);
+  if (!deck) return;
+  // Order is only ever *within a level* — the tree decides nesting, the array
+  // decides sibling order, so a step up from the first sub-deck does nothing
+  // rather than silently leaving its parent.
+  const level = (other) => (other.parentId || null) === (deck.parentId || null);
+  const siblings = state.decks.filter(level);
+  const moved = moveById(siblings, deckId, delta);
+  if (moved === siblings) return;
+  // Write the new sibling order back into the slots the siblings occupied.
+  const next = state.decks.slice();
+  let slot = 0;
+  for (let i = 0; i < next.length; i++) {
+    if (level(next[i])) next[i] = moved[slot++];
+  }
   state.decks = next;
   saveDecks();
   renderDeckNav();

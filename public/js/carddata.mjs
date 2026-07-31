@@ -79,8 +79,72 @@ export function builtinTemplates() {
 
 export function builtinDecks() {
   return [
-    { id: DEFAULT_DECK_ID, name: "Default deck", createdAt: 0, builtIn: true },
+    {
+      id: DEFAULT_DECK_ID,
+      name: "Default deck",
+      createdAt: 0,
+      builtIn: true,
+      parentId: null,
+    },
   ];
+}
+
+// ---- Deck nesting -----------------------------------------------------------
+// Decks nest exactly one level: a top-level deck can hold sub-decks, a sub-deck
+// can't hold more. Deeper trees turn a 230px sidebar into a maze, and the
+// daily-limit rollup stops being something you can reason about at a glance.
+// A deck's parent is `parentId`; top-level decks have none.
+
+// Children of `parentId`, in list order.
+export function childDecks(decks, parentId) {
+  return (decks || []).filter((deck) => deck.parentId === parentId);
+}
+
+// A deck plus its children, as ids — what "the cards in this deck" means once
+// nesting exists.
+export function subtreeIds(decks, deckId) {
+  const ids = [deckId];
+  for (const deck of decks || []) {
+    if (deck.parentId === deckId) ids.push(deck.id);
+  }
+  return ids;
+}
+
+// Sidebar rows: every deck in list order, each child pulled up directly under
+// its parent, tagged with a depth. A deck whose parent is missing renders at
+// the top level rather than vanishing.
+export function deckRows(decks) {
+  const list = decks || [];
+  const byId = new Map(list.map((deck) => [deck.id, deck]));
+  const rows = [];
+  for (const deck of list) {
+    if (deck.parentId && byId.has(deck.parentId)) continue; // placed below
+    rows.push({ deck, depth: 0 });
+    for (const child of list) {
+      if (child.parentId === deck.id) rows.push({ deck: child, depth: 1 });
+    }
+  }
+  return rows;
+}
+
+// Whether `deckId` may be nested under `parentId` (null = move to top level).
+// Returns an error message to show the user, or null when it's allowed.
+export function validateNesting(decks, deckId, parentId) {
+  const list = decks || [];
+  const deck = list.find((item) => item.id === deckId);
+  if (!deck) return "That deck no longer exists.";
+  if (!parentId) return null;
+  if (deck.builtIn) return "The Default deck stays at the top level.";
+  if (deckId === parentId) return "A deck can't sit inside itself.";
+  const parent = list.find((item) => item.id === parentId);
+  if (!parent) return "That deck no longer exists.";
+  if (parent.parentId) {
+    return `"${parent.name}" is already a sub-deck — decks nest one level deep.`;
+  }
+  if (list.some((item) => item.parentId === deckId)) {
+    return `"${deck.name}" has sub-decks of its own, so it can't become one.`;
+  }
+  return null;
 }
 
 // ---- Ordering (the deck sidebar is drag-reorderable) -----------------------

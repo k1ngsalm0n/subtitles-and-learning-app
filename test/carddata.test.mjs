@@ -14,6 +14,10 @@ import {
   isAudioField,
   orderByIds,
   moveById,
+  deckRows,
+  subtreeIds,
+  childDecks,
+  validateNesting,
   DEFAULT_DECK_ID,
   BUILTIN_TEMPLATE_IDS,
 } from "../public/js/carddata.mjs";
@@ -180,4 +184,43 @@ test("moveById steps an item and clamps at the ends", () => {
   assert.equal(moveById(ORDER, "d", 1), ORDER);
   assert.equal(moveById(ORDER, "nope", 1), ORDER);
   assert.equal(ids(ORDER), "abcd", "input is left untouched");
+});
+
+const NESTED = [
+  { id: "lang", name: "Chinese" },
+  { id: "verbs", name: "Verbs", parentId: "lang" },
+  { id: "nouns", name: "Nouns", parentId: "lang" },
+  { id: "misc", name: "Misc" },
+  { id: "orphan", name: "Orphan", parentId: "gone" },
+];
+
+test("deckRows lists sub-decks under their parent, orphans at the top", () => {
+  assert.deepEqual(
+    deckRows(NESTED).map(({ deck, depth }) => `${deck.id}:${depth}`),
+    ["lang:0", "verbs:1", "nouns:1", "misc:0", "orphan:0"],
+  );
+  // A parent link pointing nowhere must not hide the deck.
+  assert.equal(deckRows(NESTED).length, NESTED.length);
+});
+
+test("subtreeIds and childDecks roll a parent up", () => {
+  assert.deepEqual(subtreeIds(NESTED, "lang"), ["lang", "verbs", "nouns"]);
+  assert.deepEqual(subtreeIds(NESTED, "verbs"), ["verbs"]);
+  assert.deepEqual(
+    childDecks(NESTED, "lang").map((deck) => deck.id),
+    ["verbs", "nouns"],
+  );
+});
+
+test("nesting is allowed one level deep, and never onto itself", () => {
+  assert.equal(validateNesting(NESTED, "misc", "lang"), null);
+  assert.equal(validateNesting(NESTED, "verbs", null), null, "unnesting is fine");
+  assert.match(validateNesting(NESTED, "misc", "verbs"), /one level/i);
+  assert.match(validateNesting(NESTED, "lang", "misc"), /sub-decks of its own/i);
+  assert.match(validateNesting(NESTED, "misc", "misc"), /inside itself/i);
+  assert.match(validateNesting(NESTED, "misc", "nope"), /no longer exists/i);
+  assert.match(
+    validateNesting([{ id: "d", name: "Default deck", builtIn: true }, ...NESTED], "d", "lang"),
+    /top level/i,
+  );
 });

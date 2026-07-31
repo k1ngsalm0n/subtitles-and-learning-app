@@ -6,7 +6,9 @@ import {
   nextLearningDue,
   cardsInDeck,
   deckName,
+  deckPath,
   getDeck,
+  getChildDecks,
   setSelectedDeck,
 } from "./state.mjs";
 import { previewIntervals, formatInterval } from "./scheduler.mjs";
@@ -19,7 +21,10 @@ import {
   moveCardToDeck,
   setDeckOrder,
   moveDeckBy,
+  toggleDeckCollapsed,
+  addDeck,
 } from "./flashcards.mjs";
+import { deckRows } from "./carddata.mjs";
 import { renderCardFace, renderCardSide } from "./cardface.mjs";
 import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
@@ -273,7 +278,11 @@ export function stopHighlightLoop() {
 
 export function renderDeckNav(els) {
   const e = els || _els;
-  const item = (deckId, label, emoji = "") => {
+  // opts: depth (0 top level, 1 sub-deck), parentId (drag confinement),
+  // twisty ("open" | "closed" | "" for a leaf).
+  const item = (deckId, label, emoji = "", opts = {}) => {
+    const { depth = 0, parentId = "", twisty = "" } = opts;
+    // Counts roll up: a parent shows its own cards plus its sub-decks'.
     const total = cardsInDeck(deckId).length;
     const due = getDueCards(deckId).length;
     const active = state.selectedDeckId === deckId;
@@ -281,26 +290,85 @@ export function renderDeckNav(els) {
       ? `<span class="deck-nav-emoji" aria-hidden="true">${escapeHtml(emoji)}</span>`
       : "";
     // "All decks" is a filter, not a deck — it stays pinned at the top and
-    // isn't draggable. Every real deck can be dragged anywhere in the list.
+    // isn't draggable. Every real deck can be dragged among its siblings.
     // Its grip is still rendered, just invisible, so no label shifts sideways.
     const draggable = deckId !== "all";
     const drag = draggable ? ` draggable="true"` : "";
     const grip = `<span class="deck-grip${draggable ? "" : " deck-grip-empty"}"${
       draggable ? ' title="Drag to reorder"' : ""
     } aria-hidden="true">⠿</span>`;
-    return `<button type="button"${drag} class="deck-nav-item ${active ? "active" : ""}" data-deck="${escapeHtml(deckId)}">
-      ${grip}<span class="deck-nav-name">${icon}${escapeHtml(label)}</span>
-      <span class="deck-nav-counts">${due ? `<span class="deck-due">${due} due</span>` : ""}<span class="deck-count">${total}</span></span>
+    // A parent's twisty folds its sub-decks away. Leaves get an empty one so
+    // every label starts at the same x.
+    const twistyEl = `<span class="deck-twisty${twisty ? "" : " deck-twisty-empty"}"${
+      twisty
+        ? ` role="button" tabindex="-1" title="${twisty === "open" ? "Hide" : "Show"} sub-decks" aria-label="${twisty === "open" ? "Hide" : "Show"} sub-decks"`
+        : ""
+    }>${twisty === "closed" ? "▸" : "▾"}</span>`;
+    // "+" opens an inline name box under this deck. Only top-level decks get
+    // one — sub-decks can't have sub-decks.
+    const add =
+      depth === 0 && deckId !== "all"
+        ? `<span class="deck-add" role="button" tabindex="-1" title="Add a sub-deck" aria-label="Add a sub-deck to ${escapeHtml(label)}">＋</span>`
+        : "";
+    return `<button type="button"${drag} class="deck-nav-item deck-depth-${depth} ${active ? "active" : ""}" data-deck="${escapeHtml(deckId)}" data-parent="${escapeHtml(parentId)}">
+      ${grip}${twistyEl}<span class="deck-nav-name">${icon}${escapeHtml(label)}</span>
+      <span class="deck-nav-counts">${due ? `<span class="deck-due">${due} due</span>` : ""}<span class="deck-count">${total}</span>${add}</span>
     </button>`;
   };
-  e.deckNav.innerHTML = [
-    item("all", "All decks"),
-    ...state.decks.map((deck) => item(deck.id, deck.name, deck.emoji)),
-  ].join("");
+
+  // The inline "new sub-deck" box, rendered directly under its parent row.
+  const subdeckForm = (parentId) =>
+    `<form class="subdeck-form" data-parent="${escapeHtml(parentId)}">
+      <input class="subdeck-name" type="text" maxlength="40" placeholder="Sub-deck name" aria-label="Sub-deck name" />
+      <button type="submit">Add</button>
+      <span class="subdeck-error danger"></span>
+    </form>`;
+
+  const rows = [item("all", "All decks")];
+  let collapsedParent = null;
+  for (const { deck, depth } of deckRows(state.decks)) {
+    if (depth === 0) {
+      collapsedParent = deck.collapsed ? deck.id : null;
+      const children = getChildDecks(deck.id).length;
+      rows.push(
+        item(deck.id, deck.name, deck.emoji, {
+          depth,
+          twisty: children ? (deck.collapsed ? "closed" : "open") : "",
+        }),
+      );
+      // Adding a sub-deck to a folded parent would hide the result, so the
+      // box only appears with the group open.
+      if (_subdeckParent === deck.id) {
+        collapsedParent = null;
+        rows.push(subdeckForm(deck.id));
+      }
+    } else if (!collapsedParent) {
+      rows.push(
+        item(deck.id, deck.name, deck.emoji, { depth, parentId: deck.parentId }),
+      );
+    }
+  }
+  e.deckNav.innerHTML = rows.join("");
   setupDeckReorder(e.deckNav);
 
+  wireSubdeckForm(e);
+
   e.deckNav.querySelectorAll(".deck-nav-item").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      // Folding a parent isn't selecting it.
+      const twisty = event.target.closest(".deck-twisty[role='button']");
+      if (twisty) {
+        toggleDeckCollapsed(button.dataset.deck);
+        return;
+      }
+      // Nor is opening the sub-deck box (clicking "+" again closes it).
+      if (event.target.closest(".deck-add")) {
+        const id = button.dataset.deck;
+        _subdeckParent = _subdeckParent === id ? null : id;
+        _focusSubdeck = Boolean(_subdeckParent);
+        renderDeckNav(e);
+        return;
+      }
       setSelectedDeck(button.dataset.deck);
       state.showingBack = false;
       renderDeckNav(e);
@@ -308,6 +376,50 @@ export function renderDeckNav(els) {
       renderCardList(e);
       renderReviewCard(e);
     });
+  });
+}
+
+// Which deck has its "new sub-deck" box open, and whether it still needs
+// focusing. The box is re-created by every nav render, so the open state has to
+// live outside it.
+let _subdeckParent = null;
+let _focusSubdeck = false;
+
+function wireSubdeckForm(e) {
+  const form = e.deckNav.querySelector(".subdeck-form");
+  if (!form) return;
+  const input = form.querySelector(".subdeck-name");
+  const error = form.querySelector(".subdeck-error");
+  // Only on open: renderDeckNav also runs on grading and imports, and those
+  // must not yank the caret out of whatever the user is typing in.
+  if (_focusSubdeck) {
+    _focusSubdeck = false;
+    input.focus();
+  }
+  const close = () => {
+    _subdeckParent = null;
+    renderDeckNav(e);
+  };
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const result = addDeck(input.value, "", form.dataset.parent);
+    if (result.error) {
+      error.textContent = result.error;
+      input.focus();
+      return;
+    }
+    // addDeck re-rendered the nav already; drop the box and show the new deck.
+    _subdeckParent = null;
+    setSelectedDeck(result.deck.id);
+    renderAll(e);
+  });
+  // Escape cancels; "+" toggles it shut again. Deliberately no close-on-blur:
+  // blur fires before the Add button's click, so it would eat the submit.
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
   });
 }
 
@@ -383,20 +495,42 @@ function setupDeckReorder(nav) {
     requestAnimationFrame(() => row.classList.add("dragging"));
   });
 
+  // A dragged parent takes its sub-deck rows with it, so the group never
+  // splits apart mid-drag.
+  const subtreeRows = (row) =>
+    row.dataset.parent
+      ? [row]
+      : [
+          row,
+          ...nav.querySelectorAll(
+            `${DECK}[data-parent="${CSS.escape(row.dataset.deck)}"]`,
+          ),
+        ];
+
   nav.addEventListener("dragover", (event) => {
     if (!dragged) return;
     event.preventDefault(); // permits the drop
     event.dataTransfer.dropEffect = "move";
     const row = event.target.closest(DECK);
     if (!row || row === dragged) return;
+    // Dragging reorders within a level; changing a deck's parent is an
+    // explicit action ("Move into…"), not something a stray drop can do.
+    if (row.dataset.parent !== dragged.dataset.parent) return;
     // Past a row's midpoint means the dragged deck belongs on its far side.
     const rect = row.getBoundingClientRect();
+    const group = subtreeRows(row);
     const reference =
-      event.clientY < rect.top + rect.height / 2 ? row : row.nextElementSibling;
+      event.clientY < rect.top + rect.height / 2
+        ? row
+        : group[group.length - 1].nextElementSibling;
+    const moving = subtreeRows(dragged);
     // Already in that slot: don't re-insert (re-inserting the drag source
     // mid-drag can cancel the drag) and don't replay the animation.
-    if (reference === dragged || reference === dragged.nextElementSibling) return;
-    slide(() => nav.insertBefore(dragged, reference));
+    if (reference === dragged) return;
+    if (reference === moving[moving.length - 1].nextElementSibling) return;
+    slide(() => {
+      for (const node of moving) nav.insertBefore(node, reference);
+    });
   });
 
   nav.addEventListener("drop", (event) => {
@@ -426,13 +560,15 @@ function setupDeckReorder(nav) {
 export function renderDeckHeader(els) {
   const e = els || _els;
   const id = state.selectedDeckId;
-  e.deckTitle.textContent = deckName(id);
+  // "Parent / Child" so a sub-deck heading says which group it belongs to.
+  e.deckTitle.textContent = id === "all" ? deckName(id) : deckPath(id);
   // Rename/Delete apply only to user decks — not "All decks", not the
   // built-in Default deck. Daily limits are editable on every real deck.
   const deck = getDeck(id);
   const editable = Boolean(deck && !deck.builtIn);
   e.renameDeck.hidden = !editable;
   e.deleteDeck.hidden = !editable;
+  if (e.nestDeck) e.nestDeck.hidden = !editable;
   e.deckSettings.hidden = !deck;
   // The separator only makes sense when the per-deck actions above it exist.
   if (e.deckMenuSep) e.deckMenuSep.hidden = !deck;
@@ -578,10 +714,11 @@ function cardListItem(card, e) {
   const move = document.createElement("select");
   move.className = "card-move";
   move.setAttribute("aria-label", "Move to deck");
-  for (const deck of state.decks) {
+  // Tree order, sub-decks indented under their parent.
+  for (const { deck, depth } of deckRows(state.decks)) {
     const option = document.createElement("option");
     option.value = deck.id;
-    option.textContent = deck.name;
+    option.textContent = depth ? `  └ ${deck.name}` : deck.name;
     move.appendChild(option);
   }
   move.value = getDeck(card.deckId) ? card.deckId : "default";
@@ -727,8 +864,12 @@ export function renderReviewCard(els) {
   if (practiceButton) e.reviewCard.appendChild(practiceButton);
 
   // Grading an answer you haven't seen is meaningless — grades appear only
-  // after the flip, each labeled with the interval it would produce.
-  e.flipCard.hidden = state.showingBack;
+  // after the flip, each labeled with the interval it would produce. The flip
+  // control stays put and turns into "Show front", so a card can be flipped
+  // back without grading it (Space already toggled both ways).
+  e.flipCard.hidden = false;
+  e.flipCard.textContent = state.showingBack ? "Show front" : "Flip";
+  e.flipCard.classList.toggle("showing-back", state.showingBack);
   const preview = previewIntervals(card);
   gradeButtons.forEach((button) => {
     button.hidden = !state.showingBack;
