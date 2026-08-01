@@ -10,9 +10,14 @@
 import { state, storageRevision } from "./state.mjs";
 import { buildExport } from "./portability.mjs";
 
-const INTERVAL_MS = 10 * 60 * 1000;
+// One slow tick, checked against the configured interval, so changing the
+// interval takes effect without restarting any timers.
+const TICK_MS = 30 * 1000;
 
 let _lastRevision = null;
+let _lastBackupAt = null;
+let _lastAttemptAt = 0;
+let _lastError = null;
 let _timer = 0;
 let _inFlight = false;
 
@@ -29,6 +34,7 @@ function payload() {
 async function send({ keepalive = false } = {}) {
   if (_inFlight) return null;
   _inFlight = true;
+  _lastAttemptAt = Date.now();
   const revision = storageRevision;
   try {
     const res = await fetch("/api/backup", {
@@ -37,14 +43,21 @@ async function send({ keepalive = false } = {}) {
       body: JSON.stringify(payload()),
       keepalive,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      _lastError = `Server said ${res.status}.`;
+      return null;
+    }
     // Only mark the revision done once the server has actually taken it, so a
     // failed backup is retried on the next tick instead of being skipped as
     // "unchanged".
     _lastRevision = revision;
+    _lastBackupAt = Date.now();
+    _lastError = null;
     return await res.json().catch(() => null);
   } catch {
-    return null; // server down or restarting — try again next tick
+    // Server down or restarting — try again next tick.
+    _lastError = "Couldn't reach the server.";
+    return null;
   } finally {
     _inFlight = false;
   }
@@ -55,8 +68,23 @@ function isDirty() {
   return _lastRevision === null || storageRevision !== _lastRevision;
 }
 
+function due(now = Date.now()) {
+  return now - _lastAttemptAt >= state.backupIntervalMin * 60 * 1000;
+}
+
 export async function backupNow() {
   return send();
+}
+
+// What the data panel shows: enough to tell "working" from "quietly broken".
+export function backupStatus() {
+  return {
+    enabled: state.backupEnabled,
+    intervalMin: state.backupIntervalMin,
+    lastBackupAt: _lastBackupAt,
+    pending: isDirty(),
+    error: _lastError,
+  };
 }
 
 export function startAutoBackup() {
@@ -64,14 +92,14 @@ export function startAutoBackup() {
   // A first snapshot shortly after load captures the state the session starts
   // from, so a wipe mid-session doesn't fall back to hours-old history.
   setTimeout(() => {
-    if (isDirty()) send();
+    if (state.backupEnabled && isDirty()) send();
   }, 5000);
   _timer = setInterval(() => {
-    if (isDirty()) send();
-  }, INTERVAL_MS);
+    if (state.backupEnabled && isDirty() && due()) send();
+  }, TICK_MS);
   // Closing the tab is the last chance to capture this session's work.
   addEventListener("pagehide", () => {
-    if (isDirty()) send({ keepalive: true });
+    if (state.backupEnabled && isDirty()) send({ keepalive: true });
   });
 }
 
