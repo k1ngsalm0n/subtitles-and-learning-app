@@ -25,7 +25,14 @@ export const STORAGE_KEYS = {
   cardSearch: "miraaStudio.cardSearch",
   transcriptSearch: "miraaStudio.transcriptSearch",
   translateTo: "miraaStudio.translateTo",
+  backupEnabled: "miraaStudio.backupEnabled",
+  backupInterval: "miraaStudio.backupInterval",
 };
+
+// Everything this app stores about you lives under this prefix, in this
+// browser. Used to total up usage for the data panel — you can't be in control
+// of storage you can't see.
+export const STORAGE_PREFIX = "miraaStudio.";
 
 // Per-deck daily caps (used when a deck doesn't set its own).
 export const DEFAULT_NEW_PER_DAY = 20;
@@ -121,6 +128,11 @@ export const state = {
   // Source currently loaded into the player (id into state.sources), so new
   // cards can link back to the exact video moment they came from.
   currentSourceId: null,
+  // Automatic disk snapshots (public/js/backup.mjs). On by default — the thing
+  // it protects against is silent, so opting in would mean opting in after
+  // losing something.
+  backupEnabled: loadString(STORAGE_KEYS.backupEnabled, "1") !== "0",
+  backupIntervalMin: Number(loadString(STORAGE_KEYS.backupInterval, "10")) || 10,
 };
 
 // One-shot legacy migrations: cards from before templates/decks get field
@@ -388,6 +400,38 @@ export function setTranscriptSearch(query) {
 export function setTranslateTo(code) {
   state.translateTo = code || "en";
   storeString(STORAGE_KEYS.translateTo, state.translateTo);
+}
+
+export function setBackupEnabled(enabled) {
+  state.backupEnabled = Boolean(enabled);
+  storeString(STORAGE_KEYS.backupEnabled, state.backupEnabled ? "1" : "0");
+}
+
+export function setBackupInterval(minutes) {
+  const value = Number(minutes);
+  state.backupIntervalMin = Number.isFinite(value) && value > 0 ? value : 10;
+  storeString(STORAGE_KEYS.backupInterval, String(state.backupIntervalMin));
+}
+
+// Rough size of everything stored under our prefix. localStorage holds UTF-16,
+// so a character is two bytes; keys count too. It's an estimate, and labelled
+// as one — browsers don't expose the real per-origin figure for localStorage.
+export function storageUsage() {
+  try {
+    let bytes = 0;
+    const entries = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+      const size = (key.length + (localStorage.getItem(key)?.length || 0)) * 2;
+      bytes += size;
+      entries.push({ key, bytes: size });
+    }
+    entries.sort((a, b) => b.bytes - a.bytes);
+    return { bytes, entries, available: true };
+  } catch {
+    return { bytes: 0, entries: [], available: false };
+  }
 }
 
 export function saveSources() {

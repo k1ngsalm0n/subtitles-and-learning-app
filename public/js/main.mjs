@@ -18,6 +18,9 @@ import {
   setTranscriptSearch,
   setTranslateTo,
   setStorageErrorHandler,
+  setBackupEnabled,
+  setBackupInterval,
+  storageUsage,
 } from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import {
@@ -37,6 +40,7 @@ import { validateNesting } from "./carddata.mjs";
 import {
   startAutoBackup,
   backupNow,
+  backupStatus,
   listBackups,
   readBackup,
 } from "./backup.mjs";
@@ -176,6 +180,12 @@ const els = {
   backupList: document.querySelector("#backupList"),
   restoreDir: document.querySelector("#restoreDir"),
   backupNow: document.querySelector("#backupNow"),
+  backupEnabled: document.querySelector("#backupEnabled"),
+  backupInterval: document.querySelector("#backupInterval"),
+  backupStatus: document.querySelector("#backupStatus"),
+  exportFromData: document.querySelector("#exportFromData"),
+  usageFill: document.querySelector("#usageFill"),
+  usageText: document.querySelector("#usageText"),
   emptyCards: document.querySelector("#emptyCards"),
   emptyCardsDialog: document.querySelector("#emptyCardsDialog"),
   emptyCardsText: document.querySelector("#emptyCardsText"),
@@ -286,13 +296,26 @@ function bindEvents() {
   });
 
   els.restoreBackup.addEventListener("click", () => {
+    els.backupEnabled.checked = state.backupEnabled;
+    els.backupInterval.value = String(state.backupIntervalMin);
+    renderDataPanel();
     els.restoreDialog.showModal();
     renderBackupList();
   });
+  els.backupEnabled.addEventListener("change", () => {
+    setBackupEnabled(els.backupEnabled.checked);
+    renderDataPanel();
+  });
+  els.backupInterval.addEventListener("change", () => {
+    setBackupInterval(els.backupInterval.value);
+    renderDataPanel();
+  });
+  els.exportFromData.addEventListener("click", exportCards);
   els.backupNow.addEventListener("click", async () => {
     els.backupNow.disabled = true;
     const result = await backupNow();
     els.backupNow.disabled = false;
+    renderDataPanel();
     if (!result) {
       showToast("Couldn't save a backup — is the server running?");
       return;
@@ -304,6 +327,47 @@ function bindEvents() {
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
   els.cookieModeFile.addEventListener("click", () => setCookieMode("file"));
   els.saveCookies.addEventListener("click", saveCookieSettings);
+}
+
+// Browsers don't report a localStorage quota, but ~5 MB is the near-universal
+// figure. Shown as an estimate, because that's what it is.
+const ESTIMATED_QUOTA = 5 * 1024 * 1024;
+
+function formatAgo(timestamp) {
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+}
+
+// The "where is my data" half of the panel: how full this browser's storage is,
+// and whether backups are actually happening.
+function renderDataPanel() {
+  const usage = storageUsage();
+  const share = Math.min(1, usage.bytes / ESTIMATED_QUOTA);
+  els.usageFill.style.width = `${Math.max(2, share * 100)}%`;
+  els.usageFill.className = share > 0.9 ? "full" : share > 0.66 ? "warn" : "";
+  const kb = Math.max(1, Math.round(usage.bytes / 1024));
+  els.usageText.textContent = usage.available
+    ? `${state.cards.length} cards using about ${kb} KB of an estimated 5 MB limit.`
+    : "This browser isn't allowing storage — nothing is being saved.";
+
+  const status = backupStatus();
+  els.backupInterval.disabled = !status.enabled;
+  if (!status.enabled) {
+    els.backupStatus.textContent =
+      "Off. Nothing outside this browser is keeping a copy.";
+  } else if (status.error) {
+    els.backupStatus.textContent = `Last attempt failed: ${status.error}`;
+  } else if (status.lastBackupAt) {
+    els.backupStatus.textContent = `Last backed up ${formatAgo(status.lastBackupAt)}.`;
+  } else {
+    els.backupStatus.textContent = status.pending
+      ? "Waiting for the first snapshot of this session."
+      : "Nothing new to back up yet.";
+  }
 }
 
 // Backup list: newest first, each row restoring by merging that snapshot in.
