@@ -1,0 +1,23 @@
+# JS unit tests on every push and pull request. Node's built-in runner, no
+# install step — the project deliberately has no third-party Node deps.
+#
+# The Python tests are deliberately not here: they need torch/transformers and
+# a multi-GB model cache, which is minutes of download per run for code that
+# rarely changes. Run those locally with:
+#   python -m unittest discover -s test -p "test_*.py"
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
