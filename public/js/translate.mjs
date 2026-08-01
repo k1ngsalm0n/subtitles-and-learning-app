@@ -70,6 +70,14 @@ export function swapLanguages(els) {
   setTranslateTo(from);
 }
 
+// Names the translator that actually ran. An older server doesn't send one, so
+// an unknown value says nothing rather than guessing wrong.
+export function engineNote(engine) {
+  if (engine === "llm") return "AI model";
+  if (engine === "offline") return "offline model";
+  return "";
+}
+
 function setStatus(els, message) {
   if (els.translateStatus) els.translateStatus.textContent = message || "";
 }
@@ -131,7 +139,15 @@ export async function runTranslation(els) {
     const translated = parseSubtitle(data.translation || "");
     state.subtitles = alignTranslations(state.subtitles, translated);
     renderTranscript(els);
-    setStatus(els, `Translated to ${languageName(to)}.`);
+    // Which translator ran is worth saying: the offline model is noticeably
+    // weaker on names, and it takes over silently whenever the chat model
+    // isn't configured, is switched off, or fails. Without this the only
+    // symptom is that the translations quietly got worse.
+    const note = engineNote(data.engine);
+    setStatus(
+      els,
+      `Translated to ${languageName(to)}${note ? ` — ${note}.` : "."}`,
+    );
   } catch (error) {
     setStatus(els, error.message);
   } finally {

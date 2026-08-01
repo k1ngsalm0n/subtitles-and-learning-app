@@ -102,3 +102,13 @@ test("the prompt names both languages and demands established proper nouns", () 
   assert.match(prompt, /Proper nouns/);
   assert.match(prompt, /Never merge, split, reorder or drop lines/);
 });
+
+// The status line names the translator that ran, because the offline one is
+// noticeably weaker and takes over silently.
+test("engineNote names each translator, and says nothing for an unknown one", async () => {
+  const { engineNote } = await import("../public/js/translate.mjs");
+  assert.equal(engineNote("llm"), "AI model");
+  assert.equal(engineNote("offline"), "offline model");
+  assert.equal(engineNote(undefined), "");
+  assert.equal(engineNote("something-new"), "");
+});
