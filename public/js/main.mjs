@@ -17,6 +17,7 @@ import {
   setCardSearch,
   setTranscriptSearch,
   setTranslateTo,
+  setStorageErrorHandler,
 } from "./state.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import {
@@ -33,6 +34,12 @@ import {
   removeCards,
 } from "./flashcards.mjs";
 import { validateNesting } from "./carddata.mjs";
+import {
+  startAutoBackup,
+  backupNow,
+  listBackups,
+  readBackup,
+} from "./backup.mjs";
 import { describeReport } from "./portability.mjs";
 import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
 import { setupCardModal, openCardModal } from "./cardmodal.mjs";
@@ -164,6 +171,11 @@ const els = {
   nestDeckParent: document.querySelector("#nestDeckParent"),
   nestDeckError: document.querySelector("#nestDeckError"),
   nestDeckSave: document.querySelector("#nestDeckSave"),
+  restoreBackup: document.querySelector("#restoreBackup"),
+  restoreDialog: document.querySelector("#restoreDialog"),
+  backupList: document.querySelector("#backupList"),
+  restoreDir: document.querySelector("#restoreDir"),
+  backupNow: document.querySelector("#backupNow"),
   emptyCards: document.querySelector("#emptyCards"),
   emptyCardsDialog: document.querySelector("#emptyCardsDialog"),
   emptyCardsText: document.querySelector("#emptyCardsText"),
@@ -195,6 +207,21 @@ init();
 function init() {
   document.documentElement.dataset.theme =
     localStorage.getItem(STORAGE_KEYS.theme) || "dark";
+  // Before anything else can try to save: a failed write is silent inside
+  // state.mjs by design, and this is what makes it audible. Fires once per
+  // session, while the data is still in memory and exportable.
+  setStorageErrorHandler(() => {
+    showToast(
+      "Couldn't save — this browser's storage is full or blocked. Export a copy now.",
+      {
+        duration: 20000,
+        actions: [
+          { label: "Export", onClick: exportCards },
+          { label: "Back up", onClick: backupNow },
+        ],
+      },
+    );
+  });
   bindEvents();
   populateLanguageSelects(els);
   restoreSession();
@@ -209,6 +236,7 @@ function init() {
   setPracticeOpener(openPractice);
   setSourceJumper(jumpToSource);
   loadCookieSettings();
+  startAutoBackup();
 }
 
 function bindEvents() {
@@ -257,10 +285,64 @@ function bindEvents() {
     showToast(result.error ? result.error : describeReport(result.report));
   });
 
+  els.restoreBackup.addEventListener("click", () => {
+    els.restoreDialog.showModal();
+    renderBackupList();
+  });
+  els.backupNow.addEventListener("click", async () => {
+    els.backupNow.disabled = true;
+    const result = await backupNow();
+    els.backupNow.disabled = false;
+    if (!result) {
+      showToast("Couldn't save a backup — is the server running?");
+      return;
+    }
+    renderBackupList();
+  });
+
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
   els.cookieModeFile.addEventListener("click", () => setCookieMode("file"));
   els.saveCookies.addEventListener("click", saveCookieSettings);
+}
+
+// Backup list: newest first, each row restoring by merging that snapshot in.
+// Restoring can only add — mergeImport skips ids that already exist — so it's
+// safe to try one without losing what's on screen.
+async function renderBackupList() {
+  els.backupList.textContent = "";
+  els.restoreDir.textContent = "";
+  const { files = [], dir, error } = await listBackups();
+  if (error || !files.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent =
+      error || "No snapshots yet — one is saved a few minutes after you start.";
+    els.backupList.append(empty);
+  }
+  if (dir) els.restoreDir.textContent = `Saved in ${dir}`;
+  for (const file of files) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "backup-item";
+    const when = document.createElement("span");
+    when.textContent = new Date(file.savedAt).toLocaleString();
+    const size = document.createElement("span");
+    size.className = "backup-size";
+    size.textContent = `${Math.max(1, Math.round(file.bytes / 1024))} KB`;
+    button.append(when, size);
+    button.addEventListener("click", async () => {
+      const text = await readBackup(file.name);
+      if (text === null) {
+        showToast("Couldn't read that backup.");
+        return;
+      }
+      const result = importCardsFromText(text);
+      els.restoreDialog.close();
+      showToast(result.error ? result.error : describeReport(result.report));
+    });
+    els.backupList.append(button);
+  }
 }
 
 // Review shortcuts (Flashcards view only): Space flips, 1–4 grade

@@ -19,13 +19,13 @@ export function sendJson(res, status, value) {
   res.end(text);
 }
 
-export async function readJsonBody(req) {
+export async function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let size = 0;
 
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) {
+    if (size > maxBytes) {
       throw new Error("Request body is too large.");
     }
     chunks.push(chunk);
