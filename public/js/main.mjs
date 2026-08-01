@@ -195,6 +195,12 @@ const els = {
   importFileSettings: document.querySelector("#importFileSettings"),
   usageFill: document.querySelector("#usageFill"),
   usageText: document.querySelector("#usageText"),
+  imagesMode: document.querySelector("#imagesMode"),
+  imagePane: document.querySelector("#imagePane"),
+  imageView: document.querySelector("#imageView"),
+  imageInput: document.querySelector("#imageInput"),
+  imageBrowse: document.querySelector("#imageBrowse"),
+  dropMessage: document.querySelector("#dropMessage"),
   settingsWheel: document.querySelector("#settingsWheel"),
   settingsLayout: document.querySelector("#settingsLayout"),
   themeDark: document.querySelector("#themeDark"),
@@ -355,6 +361,7 @@ function bindEvents() {
   });
 
   setupSettings();
+  setupImagesMode();
 
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
@@ -685,6 +692,175 @@ function setTheme(next, { store = true } = {}) {
     accentDial.repaint(next);
     paintAccentState();
   }
+}
+
+// "Images" swaps the player for instructions on getting a screenshot in. The
+// URL box goes with it: a URL imports media, and has nothing to say about an
+// image on the clipboard. Clicking Images again — or loading a video — returns.
+function setupImagesMode() {
+  // The player's own prompt is hidden with a class elsewhere in this file, so
+  // this remembers its state rather than guessing it back on the way out.
+  let promptWasHidden = false;
+
+  // Three things share the player box, and exactly one of them belongs on
+  // screen: the video, a loaded image, or the drop zone. Everything that can
+  // change which one that is calls this, so they can't disagree.
+  const hasImage = () => Boolean(els.imageView.getAttribute("src"));
+  const inImagesMode = () => els.imagesMode.getAttribute("aria-pressed") === "true";
+
+  const syncPlayerBox = () => {
+    const on = inImagesMode();
+    const image = hasImage();
+    els.video.hidden = on;
+    els.imageView.classList.toggle("hidden", !on || !image);
+    els.imagePane.classList.toggle("hidden", !on || image);
+    els.imageBrowse.textContent = image ? "Replace image…" : "Choose a file…";
+  };
+
+  const setImagesMode = (on) => {
+    els.imagesMode.setAttribute("aria-pressed", String(on));
+    els.imagesMode.classList.toggle("active", on);
+    syncPlayerBox();
+    // The URL row stays put and swaps its contents. Hiding the whole row would
+    // change the panel's height, which shifts the page — and can take the
+    // scrollbar with it.
+    els.sourceUrl.hidden = on;
+    els.queueUrl.hidden = on;
+    els.imageBrowse.hidden = !on;
+    if (on) {
+      promptWasHidden = els.emptyPlayer.classList.contains("hidden");
+      els.emptyPlayer.classList.add("hidden");
+    } else {
+      els.emptyPlayer.classList.toggle("hidden", promptWasHidden);
+    }
+  };
+
+  els.imagesMode.addEventListener("click", () => {
+    setImagesMode(els.imagesMode.getAttribute("aria-pressed") !== "true");
+  });
+  els.videoInput.addEventListener("change", () => setImagesMode(false));
+
+  // ---- getting an image in: paste, drop, or browse ----
+
+  let preview = null;
+  let reading = false;
+
+  async function readImage(file) {
+    if (reading) return;
+    if (!file || !file.type.startsWith("image/")) {
+      showToast("That isn't an image file.");
+      return;
+    }
+    reading = true;
+    setImagesMode(true);
+    if (preview) URL.revokeObjectURL(preview);
+    preview = URL.createObjectURL(file);
+    els.imageView.src = preview;
+    // Once a picture is on screen the drop zone goes behind it, and the button
+    // in the row below becomes the visible way to swap it out — and says so.
+    syncPlayerBox();
+    // The transcript panel is where the answer will appear, so that is where
+    // "working on it" belongs — the import status line lives inside the URL
+    // row, which Images mode hides.
+    els.transcript.innerHTML = '<p class="muted">Reading the image…</p>';
+
+    try {
+      const res = await fetch("/api/ocr-image", {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Server said ${res.status}.`);
+
+      const lines = (data.lines || []).filter((line) => line.text.trim());
+      if (!lines.length) {
+        els.transcript.innerHTML =
+          '<p class="muted">No text found in that image.</p>';
+        return;
+      }
+
+      // Reuse the transcript wholesale: it already gives us clickable words,
+      // saved-word marks, search and Save Line. `start: null` means "no
+      // timecode" — an image has no time, and renderTranscript leaves the
+      // gutter blank rather than printing 00:00 for every line.
+      state.subtitles = lines.map((line, index) => ({
+        cueIndex: index + 1,
+        start: null,
+        end: null,
+        text: line.text,
+        box: line.box,
+      }));
+      state.activeIndex = 0;
+      renderAll(els);
+      // The point of the feature is the translation, so don't make them ask.
+      await runTranslation(els);
+    } catch (error) {
+      els.transcript.innerHTML = '<p class="muted">Couldn\'t read that image.</p>';
+      showToast(error.message || "Couldn't read that image.");
+    } finally {
+      reading = false;
+    }
+  }
+
+  els.imageBrowse.addEventListener("click", () => els.imageInput.click());
+  els.imageInput.addEventListener("change", () => {
+    const file = els.imageInput.files[0];
+    els.imageInput.value = "";
+    readImage(file);
+  });
+  els.imagePane.addEventListener("click", () => els.imageInput.click());
+
+  // Drop anywhere on the player, so you don't have to hit the prompt exactly.
+  // While a file is over it the drop zone comes *forward* — over a loaded image
+  // if there is one — because otherwise you'd be dragging on faith: the zone
+  // that would light up is behind the picture.
+  const shell = document.querySelector("#playerShell");
+  let dragging = false;
+
+  const startDrag = () => {
+    if (dragging) return;
+    dragging = true;
+    els.dropMessage.textContent = hasImage() ? "Drop to replace" : "Drop to read it";
+    els.imagePane.classList.remove("hidden");
+    els.imagePane.classList.add("dragging");
+  };
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    els.imagePane.classList.remove("dragging");
+    syncPlayerBox();
+  };
+
+  shell.addEventListener("dragover", (event) => {
+    if (!event.dataTransfer?.types.includes("Files")) return;
+    event.preventDefault();
+    startDrag();
+  });
+  // dragleave also fires when the pointer crosses onto a child element, so the
+  // only real departure is one where the new target is outside the player.
+  shell.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget && shell.contains(event.relatedTarget)) return;
+    endDrag();
+  });
+  shell.addEventListener("drop", (event) => {
+    if (!event.dataTransfer?.files.length) return;
+    event.preventDefault();
+    endDrag();
+    readImage(event.dataTransfer.files[0]);
+  });
+
+  // Paste works anywhere in the app — you shouldn't have to click into a
+  // panel first to use the clipboard.
+  addEventListener("paste", (event) => {
+    const item = [...(event.clipboardData?.items || [])].find((entry) =>
+      entry.type.startsWith("image/"),
+    );
+    if (!item) return;
+    event.preventDefault();
+    readImage(item.getAsFile());
+  });
 }
 
 // The wheel picks the page; everything inside a page is an ordinary control.

@@ -346,6 +346,56 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   padding: 24px;
 }
 .empty-player.hidden { display: none; }
+/* Images mode: the picture sits exactly where the video does. */
+.image-view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.image-view.hidden { display: none; }
+/* The player itself is the drop target, and says so without being dragged on. */
+.empty-player.dropzone {
+  inset: 12px;
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.empty-player.dropzone span {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+  line-height: 1.6;
+}
+.empty-player.dropzone strong { color: var(--text); font-size: 15px; }
+/* One grid row, so "Ctrl + V" stays on a line instead of stacking. */
+.empty-player.dropzone small { font-size: 13px; }
+.empty-player.dropzone:hover { border-color: var(--accent); }
+/* Dragging over a loaded image, the drop zone comes forward on top of it — so
+   it needs a scrim, not a tint, or the message sits unreadable on the picture. */
+.empty-player.dragging {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+.dropzone .dz-drop { display: none; font-size: 16px; }
+.dropzone.dragging .dz-idle { display: none; }
+.dropzone.dragging .dz-drop { display: block; }
+/* Fills the row the way the URL box it replaces does. */
+#imageBrowse { flex: 1 1 180px; }
+.empty-player kbd {
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  background: var(--surface-2);
+  color: var(--text);
+}
 .import-bar, .url-row, .toolbar-row, .manual-card, .card-actions {
   display: flex;
   gap: 8px;
@@ -1742,6 +1792,22 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                 <div id="emptyPlayer" class="empty-player">
                   <span>Import a local video or load the sample lesson.</span>
                 </div>
+                <!-- Takes the player's place while Images is on. Same
+                     .empty-player overlay as above, so nothing resizes. -->
+                <img id="imageView" class="image-view hidden" alt="" />
+                <div id="imagePane" class="empty-player dropzone hidden">
+                  <strong id="dropMessage" class="dz-drop">Drop to read it</strong>
+                  <span class="dz-idle">
+                    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+                      <circle cx="8.5" cy="9.5" r="1.6" />
+                      <path d="M3 16.5l4.5-4a2 2 0 0 1 2.7 0L21 20" />
+                    </svg>
+                    <strong>Drag an image here</strong>
+                    <small>or press <kbd>Ctrl</kbd> + <kbd>V</kbd> to paste one</small>
+                  </span>
+                </div>
+                <input id="imageInput" type="file" accept="image/*" hidden />
                 <div id="miniDragSurface" class="mini-drag-surface"></div>
                 <div id="miniDrag" class="mini-drag">
                   <span>⠿ Drag</span>
@@ -1779,10 +1845,14 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <label class="file-button">Video<input id="videoInput" type="file" accept="video/*" /></label>
               <label class="file-button">Original SRT/VTT<input id="originalInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
               <label class="file-button">Translation SRT/VTT<input id="translationInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
+              <button id="imagesMode" type="button" aria-pressed="false">Images</button>
             </div>
             <div class="url-row">
               <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
               <button id="queueUrl" type="button">Import</button>
+              <!-- Takes the URL box's place in Images mode: the row stays, so
+                   the panel keeps its height and nothing shifts. -->
+              <button id="imageBrowse" type="button" hidden>Choose a file…</button>
               <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
               <div id="progressWrap" class="progress-wrap">
                 <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>

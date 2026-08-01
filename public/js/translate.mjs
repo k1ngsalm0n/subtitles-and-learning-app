@@ -6,13 +6,18 @@ import { LANGUAGES, detectLanguage, languageName } from "./languages.mjs";
 const AUTO = "auto";
 
 // Build SRT from the loaded lines so the server can reuse the same NLLB
-// pipeline it runs during import. We have start/end times already.
+// pipeline it runs during import.
+//
+// Lines read out of an image have no time — `start` is null so the transcript
+// leaves the timecode gutter blank. They still need distinct, increasing
+// timestamps here, or every cue would carry 00:00:00,000 and the translations
+// could only be matched back by position.
 function buildSrt(lines) {
   return lines
     .map((line, index) =>
       [
         index + 1,
-        `${srtTime(line.start)} --> ${srtTime(line.end)}`,
+        `${srtTime(line.start ?? index)} --> ${srtTime(line.end ?? index + 1)}`,
         line.text,
       ].join("\n"),
     )

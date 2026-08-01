@@ -71,7 +71,7 @@ export function renderTranscript(els) {
           ? renderRubyTranscript(line.tokens, line.text, savedWords)
           : tokenize(line.text, savedWords);
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
-        <span class="time">${formatTime(line.start)}</span>
+        <span class="time">${line.start == null ? "" : formatTime(line.start)}</span>
         <div>
           <div class="original">${original}</div>
           <p class="translation">${escapeHtml(translation)}</p>

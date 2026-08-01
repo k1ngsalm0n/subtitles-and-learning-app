@@ -6,6 +6,7 @@ import { handleGetCookies, handleSaveCookies } from "./cookies.mjs";
 import { handleLookup } from "./lookup.mjs";
 import { handleTranslate } from "./translate.mjs";
 import { handleRomanize } from "./romanize.mjs";
+import { handleOcrImage } from "./ocr.mjs";
 import { handleStrokes } from "./strokes.mjs";
 import {
   handleSaveBackup,
@@ -54,6 +55,10 @@ createServer(async (req, res) => {
     }
     if (req.method === "POST" && req.url === "/api/romanize") {
       await handleRomanize(req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/ocr-image") {
+      await handleOcrImage(req, res);
       return;
     }
     if (req.method === "GET" && req.url.startsWith("/api/strokes")) {
