@@ -1,5 +1,6 @@
 import { readJsonBody, sendJson } from "./util.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
+import { translateSrtWithLlm } from "./llmTranslate.mjs";
 
 // On-demand translation for the language bar: POST { srt, from, to } and get
 // back { translation } (an SRT string). Drives the same NLLB pipeline
@@ -40,8 +41,17 @@ export async function handleTranslate(req, res) {
   }
 
   try {
+    // A chat model, when one is configured, because the offline model
+    // transliterates names syllable by syllable instead of recognising them.
+    // Null means it isn't available or didn't work; the offline path runs then,
+    // so translation never depends on a network call succeeding.
+    const viaLlm = await translateSrtWithLlm(srt, from, to);
+    if (viaLlm) {
+      sendJson(res, 200, { translation: viaLlm, engine: "llm" });
+      return;
+    }
     const translation = await translateViaWorker(srt, from, to, langs);
-    sendJson(res, 200, { translation });
+    sendJson(res, 200, { translation, engine: "offline" });
   } catch (err) {
     console.error(`Translation failed (${from} -> ${to}):`, err.message);
     sendJson(res, 500, {

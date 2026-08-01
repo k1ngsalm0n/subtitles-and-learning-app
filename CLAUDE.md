@@ -21,7 +21,15 @@ lifting — speech-to-text and offline translation — runs through Python.
   (`Helsinki-NLP/opus-mt-zh-en` / `opus-mt-en-zh`, ~310 MB each, fast on CPU)
   for the app's zh↔en pairs, NLLB-200 (`facebook/nllb-200-distilled-600M`) as
   the fallback for other languages. All via `transformers`/`torch`.
-- **Word lookups:** any OpenAI-compatible chat API (currently free Groq), falls back to NLLB. Configured in `.env`.
+- **Word lookups:** any OpenAI-compatible chat API (currently free Groq), falls back to NLLB.
+- **Line translation:** the same chat API when one is configured
+  (`llmTranslate.mjs`), because the offline models transliterate proper nouns
+  instead of recognising them ("Herle Golan class" for Helgoland, "the battle in
+  the Sea of Japan" for Jutland). Batched 20 lines at a time so neighbouring
+  lines give context; the model returns a number→text object so a dropped line
+  is caught rather than shifting every later translation onto the wrong cue.
+  Falls back to the offline path on *any* doubt — no key, `LLM_TRANSLATE=off`,
+  over 400 lines, a bad response, a timeout. Configured in `.env`.
 - **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
 
 Key server modules: `import.mjs` (URL import via yt-dlp), `transcribe.py`
