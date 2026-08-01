@@ -156,17 +156,19 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
    visibly jumps once the stored view is applied. The inline <head> script
    stamps data-view on <html> before paint; main.mjs drops the attribute as
    soon as the .active classes agree, so styling stays class-driven. */
-:root[data-view="cards"] #studyView,
-:root[data-view="library"] #studyView { display: none; }
+/* Written so adding a view doesn't mean editing this block: anything that
+   isn't the stored view is hidden, and the stored one is shown. */
+:root[data-view]:not([data-view="study"]) #studyView { display: none; }
 :root[data-view="cards"] #cardsView,
-:root[data-view="library"] #libraryView { display: block; }
-:root[data-view="cards"] .nav-tab[data-view="study"],
-:root[data-view="library"] .nav-tab[data-view="study"] {
+:root[data-view="library"] #libraryView,
+:root[data-view="settings"] #settingsView { display: block; }
+:root[data-view]:not([data-view="study"]) .nav-tab[data-view="study"] {
   background: transparent;
   color: var(--muted);
 }
 :root[data-view="cards"] .nav-tab[data-view="cards"],
-:root[data-view="library"] .nav-tab[data-view="library"] {
+:root[data-view="library"] .nav-tab[data-view="library"],
+:root[data-view="settings"] .nav-tab[data-view="settings"] {
   background: var(--surface-2);
   color: var(--text);
 }
@@ -472,6 +474,17 @@ rt {
   grid-template-columns: 380px 1fr;
   gap: 20px;
 }
+/* Settings reads top to bottom in one column — it's prose and controls, not a
+   workspace, and a narrow measure keeps the explanations readable. */
+.settings-layout {
+  display: grid;
+  gap: 16px;
+  max-width: 620px;
+}
+.settings-layout h2 { font-size: 17px; margin-bottom: 8px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.settings-layout .data-row { margin-top: 8px; }
+.settings-layout .modal-section-label { margin-top: 16px; }
 .review-panel, .card-panel, .deck-sidebar, .panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -568,9 +581,6 @@ rt {
 .nest-deck-row select { width: 100%; height: 34px; }
 .nest-deck-note { font-size: 12px; }
 #nestDeckError:empty { display: none; }
-#restoreDialog { width: min(420px, calc(100vw - 32px)); padding: 14px 16px; }
-#restoreDialog .word-form { gap: 10px; }
-#restoreDialog h2 { font-size: 16px; }
 .data-note, .restore-dir { font-size: 12px; line-height: 1.5; }
 .restore-dir { word-break: break-all; opacity: 0.7; }
 .data-row {
@@ -1421,7 +1431,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
       // the .active classes say the same thing.
       try {
         var lastView = localStorage.getItem("miraaStudio.view");
-        if (lastView === "cards" || lastView === "library") {
+        if (lastView === "cards" || lastView === "library" || lastView === "settings") {
           document.documentElement.dataset.view = lastView;
         }
       } catch (e) {
@@ -1440,6 +1450,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         <button class="nav-tab active" data-view="study" type="button">Study</button>
         <button class="nav-tab" data-view="cards" type="button">Flashcards</button>
         <button class="nav-tab" data-view="library" type="button">Library</button>
+        <button class="nav-tab" data-view="settings" type="button">Settings</button>
       </nav>
 
       <div class="topbar-right">
@@ -1565,7 +1576,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                     <button id="exportCards" type="button" title="Export cards, decks, and templates as JSON">Export (JSON)</button>
                     <button id="exportAnki" type="button" title="Export a tab-separated file for Anki">Export for Anki</button>
                     <label class="file-button" title="Import a previously exported JSON file">Import…<input id="importFile" type="file" accept=".json,application/json" /></label>
-                    <button id="restoreBackup" type="button" title="Where your cards are stored, automatic backups, and restoring a snapshot">Your data &amp; backups…</button>
+                    <button id="restoreBackup" type="button" title="Storage, backups and restoring a snapshot — in Settings">Data &amp; backups (Settings)</button>
                     <hr class="overflow-sep" />
                     <button id="emptyCards" type="button" class="danger" title="Delete every card listed below — the selected deck, narrowed by the search box">Empty this list…</button>
                   </div>
@@ -1587,14 +1598,56 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
       </section>
 
       <section id="libraryView" class="view">
-        <div class="library-layout">
+        <section class="panel">
+          <h2>Queued Sources</h2>
+          <div id="sourceList" class="source-list"></div>
+        </section>
+      </section>
+
+      <section id="settingsView" class="view">
+        <div class="settings-layout">
           <section class="panel">
-            <h2>Queued Sources</h2>
-            <div id="sourceList" class="source-list"></div>
+            <h2>Your data</h2>
+            <p class="muted data-note">Your cards, decks and templates are stored by <strong>this browser</strong>, for <strong>this exact address</strong>. Clearing site data, using a private window, or opening the app on a different port all leave them behind. Nothing is sent anywhere — the copies below are files on this machine.</p>
+            <div class="data-usage">
+              <div class="data-usage-bar"><span id="usageFill"></span></div>
+              <p id="usageText" class="muted data-note"></p>
+            </div>
+            <div class="settings-actions">
+              <button id="exportFromData" type="button">Export a copy (JSON)</button>
+              <label class="file-button" title="Merge a previously exported JSON file">Import a file…<input id="importFileSettings" type="file" accept=".json,application/json" /></label>
+            </div>
           </section>
+
+          <section class="panel">
+            <h2>Automatic backups</h2>
+            <p class="muted data-note">A snapshot of everything above, written to a folder on this machine while the app is open. This is what survives the browser losing its storage.</p>
+            <label class="data-row">
+              <span>Back up to this machine</span>
+              <input id="backupEnabled" type="checkbox" />
+            </label>
+            <label class="data-row">
+              <span>How often</span>
+              <select id="backupInterval" aria-label="Backup frequency">
+                <option value="5">Every 5 minutes</option>
+                <option value="10">Every 10 minutes</option>
+                <option value="30">Every 30 minutes</option>
+                <option value="60">Every hour</option>
+              </select>
+            </label>
+            <p id="backupStatus" class="muted data-note"></p>
+            <p id="restoreDir" class="muted restore-dir"></p>
+            <div class="settings-actions">
+              <button id="backupNow" type="button">Back up now</button>
+            </div>
+            <p class="modal-section-label">Snapshots</p>
+            <p class="muted data-note">The twenty most recent are kept. Restoring merges — nothing you already have is overwritten or deleted.</p>
+            <div id="backupList" class="backup-list"></div>
+          </section>
+
           <section class="panel">
             <h2>Cookie Setup</h2>
-            <p class="muted">YouTube may block downloads without cookies.</p>
+            <p class="muted data-note">YouTube may block downloads without cookies.</p>
             <div class="segmented" style="margin: 10px 0;">
               <button id="cookieModeNone" type="button" class="active">None</button>
               <button id="cookieModeBrowser" type="button">Browser</button>
@@ -1724,49 +1777,6 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         <menu>
           <button value="cancel" type="submit">Cancel</button>
           <button id="deckSettingsSave" type="button">Save</button>
-        </menu>
-      </form>
-    </dialog>
-
-    <dialog id="restoreDialog" aria-labelledby="restoreTitle">
-      <form method="dialog" class="word-form">
-        <div class="section-title">
-          <h2 id="restoreTitle">Your data</h2>
-          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
-        </div>
-
-        <p class="modal-section-label">Where it lives</p>
-        <p class="muted data-note">Your cards are stored by this browser, for this exact address. Clearing site data, or opening the app on a different port, leaves them behind.</p>
-        <div class="data-usage">
-          <div class="data-usage-bar"><span id="usageFill"></span></div>
-          <p id="usageText" class="muted data-note"></p>
-        </div>
-
-        <p class="modal-section-label">Automatic backups</p>
-        <label class="data-row">
-          <span>Back up to this machine</span>
-          <input id="backupEnabled" type="checkbox" />
-        </label>
-        <label class="data-row">
-          <span>How often</span>
-          <select id="backupInterval" aria-label="Backup frequency">
-            <option value="5">Every 5 minutes</option>
-            <option value="10">Every 10 minutes</option>
-            <option value="30">Every 30 minutes</option>
-            <option value="60">Every hour</option>
-          </select>
-        </label>
-        <p id="backupStatus" class="muted data-note"></p>
-        <p id="restoreDir" class="muted restore-dir"></p>
-
-        <p class="modal-section-label">Snapshots</p>
-        <p class="muted data-note">Restoring merges — nothing you already have is overwritten or deleted.</p>
-        <div id="backupList" class="backup-list"></div>
-
-        <menu>
-          <button value="cancel" type="submit">Close</button>
-          <button id="exportFromData" type="button">Export a copy</button>
-          <button id="backupNow" type="button">Back up now</button>
         </menu>
       </form>
     </dialog>

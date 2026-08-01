@@ -176,7 +176,6 @@ const els = {
   nestDeckError: document.querySelector("#nestDeckError"),
   nestDeckSave: document.querySelector("#nestDeckSave"),
   restoreBackup: document.querySelector("#restoreBackup"),
-  restoreDialog: document.querySelector("#restoreDialog"),
   backupList: document.querySelector("#backupList"),
   restoreDir: document.querySelector("#restoreDir"),
   backupNow: document.querySelector("#backupNow"),
@@ -184,6 +183,7 @@ const els = {
   backupInterval: document.querySelector("#backupInterval"),
   backupStatus: document.querySelector("#backupStatus"),
   exportFromData: document.querySelector("#exportFromData"),
+  importFileSettings: document.querySelector("#importFileSettings"),
   usageFill: document.querySelector("#usageFill"),
   usageText: document.querySelector("#usageText"),
   emptyCards: document.querySelector("#emptyCards"),
@@ -287,21 +287,21 @@ function bindEvents() {
   els.shuffleCards.addEventListener("click", shuffleCards);
   els.exportCards.addEventListener("click", exportCards);
   els.exportAnki.addEventListener("click", exportAnkiTsv);
-  els.importFile.addEventListener("change", async () => {
-    const file = els.importFile.files[0];
-    els.importFile.value = "";
+  const importFromInput = async (input) => {
+    const file = input.files[0];
+    input.value = "";
     if (!file) return;
     const result = importCardsFromText(await file.text());
     showToast(result.error ? result.error : describeReport(result.report));
+  };
+  els.importFile.addEventListener("change", () => importFromInput(els.importFile));
+  els.importFileSettings.addEventListener("change", async () => {
+    await importFromInput(els.importFileSettings);
+    renderDataPanel();
   });
 
-  els.restoreBackup.addEventListener("click", () => {
-    els.backupEnabled.checked = state.backupEnabled;
-    els.backupInterval.value = String(state.backupIntervalMin);
-    renderDataPanel();
-    els.restoreDialog.showModal();
-    renderBackupList();
-  });
+  // The menu entry is a signpost now: the panel itself lives in Settings.
+  els.restoreBackup.addEventListener("click", () => switchView("settings"));
   els.backupEnabled.addEventListener("change", () => {
     setBackupEnabled(els.backupEnabled.checked);
     renderDataPanel();
@@ -402,8 +402,8 @@ async function renderBackupList() {
         return;
       }
       const result = importCardsFromText(text);
-      els.restoreDialog.close();
       showToast(result.error ? result.error : describeReport(result.report));
+      renderDataPanel();
     });
     els.backupList.append(button);
   }
@@ -594,6 +594,14 @@ function switchView(view) {
   document.querySelectorAll(".view").forEach((panel) => panel.classList.remove("active"));
   document.querySelector(`#${view}View`).classList.add("active");
   setLastView(view);
+  // Settings shows live figures (storage in use, when the last backup ran), so
+  // they're read when the tab opens rather than left to go stale in the DOM.
+  if (view === "settings") {
+    els.backupEnabled.checked = state.backupEnabled;
+    els.backupInterval.value = String(state.backupIntervalMin);
+    renderDataPanel();
+    renderBackupList();
+  }
 }
 
 // Put the UI back the way it was left: the open tab and the two search boxes.
