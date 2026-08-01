@@ -15,6 +15,7 @@ import {
   orderByIds,
   moveById,
   deckRows,
+  applyDeckTree,
   subtreeIds,
   childDecks,
   validateNesting,
@@ -223,4 +224,59 @@ test("nesting is allowed one level deep, and never onto itself", () => {
     validateNesting([{ id: "d", name: "Default deck", builtIn: true }, ...NESTED], "d", "lang"),
     /top level/i,
   );
+});
+
+const tree = (decks) =>
+  decks.map((deck) => `${deck.id}${deck.parentId ? `<${deck.parentId}` : ""}`).join(" ");
+
+test("applyDeckTree lands order and parentage together", () => {
+  const decks = [
+    { id: "lang", name: "Chinese" },
+    { id: "verbs", name: "Verbs" },
+    { id: "misc", name: "Misc" },
+  ];
+  // Verbs dropped inside Chinese, Misc moved to the front.
+  const next = applyDeckTree(decks, [
+    { id: "misc", parentId: null },
+    { id: "lang", parentId: null },
+    { id: "verbs", parentId: "lang" },
+  ]);
+  assert.equal(tree(next), "misc lang verbs<lang");
+  assert.equal(tree(decks), "lang verbs misc", "input untouched");
+});
+
+test("applyDeckTree refuses illegal parentage without losing the move", () => {
+  const decks = [
+    { id: "lang", name: "Chinese" },
+    { id: "verbs", name: "Verbs", parentId: "lang" },
+    { id: "misc", name: "Misc" },
+    { id: "home", name: "Default deck", builtIn: true },
+  ];
+  // Misc into a sub-deck would be two levels deep — parentage rejected, but
+  // the reorder it came with still applies.
+  const nested = applyDeckTree(decks, [
+    { id: "misc", parentId: "verbs" },
+    { id: "lang", parentId: null },
+    { id: "verbs", parentId: "lang" },
+    { id: "home", parentId: null },
+  ]);
+  assert.equal(tree(nested), "misc lang verbs<lang home");
+  // Same order in, one parentage change at a time, so only the rejection shows.
+  const asIs = (changes) =>
+    decks.map((deck) => ({
+      id: deck.id,
+      parentId: deck.id in changes ? changes[deck.id] : deck.parentId || null,
+    }));
+  // A deck that has sub-decks can't be filed inside another one.
+  assert.equal(
+    tree(applyDeckTree(decks, asIs({ lang: "misc" }))),
+    "lang verbs<lang misc home",
+  );
+  // Nor can the built-in deck.
+  assert.equal(
+    tree(applyDeckTree(decks, asIs({ home: "misc" }))),
+    "lang verbs<lang misc home",
+  );
+  // An unchanged arrangement returns the same array, so callers skip the save.
+  assert.equal(applyDeckTree(decks, decks.map((d) => ({ id: d.id, parentId: d.parentId || null }))), decks);
 });

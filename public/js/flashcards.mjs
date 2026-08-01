@@ -14,10 +14,10 @@ import {
 import {
   createCard,
   syncFlattened,
-  orderByIds,
   moveById,
   childDecks,
   validateNesting,
+  applyDeckTree,
   DEFAULT_DECK_ID,
 } from "./carddata.mjs";
 import { schedule } from "./scheduler.mjs";
@@ -206,14 +206,41 @@ export function deleteDeck(id, mode = "move") {
   return {};
 }
 
-// Commit a drag-reorder from the sidebar: `ids` is the order the rows ended up
-// in. The order *is* state.decks' order, persisted with the decks themselves.
-export function setDeckOrder(ids) {
-  const next = orderByIds(state.decks, ids);
-  if (next === state.decks) return;
+// Commit a drag that may also have changed parentage: `entries` is
+// [{ id, parentId }] in row order. Returns { nested, undo } — `nested` names
+// what actually moved into or out of a deck, so the caller can offer an undo
+// (a misdrop here changes what a study session contains, not just the order).
+export function setDeckTree(entries) {
+  const snapshot = state.decks;
+  const next = applyDeckTree(snapshot, entries);
+  if (next === snapshot) return { nested: null };
+  const before = new Map(snapshot.map((deck) => [deck.id, deck.parentId || null]));
+  const reparented = next.filter(
+    (deck) => before.get(deck.id) !== (deck.parentId || null),
+  );
   state.decks = next;
+  // Dropping into a folded deck would hide the result — open it.
+  for (const deck of reparented) {
+    if (!deck.parentId) continue;
+    const parent = getDeck(deck.parentId);
+    if (parent?.collapsed) parent.collapsed = false;
+  }
   saveDecks();
-  renderDeckNav();
+  renderAll();
+  if (!reparented.length) return { nested: null };
+  const deck = reparented[0];
+  const parent = deck.parentId ? getDeck(deck.parentId) : null;
+  return {
+    nested: {
+      name: deck.name,
+      into: parent ? parent.name : null,
+    },
+    undo: () => {
+      state.decks = snapshot;
+      saveDecks();
+      renderAll();
+    },
+  };
 }
 
 // Fold a parent deck's sub-decks away. Stored on the deck, so the sidebar

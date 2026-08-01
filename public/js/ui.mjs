@@ -19,7 +19,7 @@ import { activateLine } from "./player.mjs";
 import {
   removeCard,
   moveCardToDeck,
-  setDeckOrder,
+  setDeckTree,
   moveDeckBy,
   toggleDeckCollapsed,
   addDeck,
@@ -295,7 +295,7 @@ export function renderDeckNav(els) {
     const draggable = deckId !== "all";
     const drag = draggable ? ` draggable="true"` : "";
     const grip = `<span class="deck-grip${draggable ? "" : " deck-grip-empty"}"${
-      draggable ? ' title="Drag to reorder"' : ""
+      draggable ? ' title="Drag to reorder, or onto a deck to nest it"' : ""
     } aria-hidden="true">⠿</span>`;
     // A parent's twisty folds its sub-decks away. Leaves get an empty one so
     // every label starts at the same x.
@@ -463,21 +463,84 @@ function setupDeckReorder(nav) {
     }
   };
 
-  // Persist whatever order the DOM ended up in.
+  // Persist whatever arrangement the DOM ended up in — order and parentage
+  // together, since a drag can change both.
   const commit = () => {
     if (!dragged) return;
     dragged.classList.remove("dragging");
+    clearNestTarget();
     dragged = null;
     grabbed = null;
-    setDeckOrder([...nav.querySelectorAll(DECK)].map((row) => row.dataset.deck));
+    const entries = [...nav.querySelectorAll(DECK)].map((row) => ({
+      id: row.dataset.deck,
+      parentId: row.dataset.parent || null,
+    }));
+    const { nested, undo } = setDeckTree(entries);
+    if (!nested) return;
+    showToast(
+      nested.into
+        ? `Moved "${nested.name}" into "${nested.into}".`
+        : `Moved "${nested.name}" to the top level.`,
+      { actions: [{ label: "Undo", onClick: undo }] },
+    );
   };
 
-  // Only the grip starts a drag: the rest of the row is a button you click to
-  // select a deck, and dragging that by accident is annoying.
+  const clearNestTarget = () => {
+    for (const row of nav.querySelectorAll(".nest-target")) {
+      row.classList.remove("nest-target");
+    }
+  };
+
+  // Only a deck with no sub-decks of its own can be filed inside another —
+  // decks nest one level, so a group can be moved but not filed. That single
+  // restriction removes every ambiguous case (what would happen to the
+  // children?) and is one rule to learn. Read from state, not the DOM: a
+  // folded parent's children aren't rendered.
+  const canNest = (row) => {
+    const deck = getDeck(row.dataset.deck);
+    return Boolean(deck) && !deck.builtIn && getChildDecks(deck.id).length === 0;
+  };
+
+  // The last rendered row of a group — a top-level row's final sub-deck, or
+  // the row itself.
+  const lastRowOf = (row) => {
+    if (row.dataset.parent) return row;
+    const kids = nav.querySelectorAll(
+      `${DECK}[data-parent="${CSS.escape(row.dataset.deck)}"]`,
+    );
+    return kids.length ? kids[kids.length - 1] : row;
+  };
+
+  // The parent an insertion slot implies: dropping below a sub-deck joins that
+  // group, dropping between a parent and its children lands inside it, and
+  // anything else is top level. This is what makes an insertion between two
+  // sub-decks a re-parent without needing a separate gesture.
+  const parentAtSlot = (reference) => {
+    let above = reference ? reference.previousElementSibling : nav.lastElementChild;
+    while (above && (!above.matches?.(DECK) || above === dragged)) {
+      above = above.previousElementSibling;
+    }
+    if (!above) return "";
+    if (above.dataset.parent) return above.dataset.parent;
+    return reference?.dataset.parent === above.dataset.deck
+      ? above.dataset.deck
+      : "";
+  };
+
+  // Move a row between levels in the preview (parentage + indentation).
+  const setRowParent = (row, parentId) => {
+    row.dataset.parent = parentId || "";
+    row.classList.toggle("deck-depth-1", Boolean(parentId));
+    row.classList.toggle("deck-depth-0", !parentId);
+  };
+
+  // The whole row is the drag handle — hunting for a 10px grip to move a deck
+  // is fussy. A click that doesn't move still selects the deck, so nothing is
+  // lost. The two controls inside the row are excluded: they're small targets
+  // where a few stray pixels of movement shouldn't turn into a drag.
   nav.addEventListener("pointerdown", (event) => {
-    grabbed = event.target.closest(".deck-grip")
-      ? event.target.closest(DECK)
-      : null;
+    const onControl = event.target.closest(".deck-twisty[role='button'], .deck-add");
+    grabbed = onControl ? null : event.target.closest(DECK);
   });
 
   nav.addEventListener("dragstart", (event) => {
@@ -513,23 +576,54 @@ function setupDeckReorder(nav) {
     event.dataTransfer.dropEffect = "move";
     const row = event.target.closest(DECK);
     if (!row || row === dragged) return;
-    // Dragging reorders within a level; changing a deck's parent is an
-    // explicit action ("Move into…"), not something a stray drop can do.
-    if (row.dataset.parent !== dragged.dataset.parent) return;
-    // Past a row's midpoint means the dragged deck belongs on its far side.
     const rect = row.getBoundingClientRect();
-    const group = subtreeRows(row);
-    const reference =
-      event.clientY < rect.top + rect.height / 2
-        ? row
-        : group[group.length - 1].nextElementSibling;
+    const offset = (event.clientY - rect.top) / rect.height;
+    const nestable = canNest(dragged);
     const moving = subtreeRows(dragged);
-    // Already in that slot: don't re-insert (re-inserting the drag source
-    // mid-drag can cancel the drag) and don't replay the animation.
-    if (reference === dragged) return;
-    if (reference === moving[moving.length - 1].nextElementSibling) return;
+    const tail = moving[moving.length - 1];
+
+    // A row that's already sitting in the slot needs no DOM move — but it may
+    // still need its parentage changed, which is the whole point of nesting a
+    // deck onto the one directly above it. Position and parentage are checked
+    // separately for exactly that reason.
+    const inPlace = (reference) =>
+      reference === dragged || reference === tail.nextElementSibling;
+
+    // Middle band of a top-level row: file the dragged deck inside it. Only
+    // offered for a deck that can actually be nested, so the band is never a
+    // dead zone that silently does nothing.
+    if (nestable && !row.dataset.parent && offset > 0.25 && offset < 0.75) {
+      clearNestTarget();
+      row.classList.add("nest-target");
+      // Land as the group's last child.
+      const last = lastRowOf(row);
+      const reference = last === dragged ? dragged : last.nextElementSibling;
+      const settled = inPlace(reference);
+      if (settled && dragged.dataset.parent === row.dataset.deck) return;
+      slide(() => {
+        setRowParent(dragged, row.dataset.deck);
+        if (!settled) nav.insertBefore(dragged, reference);
+      });
+      return;
+    }
+    clearNestTarget();
+
+    // Edges: an insertion, with the slot deciding the parent.
+    const reference = offset < 0.5 ? row : lastRowOf(row).nextElementSibling;
+    const parentId = parentAtSlot(reference);
+    // A deck that has sub-decks can only be reordered among its own level —
+    // it can't be filed inside anything, so a slot in another group is not a
+    // valid target rather than a silent no-op somewhere else.
+    if (!nestable && parentId !== dragged.dataset.parent) return;
+    const settled = inPlace(reference);
+    if (settled && parentId === dragged.dataset.parent) return;
     slide(() => {
-      for (const node of moving) nav.insertBefore(node, reference);
+      setRowParent(dragged, parentId);
+      // Re-inserting the drag source mid-drag can cancel the drag, so only
+      // touch the DOM when the row actually has to move.
+      if (!settled) {
+        for (const node of moving) nav.insertBefore(node, reference);
+      }
     });
   });
 
