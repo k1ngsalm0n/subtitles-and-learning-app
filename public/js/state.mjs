@@ -40,11 +40,34 @@ function loadString(key, fallback) {
   }
 }
 
+// A failed write used to pass in silence: the session kept working and the
+// loss only showed up on the next reload. It still can't throw — a half-saved
+// session is worse than an unsaved one — but it now reports, once, so the
+// warning arrives while the data is still in memory and exportable.
+// main.mjs supplies the reporter; state.mjs stays free of the DOM so the tests
+// can import it under Node.
+let _onStorageError = null;
+let _storageErrorReported = false;
+export function setStorageErrorHandler(handler) {
+  _onStorageError = handler;
+}
+// Revision counter: bumped on every successful save so the backup scheduler
+// can tell "nothing changed" from "changed but unsaved".
+export let storageRevision = 0;
+
 function storeString(key, value) {
   try {
     localStorage.setItem(key, value);
-  } catch {
-    // quota/unavailable — state still works for this session
+    storageRevision++;
+  } catch (error) {
+    if (_storageErrorReported) return;
+    _storageErrorReported = true;
+    // Reporting must never take the app down with it.
+    try {
+      _onStorageError?.(error);
+    } catch {
+      // no reporter, or it threw — nothing more we can do here
+    }
   }
 }
 

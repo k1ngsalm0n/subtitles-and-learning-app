@@ -7,6 +7,11 @@ import { handleLookup } from "./lookup.mjs";
 import { handleTranslate } from "./translate.mjs";
 import { handleRomanize } from "./romanize.mjs";
 import { handleStrokes } from "./strokes.mjs";
+import {
+  handleSaveBackup,
+  handleListBackups,
+  handleReadBackup,
+} from "./backup.mjs";
 import { serveStatic } from "./static.mjs";
 import { sendJson } from "./util.mjs";
 
@@ -53,6 +58,18 @@ createServer(async (req, res) => {
     }
     if (req.method === "GET" && req.url.startsWith("/api/strokes")) {
       await handleStrokes(req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/backup") {
+      await handleSaveBackup(req, res);
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/backups") {
+      await handleListBackups(req, res);
+      return;
+    }
+    if (req.method === "GET" && req.url.startsWith("/api/backup?")) {
+      await handleReadBackup(req, res);
       return;
     }
 

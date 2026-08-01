@@ -34,8 +34,23 @@ explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
 (pronunciation), `strokes.mjs` (Han stroke order: indexes
 `data/graphics.txt` once by byte range and serves
 `GET /api/strokes?chars=你好`; degrades to `{}` when the file is absent),
-`segment.mjs`, `cookies.mjs`. Python tests in `test/`, JS
-tests run via `node --test`.
+`segment.mjs`, `cookies.mjs`, `backup.mjs` (see below). Python tests in
+`test/`, JS tests run via `node --test` (also in CI on every PR —
+`.github/workflows/test.yml`; `main` is protected and requires it).
+
+**Backups.** Cards live only in the browser's localStorage, which a "clear
+site data", a private window, or a changed port can wipe. `backup.mjs` takes
+the same JSON `Export (JSON)` produces (`POST /api/backup`) and writes it to
+`~/.local/share/miraa-studio/backups` — outside the repo on purpose, so it
+can't be committed or lost with a checkout. `MIRAA_BACKUP_DIR` overrides.
+Twenty snapshots are kept, written temp-then-rename, and a store with no
+cards is refused when the newest snapshot has some (an empty payload is what
+a corrupted read looks like, and twenty of them would rotate away every good
+backup). The frontend's `backup.mjs` posts every 10 minutes when
+`storageRevision` has moved and on `pagehide`; "Restore from backup…" in the
+card panel menu lists them and merges one back in. Failed localStorage writes
+are no longer silent: `setStorageErrorHandler` (state.mjs) reports once per
+session and main.mjs turns that into a toast offering Export/Back up.
 
 Flashcards (frontend): `carddata.mjs` is the pure data layer (field registry,
 built-in templates/decks, flattening, legacy migration — tested under Node),
