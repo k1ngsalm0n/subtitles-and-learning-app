@@ -582,7 +582,7 @@ def read_captions(video_path):
     from rapidocr import RapidOCR
 
     engine = RapidOCR()
-    workspace = tempfile.mkdtemp(prefix="miraa-ocr-")
+    workspace = tempfile.mkdtemp(prefix="stele-ocr-")
     try:
         if not _probe_finds_text(engine, video_path, workspace):
             sys.stderr.write(

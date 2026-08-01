@@ -8,19 +8,22 @@
 //
 // Backups deliberately live *outside* the repo: a folder inside the project is
 // one `git add -A` from committing personal study data, and would vanish with
-// the checkout it was meant to outlive. Override with MIRAA_BACKUP_DIR.
+// the checkout it was meant to outlive. Override with STELE_BACKUP_DIR.
 
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { sendJson, readJsonBody, HttpError } from "./util.mjs";
 
-const DEFAULT_DIR = path.join(
-  process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
-  "miraa-studio",
-  "backups",
-);
-export const BACKUP_DIR = process.env.MIRAA_BACKUP_DIR || DEFAULT_DIR;
+const DATA_HOME =
+  process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+const DEFAULT_DIR = path.join(DATA_HOME, "stele", "backups");
+export const BACKUP_DIR = process.env.STELE_BACKUP_DIR || DEFAULT_DIR;
+
+// The app was called something else before, and existing snapshots are still
+// on disk under that name. This is the only place the old name survives.
+const LEGACY_DIR = path.join(DATA_HOME, "miraa-studio", "backups");
+const LEGACY_NAME_RE = /^miraa-backup-(\d{8}-\d{6})\.json$/;
 
 // Twenty snapshots at ~10 minute intervals is a few hours of history, which is
 // what matters — the failure this guards against is noticed immediately.
@@ -28,16 +31,57 @@ const KEEP = 20;
 // Backups are the one payload that can legitimately be large (a whole deck
 // with example sentences), so they don't use the shared 1 MB request cap.
 const MAX_BACKUP_BYTES = 20_000_000;
-const NAME_RE = /^miraa-backup-\d{8}-\d{6}\.json$/;
+const NAME_RE = /^stele-backup-\d{8}-\d{6}\.json$/;
 
 function backupName(now = new Date()) {
   const pad = (n) => String(n).padStart(2, "0");
   const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
   const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  return `miraa-backup-${date}-${time}.json`;
+  return `stele-backup-${date}-${time}.json`;
+}
+
+// Move the old folder across, once, before anything reads it — a rename of the
+// app must not quietly strand months of history. Runs only for the default
+// location: if STELE_BACKUP_DIR is set, the folder is the user's business.
+// Anything that fails here is left exactly as it was.
+let _moved = null;
+function adoptLegacyDir() {
+  if (BACKUP_DIR !== DEFAULT_DIR) return Promise.resolve();
+  _moved ??= (async () => {
+    const exists = (dir) =>
+      fs
+        .access(dir)
+        .then(() => true)
+        .catch(() => false);
+    if (await exists(BACKUP_DIR)) return;
+    if (!(await exists(LEGACY_DIR))) return;
+
+    await fs.mkdir(path.dirname(BACKUP_DIR), { recursive: true });
+    try {
+      await fs.rename(LEGACY_DIR, BACKUP_DIR);
+    } catch {
+      return; // different filesystem, permissions — leave the originals be
+    }
+    // Bring the filenames along too, so nothing downstream has to know the
+    // old name existed.
+    for (const name of await fs.readdir(BACKUP_DIR).catch(() => [])) {
+      const stamp = name.match(LEGACY_NAME_RE)?.[1];
+      if (!stamp) continue;
+      await fs
+        .rename(
+          path.join(BACKUP_DIR, name),
+          path.join(BACKUP_DIR, `stele-backup-${stamp}.json`),
+        )
+        .catch(() => {});
+    }
+    // Only removes it if it's empty, which is what we want.
+    await fs.rmdir(path.dirname(LEGACY_DIR)).catch(() => {});
+  })();
+  return _moved;
 }
 
 async function listFiles() {
+  await adoptLegacyDir();
   const entries = await fs.readdir(BACKUP_DIR).catch(() => []);
   return entries.filter((name) => NAME_RE.test(name)).sort().reverse();
 }
@@ -110,6 +154,7 @@ export async function handleListBackups(req, res) {
 }
 
 export async function handleReadBackup(req, res) {
+  await adoptLegacyDir();
   const name = new URL(req.url, "http://localhost").searchParams.get("name");
   // Name pattern only — never join user input onto a path without it.
   if (!name || !NAME_RE.test(name)) {

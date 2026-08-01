@@ -6,8 +6,8 @@ import path from "node:path";
 
 // BACKUP_DIR is read from the environment at module load, so point it at a
 // scratch directory before importing.
-const DIR = await fs.mkdtemp(path.join(os.tmpdir(), "miraa-backup-test-"));
-process.env.MIRAA_BACKUP_DIR = DIR;
+const DIR = await fs.mkdtemp(path.join(os.tmpdir(), "stele-backup-test-"));
+process.env.STELE_BACKUP_DIR = DIR;
 const { handleSaveBackup, handleListBackups, handleReadBackup } = await import(
   "../server/backup.mjs"
 );
@@ -62,7 +62,7 @@ const list = async () => {
 // distinct snapshots write the files directly rather than racing the clock.
 const seed = async (count) => {
   for (let i = 0; i < count; i++) {
-    const name = `miraa-backup-20260101-${String(Math.floor(i / 60)).padStart(2, "0")}${String(i % 60).padStart(2, "0")}00.json`;
+    const name = `stele-backup-20260101-${String(Math.floor(i / 60)).padStart(2, "0")}${String(i % 60).padStart(2, "0")}00.json`;
     await fs.writeFile(path.join(DIR, name), JSON.stringify(payload([`x${i}`])));
   }
 };
@@ -76,7 +76,7 @@ const clear = async () => {
 test("a backup round-trips through save, list and read", async () => {
   await clear();
   const saved = await save(["a", "b"]);
-  assert.match(saved.name, /^miraa-backup-\d{8}-\d{6}\.json$/);
+  assert.match(saved.name, /^stele-backup-\d{8}-\d{6}\.json$/);
   assert.equal(saved.cards, 2);
 
   const files = await list();
@@ -133,7 +133,7 @@ test("payloads that aren't an export are refused", async () => {
 test("a backup name is a name, never a path", async () => {
   await clear();
   await save(["a"]);
-  for (const name of ["../../etc/passwd", "/etc/passwd", "miraa-backup-x.json", ""]) {
+  for (const name of ["../../etc/passwd", "/etc/passwd", "stele-backup-x.json", ""]) {
     await assert.rejects(
       () =>
         handleReadBackup(

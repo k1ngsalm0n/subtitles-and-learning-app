@@ -11,28 +11,33 @@ import {
 import { migrateSchedules } from "./scheduler.mjs";
 
 export const STORAGE_KEYS = {
-  cards: "miraaStudio.cards",
-  decks: "miraaStudio.decks",
-  templates: "miraaStudio.templates",
-  defaultTemplate: "miraaStudio.defaultTemplate",
-  lastDeck: "miraaStudio.lastDeck",
-  dailyStats: "miraaStudio.dailyStats",
-  sources: "miraaStudio.sources",
-  theme: "miraaStudio.theme",
-  session: "miraaStudio.session",
-  view: "miraaStudio.view",
-  selectedDeck: "miraaStudio.selectedDeck",
-  cardSearch: "miraaStudio.cardSearch",
-  transcriptSearch: "miraaStudio.transcriptSearch",
-  translateTo: "miraaStudio.translateTo",
-  backupEnabled: "miraaStudio.backupEnabled",
-  backupInterval: "miraaStudio.backupInterval",
+  cards: "stele.cards",
+  decks: "stele.decks",
+  templates: "stele.templates",
+  defaultTemplate: "stele.defaultTemplate",
+  lastDeck: "stele.lastDeck",
+  dailyStats: "stele.dailyStats",
+  sources: "stele.sources",
+  theme: "stele.theme",
+  accent: "stele.accent",
+  // The accent *resolved to a colour*, cached so the pre-paint script in
+  // index.html can apply it without knowing the palette (see applyAccent).
+  accentColor: "stele.accentColor",
+  settingsPage: "stele.settingsPage",
+  session: "stele.session",
+  view: "stele.view",
+  selectedDeck: "stele.selectedDeck",
+  cardSearch: "stele.cardSearch",
+  transcriptSearch: "stele.transcriptSearch",
+  translateTo: "stele.translateTo",
+  backupEnabled: "stele.backupEnabled",
+  backupInterval: "stele.backupInterval",
 };
 
 // Everything this app stores about you lives under this prefix, in this
 // browser. Used to total up usage for the data panel — you can't be in control
 // of storage you can't see.
-export const STORAGE_PREFIX = "miraaStudio.";
+export const STORAGE_PREFIX = "stele.";
 
 // Per-deck daily caps (used when a deck doesn't set its own).
 export const DEFAULT_NEW_PER_DAY = 20;
@@ -121,6 +126,8 @@ export const state = {
   lastDeckId: loadString(STORAGE_KEYS.lastDeck, DEFAULT_DECK_ID),
   // Tab open in the nav bar, so a reload lands you back where you were.
   lastView: loadString(STORAGE_KEYS.view, "study"),
+  // …and the page the settings wheel was left on, for the same reason.
+  settingsPage: loadString(STORAGE_KEYS.settingsPage, "appearance"),
   cardSearch: loadString(STORAGE_KEYS.cardSearch, ""),
   // Study view: the transcript filter and the translate bar's target language.
   transcriptSearch: loadString(STORAGE_KEYS.transcriptSearch, ""),
@@ -376,6 +383,14 @@ export function setLastDeck(deckId) {
 export function setLastView(view) {
   state.lastView = view || "study";
   storeString(STORAGE_KEYS.view, state.lastView);
+}
+
+// Which page the settings wheel is parked on. Same reasoning as the tab above:
+// coming back to Settings and finding yourself somewhere else reads as the app
+// forgetting what you were doing.
+export function setSettingsPage(page) {
+  state.settingsPage = page || "appearance";
+  storeString(STORAGE_KEYS.settingsPage, state.settingsPage);
 }
 
 // The rest of the per-view UI state that should survive a reload: which deck

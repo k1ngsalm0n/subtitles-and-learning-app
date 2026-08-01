@@ -3,7 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Learning with subtitles</title>
+    <title>Stele</title>
+    <!-- main.mjs imports 25 other modules, and without this the browser
+         only discovers each level after parsing the one above it. That
+         waterfall is the window in which restored state has not been
+         applied yet. Declaring the graph up front makes it one parallel
+         burst. Add a line when you add a module. -->
+    <link rel="modulepreload" href="./js/appearance.mjs" />
+    <link rel="modulepreload" href="./js/backup.mjs" />
+    <link rel="modulepreload" href="./js/carddata.mjs" />
+    <link rel="modulepreload" href="./js/cardface.mjs" />
+    <link rel="modulepreload" href="./js/cardmodal.mjs" />
+    <link rel="modulepreload" href="./js/flashcards.mjs" />
+    <link rel="modulepreload" href="./js/languages.mjs" />
+    <link rel="modulepreload" href="./js/lookup.mjs" />
+    <link rel="modulepreload" href="./js/miniplayer.mjs" />
+    <link rel="modulepreload" href="./js/player.mjs" />
+    <link rel="modulepreload" href="./js/portability.mjs" />
+    <link rel="modulepreload" href="./js/practice.mjs" />
+    <link rel="modulepreload" href="./js/romanize.mjs" />
+    <link rel="modulepreload" href="./js/scheduler.mjs" />
+    <link rel="modulepreload" href="./js/state.mjs" />
+    <link rel="modulepreload" href="./js/strokegrade.mjs" />
+    <link rel="modulepreload" href="./js/strokes.mjs" />
+    <link rel="modulepreload" href="./js/subtitle.mjs" />
+    <link rel="modulepreload" href="./js/templates.mjs" />
+    <link rel="modulepreload" href="./js/toast.mjs" />
+    <link rel="modulepreload" href="./js/translate.mjs" />
+    <link rel="modulepreload" href="./js/tts.mjs" />
+    <link rel="modulepreload" href="./js/ui.mjs" />
+    <link rel="modulepreload" href="./js/util.mjs" />
+    <link rel="modulepreload" href="./js/wheel.mjs" />
     <style>
 :root {
   color-scheme: dark;
@@ -19,6 +49,7 @@
   --danger: #f87171;
   --shadow: 0 4px 24px rgba(0,0,0,0.3);
   --radius: 12px;
+  --topbar-h: 52px;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -84,7 +115,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
   align-items: center;
   gap: 16px;
   padding: 0 24px;
-  height: 52px;
+  height: var(--topbar-h);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(12px);
@@ -171,6 +202,19 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
 :root[data-view="settings"] .nav-tab[data-view="settings"] {
   background: var(--surface-2);
   color: var(--text);
+}
+/* Same correction for the settings wheel's page. Add a line here when you add
+   a page, exactly as above. */
+:root[data-settings-page] .settings-page { display: none; }
+:root[data-settings-page="data"] .settings-page[data-page="data"],
+:root[data-settings-page="backups"] .settings-page[data-page="backups"],
+:root[data-settings-page="cookies"] .settings-page[data-page="cookies"] {
+  display: block;
+}
+/* Restored state must appear, not animate in. Dropped after the first frame. */
+:root.booting * {
+  transition: none !important;
+  animation: none !important;
 }
 
 /* Study view — video + controls on the left, transcript docked on the right.
@@ -474,17 +518,187 @@ rt {
   grid-template-columns: 380px 1fr;
   gap: 20px;
 }
-/* Settings reads top to bottom in one column — it's prose and controls, not a
-   workspace, and a narrow measure keeps the explanations readable. */
-.settings-layout {
-  display: grid;
-  gap: 16px;
-  max-width: 620px;
+/* Settings: a wheel of page names parked in the middle of the window, and one
+   page at a time beside it. Nothing in here is boxed — the wheel has no surface
+   of its own and the panels drop their frame — so it reads as a single sheet
+   rather than a stack of cards. The left offset matches the wheel's width plus
+   its gap; both are pinned to the same centre line so they stay aligned at any
+   window width. */
+/* The wheel is pinned to the middle of the space below the topbar, so the page
+   beside it is centred on the same line — otherwise a short page floats at the
+   top while the wheel sits halfway down, and the two look unrelated. */
+#settingsView.active {
+  display: flex;
+  align-items: center;
+  align-items: safe center; /* a long page scrolls instead of clipping */
+  min-height: calc(100vh - var(--topbar-h) - 40px);
+  min-height: calc(100dvh - var(--topbar-h) - 40px);
 }
+.settings-layout {
+  width: 100%;
+  max-width: 790px;
+  margin: 0 auto;
+  padding-left: 214px;
+}
+.settings-layout .panel {
+  border: none;
+  background: none;
+  border-radius: 0;
+  padding: 0;
+}
+/* Class-driven, like .view above, so the pre-paint rules can pick the right
+   page before any module has loaded. */
+.settings-page { display: none; }
+.settings-page.active { display: block; }
 .settings-layout h2 { font-size: 17px; margin-bottom: 8px; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .settings-layout .data-row { margin-top: 8px; }
 .settings-layout .modal-section-label { margin-top: 16px; }
+
+.settings-wheel {
+  --wheel-item: 44px;
+  --wheel-height: 220px;
+  position: fixed;
+  top: calc(50% + var(--topbar-h) / 2);
+  left: max(24px, calc(50% - 395px));
+  width: 196px;
+  transform: translateY(-50%);
+  z-index: 3;
+}
+.wheel-scroller {
+  height: var(--wheel-height);
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  perspective: 700px;
+  outline: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 78%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 78%, transparent 100%);
+}
+.wheel-scroller::-webkit-scrollbar { display: none; }
+.wheel-scroller:focus-visible .wheel-list {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+  border-radius: 10px;
+}
+.wheel-list {
+  list-style: none;
+  padding: calc((var(--wheel-height) - var(--wheel-item)) / 2) 0;
+  transform-style: preserve-3d;
+}
+.wheel-item {
+  height: var(--wheel-item);
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  scroll-snap-align: center;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  will-change: transform, opacity;
+  transition: color 0.16s ease;
+}
+/* No band, no box: the row in the middle is the one that's bigger and coloured. */
+.wheel-item[aria-selected="true"] {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* Accent dial */
+.accent-bay {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: end;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  transition: border-top-color 0.18s ease;
+}
+/* With no frame to tint, this rule carries the preview state instead. */
+.accent-bay.previewing { border-top-color: color-mix(in srgb, var(--accent) 70%, transparent); }
+.accent-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.accent-pill {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.accent-pill.settled { color: var(--muted); background: var(--surface-2); }
+.accent-name { font-size: 20px; font-weight: 600; line-height: 1.1; }
+.accent-copy .data-note { max-width: 32ch; }
+#applyAccent:not(:disabled) {
+  background: var(--accent);
+  border-color: transparent;
+  color: #000;
+  font-weight: 600;
+}
+#applyAccent:disabled { opacity: 0.5; cursor: default; }
+.accent-dial-wrap { display: grid; justify-items: center; gap: 6px; }
+.accent-dial {
+  position: relative;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px -10px rgba(0,0,0,0.6);
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.accent-dial:active { cursor: grabbing; }
+.accent-dial:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
+.accent-face { position: absolute; inset: 0; border-radius: 50%; will-change: transform; }
+.accent-swatch {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
+}
+.accent-hub {
+  position: absolute;
+  inset: 26px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 4px var(--bg), 0 2px 8px -3px rgba(0,0,0,0.6);
+  transition: background 0.18s ease;
+  pointer-events: none;
+}
+.accent-notch {
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  margin-left: -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 8px solid var(--text);
+  pointer-events: none;
+}
+.accent-hint { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* Too narrow to park a wheel beside the page: it goes back into the flow. */
+@media (max-width: 900px) {
+  #settingsView.active { display: block; min-height: 0; }
+  .settings-layout { padding-left: 0; max-width: 620px; }
+  .settings-wheel {
+    position: static;
+    transform: none;
+    width: auto;
+    margin-bottom: 12px;
+    --wheel-height: 180px;
+  }
+  .accent-bay { grid-template-columns: 1fr; justify-items: start; }
+}
 .review-panel, .card-panel, .deck-sidebar, .panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1429,21 +1643,78 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
       // so the markup's default (Study) would flash and then jump. Pairs with
       // the :root[data-view] rules above; main.mjs clears the attribute once
       // the .active classes say the same thing.
+      // The app was called something else before, and its storage keys carried
+      // that name. Copy them across here — ahead of every module, so nothing
+      // reads a key that hasn't moved yet — and drop the originals so this
+      // only ever runs once. One try per key: if a write fails, the original
+      // is left exactly where it is rather than deleted.
       try {
-        var lastView = localStorage.getItem("miraaStudio.view");
+        var stale = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          var key = localStorage.key(i);
+          if (key && key.indexOf("miraaStudio.") === 0) stale.push(key);
+        }
+        for (var j = 0; j < stale.length; j++) {
+          try {
+            var moved = "stele." + stale[j].slice("miraaStudio.".length);
+            if (localStorage.getItem(moved) === null) {
+              localStorage.setItem(moved, localStorage.getItem(stale[j]));
+            }
+            localStorage.removeItem(stale[j]);
+          } catch (e) {
+            // out of room, or blocked — keep the original and move on
+          }
+        }
+      } catch (e) {
+        // storage unavailable — nothing to migrate
+      }
+
+      // Theme and accent have to land here too, for the same reason as the tab:
+      // main.mjs is a deferred module behind ~26 imports, so applying them there
+      // means the first frame is painted in the stylesheet's defaults and then
+      // visibly snaps to the saved look on every single refresh.
+      try {
+        var theme = localStorage.getItem("stele.theme");
+        document.documentElement.dataset.theme =
+          theme === "light" ? "light" : "dark";
+        // A colour cached by applyAccent(), so this script needs no palette.
+        // Validated before use: it comes out of storage, where anything can be.
+        var accent = localStorage.getItem("stele.accentColor");
+        if (accent && /^#[0-9a-f]{3,8}$/i.test(accent)) {
+          document.documentElement.style.setProperty("--accent", accent);
+        }
+      } catch (e) {
+        // storage unavailable — the stylesheet's defaults stand
+      }
+
+      try {
+        var lastView = localStorage.getItem("stele.view");
         if (lastView === "cards" || lastView === "library" || lastView === "settings") {
           document.documentElement.dataset.view = lastView;
+        }
+        // Same again one level down: the settings wheel's page. Restoring this
+        // from main.mjs meant Settings always painted on Appearance and then
+        // swapped once the modules landed.
+        var page = localStorage.getItem("stele.settingsPage");
+        if (page === "data" || page === "backups" || page === "cookies") {
+          document.documentElement.dataset.settingsPage = page;
         }
       } catch (e) {
         // storage unavailable — fall through to the markup's default
       }
+
+      // Nothing should animate its way into the state it was restored to: a
+      // button that fades from grey to accent on every load reads as a glitch.
+      // main.mjs drops this after the first frame, so real interactions still
+      // animate normally.
+      document.documentElement.classList.add("booting");
     </script>
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark">M</div>
-        <h1>Learning with subtitles</h1>
+        <div class="brand-mark">S</div>
+        <h1>Stele</h1>
       </div>
 
       <nav class="nav-tabs" aria-label="Main views">
@@ -1605,8 +1876,40 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
       </section>
 
       <section id="settingsView" class="view">
-        <div class="settings-layout">
-          <section class="panel">
+        <nav class="settings-wheel" aria-label="Settings pages">
+          <div id="settingsWheel" class="wheel-scroller" tabindex="0" role="listbox" aria-label="Settings pages"></div>
+        </nav>
+        <div id="settingsLayout" class="settings-layout">
+          <section class="panel settings-page active" data-page="appearance">
+            <h2>Appearance</h2>
+            <p class="muted data-note">How the studio looks while you read.</p>
+            <div class="data-row">
+              <span>Theme</span>
+              <div class="segmented">
+                <button id="themeDark" type="button">Dark</button>
+                <button id="themeLight" type="button">Light</button>
+              </div>
+            </div>
+            <div id="accentBay" class="accent-bay">
+              <div class="accent-copy">
+                <span id="accentPill" class="accent-pill">Preview only</span>
+                <p id="accentName" class="accent-name"></p>
+                <p id="accentNote" class="muted data-note"></p>
+                <button id="applyAccent" type="button">Use this everywhere</button>
+              </div>
+              <div class="accent-dial-wrap">
+                <div id="accentDial" class="accent-dial" tabindex="0" role="slider"
+                     aria-label="Accent colour" aria-valuemin="1" aria-valuemax="6" aria-valuenow="1">
+                  <div id="accentFace" class="accent-face"></div>
+                  <div id="accentHub" class="accent-hub"></div>
+                  <div class="accent-notch"></div>
+                </div>
+                <p class="muted accent-hint">turn me</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel settings-page" data-page="data">
             <h2>Your data</h2>
             <p class="muted data-note">Your cards, decks and templates are stored by <strong>this browser</strong>, for <strong>this exact address</strong>. Clearing site data, using a private window, or opening the app on a different port all leave them behind. Nothing is sent anywhere — the copies below are files on this machine.</p>
             <div class="data-usage">
@@ -1619,7 +1922,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             </div>
           </section>
 
-          <section class="panel">
+          <section class="panel settings-page" data-page="backups">
             <h2>Automatic backups</h2>
             <p class="muted data-note">A snapshot of everything above, written to a folder on this machine while the app is open. This is what survives the browser losing its storage.</p>
             <label class="data-row">
@@ -1645,8 +1948,8 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             <div id="backupList" class="backup-list"></div>
           </section>
 
-          <section class="panel">
-            <h2>Cookie Setup</h2>
+          <section class="panel settings-page" data-page="cookies">
+            <h2>Importing video</h2>
             <p class="muted data-note">YouTube may block downloads without cookies.</p>
             <div class="segmented" style="margin: 10px 0;">
               <button id="cookieModeNone" type="button" class="active">None</button>

@@ -1080,7 +1080,7 @@ async function openWordBubble(anchor, context, els) {
     : defs.length === 1 && !result.explanation && !result.meaning
       ? `<div class="bubble-meaning">${escapeHtml(defs[0])}</div>`
       : "";
-  // Part-of-speech tag at the bottom (Miraa-style). Only the LLM path provides
+  // Part-of-speech tag at the bottom (meaning-first). Only the LLM path provides
   // it, so the tag is simply omitted when absent.
   const posHtml = result.partOfSpeech
     ? `<div class="bubble-tag">${escapeHtml(result.partOfSpeech)}</div>`

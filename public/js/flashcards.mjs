@@ -336,7 +336,7 @@ export function exportCards() {
     templates: state.templates,
   });
   download(
-    "miraa-flashcards.json",
+    "stele-flashcards.json",
     JSON.stringify(payload, null, 2),
     "application/json",
   );
@@ -345,7 +345,7 @@ export function exportCards() {
 // Anki-ready TSV: front <tab> back <tab> deck name, one row per card.
 export function exportAnkiTsv() {
   download(
-    "miraa-flashcards-anki.tsv",
+    "stele-flashcards-anki.tsv",
     buildAnkiTsv(state.cards, state.decks),
     "text/tab-separated-values",
   );

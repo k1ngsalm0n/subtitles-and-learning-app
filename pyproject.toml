@@ -1,7 +1,7 @@
 [project]
-name = "subtitles-and-learning-app"
+name = "stele"
 version = "1.0.0"
-description = "Local transcription + offline translation pipeline for the Miraa-style Language Studio."
+description = "Local transcription + offline translation pipeline for Stele."
 requires-python = ">=3.10"
 
 # The Python side of the app: speech-to-text (Whisper) and offline

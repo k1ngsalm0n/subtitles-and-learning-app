@@ -47,7 +47,7 @@ blocked; evaluate-play works headless because chromium mutes).
   (word highlight while playing; transcript auto-centers the active
   line), mini player (scroll down with a video loaded →
   `#playerWrap.mini`, drag via `#miniDrag`, position persists in
-  localStorage `miraaStudio.miniPlayerPos`), transcript word click →
+  localStorage `stele.miniPlayerPos`), transcript word click →
   word bubble (needs LLM key in `.env` for real lookups).
 - Import/transcribe/translate flows need the Python venv + models —
   verify those against a short local file, not a URL, when possible.

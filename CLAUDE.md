@@ -5,7 +5,7 @@ re-cloning onto a fresh machine.
 
 ## What this is
 
-**Miraa-style Language Studio** — a dependency-free personal web app for
+**Stele** — a dependency-free personal web app for
 bilingual subtitle study: play local or imported video, show source + translated
 subtitles synced to playback, click words to save them as flashcards, and review
 with simple spaced repetition.
@@ -41,8 +41,8 @@ explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
 **Backups.** Cards live only in the browser's localStorage, which a "clear
 site data", a private window, or a changed port can wipe. `backup.mjs` takes
 the same JSON `Export (JSON)` produces (`POST /api/backup`) and writes it to
-`~/.local/share/miraa-studio/backups` — outside the repo on purpose, so it
-can't be committed or lost with a checkout. `MIRAA_BACKUP_DIR` overrides.
+`~/.local/share/stele/backups` — outside the repo on purpose, so it
+can't be committed or lost with a checkout. `STELE_BACKUP_DIR` overrides.
 Twenty snapshots are kept, written temp-then-rename, and a store with no
 cards is refused when the newest snapshot has some (an empty payload is what
 a corrupted read looks like, and twenty of them would rotate away every good
@@ -51,6 +51,46 @@ backup). The frontend's `backup.mjs` posts every 10 minutes when
 card panel menu lists them and merges one back in. Failed localStorage writes
 are no longer silent: `setStorageErrorHandler` (state.mjs) reports once per
 session and main.mjs turns that into a toast offering Export/Back up.
+
+**Settings.** One page at a time, chosen from a picker wheel parked in the
+middle of the window — `wheel.mjs` is the reusable drum (hidden scrollbar,
+snap-to-centre, one row per wheel notch because a notch is ~100px and a row is
+44, mouse drag, arrow keys). `createWheel` returns `reveal()`, which callers
+must invoke when the view becomes visible: nothing inside `display:none` has
+an offsetTop. Nothing else in Settings spins — switches, menus and buttons
+only. Appearance carries the accent dial (`appearance.mjs`): six schemes, each
+with a dark and a light value since `--accent` has to work on both grounds.
+Turning it repaints `.settings-layout` alone so a colour can be judged against
+real controls; "Use this everywhere" writes `--accent` onto `<html>` and
+persists the id. `setTheme` in main.mjs is the single entry point for the
+topbar toggle and the Appearance buttons, and re-resolves the accent because
+the theme decides which of the two values applies. Settings panels drop their
+frame (`.settings-layout .panel`) — the wheel has no surface either, so the
+page reads as one sheet.
+
+**The rename.** The app was called "Miraa-style Language Studio" until it
+became **Stele**. Two things carried the old name into places a rename can
+destroy, so both have a one-time migration and both are the *only* places the
+old name still appears:
+
+- **localStorage keys** were `miraaStudio.*`, now `stele.*`. The copy runs in
+  the inline `<head>` script in index.html — ahead of every module, so nothing
+  reads a key that hasn't moved yet. One `try` per key: a failed write leaves
+  the original where it is rather than deleting it.
+- **The backup folder** was `~/.local/share/miraa-studio/backups`, now
+  `~/.local/share/stele/backups`, and snapshots were `miraa-backup-*.json`.
+  `adoptLegacyDir()` in server/backup.mjs moves the folder and renames the
+  files inside it, once, before anything reads them — and only when
+  `STELE_BACKUP_DIR` is unset, since a custom folder is the user's business.
+
+Don't "tidy away" either legacy constant until you're sure no install still
+has the old keys or folder.
+
+main.mjs calls `init()` at the **end** of the module, not the middle: function
+declarations hoist but `const`s don't, and opening straight into Settings
+called `renderDataPanel()` before `ESTIMATED_QUOTA` had been evaluated. That
+threw, and the rest of `init` — including the first-paint `data-view` cleanup —
+never ran.
 
 Flashcards (frontend): `carddata.mjs` is the pure data layer (field registry,
 built-in templates/decks, flattening, legacy migration — tested under Node),

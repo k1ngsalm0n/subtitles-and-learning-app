@@ -177,7 +177,7 @@ export async function handleImportUrl(req, res) {
   const url = normalizeExternalUrl(body.url);
   await rejectPrivateHost(url);
 
-  const workspace = await mkdtemp(path.join(tmpdir(), "miraa-import-"));
+  const workspace = await mkdtemp(path.join(tmpdir(), "stele-import-"));
   try {
     await ensureCommand(
       YTDLP_BIN,

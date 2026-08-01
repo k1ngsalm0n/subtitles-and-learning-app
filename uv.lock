@@ -1565,7 +1565,7 @@ wheels = [
 ]
 
 [[package]]
-name = "subtitles-and-learning-app"
+name = "stele"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [

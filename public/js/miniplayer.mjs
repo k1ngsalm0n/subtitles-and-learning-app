@@ -3,7 +3,7 @@
 // the video stays watchable next to the transcript. The shell keeps the layout
 // slot, so nothing below it shifts and the IntersectionObserver stays stable.
 
-const POS_KEY = "miraaStudio.miniPlayerPos";
+const POS_KEY = "stele.miniPlayerPos";
 const MARGIN = 12;
 const MIN_WIDTH = 200;
 const RATIO = 16 / 9;

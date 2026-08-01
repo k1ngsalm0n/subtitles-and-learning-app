@@ -13,6 +13,7 @@ import {
   DEFAULT_REVIEWS_PER_DAY,
   STORAGE_KEYS,
   setLastView,
+  setSettingsPage,
   setSelectedDeck,
   setCardSearch,
   setTranscriptSearch,
@@ -45,6 +46,14 @@ import {
   readBackup,
 } from "./backup.mjs";
 import { describeReport } from "./portability.mjs";
+import { createWheel } from "./wheel.mjs";
+import {
+  createAccentDial,
+  applyAccent,
+  accentFor,
+  storedAccent,
+  storeAccent,
+} from "./appearance.mjs";
 import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
 import { setupCardModal, openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
@@ -186,6 +195,18 @@ const els = {
   importFileSettings: document.querySelector("#importFileSettings"),
   usageFill: document.querySelector("#usageFill"),
   usageText: document.querySelector("#usageText"),
+  settingsWheel: document.querySelector("#settingsWheel"),
+  settingsLayout: document.querySelector("#settingsLayout"),
+  themeDark: document.querySelector("#themeDark"),
+  themeLight: document.querySelector("#themeLight"),
+  accentBay: document.querySelector("#accentBay"),
+  accentDial: document.querySelector("#accentDial"),
+  accentFace: document.querySelector("#accentFace"),
+  accentHub: document.querySelector("#accentHub"),
+  accentName: document.querySelector("#accentName"),
+  accentNote: document.querySelector("#accentNote"),
+  accentPill: document.querySelector("#accentPill"),
+  applyAccent: document.querySelector("#applyAccent"),
   emptyCards: document.querySelector("#emptyCards"),
   emptyCardsDialog: document.querySelector("#emptyCardsDialog"),
   emptyCardsText: document.querySelector("#emptyCardsText"),
@@ -212,11 +233,16 @@ const els = {
 };
 
 setElements(els);
-init();
+
+// Settings owns two long-lived controls: the wheel of pages and the colour
+// dial. `appliedAccent` is the scheme the whole app is wearing; the dial can
+// sit on a different one while you're trying it out.
+let settingsPages = null;
+let accentDial = null;
+let appliedAccent = storedAccent();
 
 function init() {
-  document.documentElement.dataset.theme =
-    localStorage.getItem(STORAGE_KEYS.theme) || "dark";
+  setTheme(localStorage.getItem(STORAGE_KEYS.theme) || "dark", { store: false });
   // Before anything else can try to save: a failed write is silent inside
   // state.mjs by design, and this is what makes it audible. Fires once per
   // session, while the data is still in memory and exportable.
@@ -300,8 +326,13 @@ function bindEvents() {
     renderDataPanel();
   });
 
-  // The menu entry is a signpost now: the panel itself lives in Settings.
-  els.restoreBackup.addEventListener("click", () => switchView("settings"));
+  // The menu entry is a signpost now: the panel itself lives in Settings, so
+  // send the wheel to it rather than dropping the user on whichever page it
+  // was last left on.
+  els.restoreBackup.addEventListener("click", () => {
+    switchView("settings");
+    settingsPages?.selectById("backups");
+  });
   els.backupEnabled.addEventListener("change", () => {
     setBackupEnabled(els.backupEnabled.checked);
     renderDataPanel();
@@ -322,6 +353,8 @@ function bindEvents() {
     }
     renderBackupList();
   });
+
+  setupSettings();
 
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
@@ -601,6 +634,9 @@ function switchView(view) {
     els.backupInterval.value = String(state.backupIntervalMin);
     renderDataPanel();
     renderBackupList();
+    // The wheel measures itself, and nothing inside a display:none view has a
+    // size — so it can only be positioned once the view is actually on screen.
+    settingsPages?.reveal();
   }
 }
 
@@ -618,18 +654,105 @@ function restoreUiState() {
   // input event, so this doesn't loop back through the setters.
   els.searchInput.value = state.transcriptSearch;
   els.cardSearch.value = state.cardSearch;
-  // The inline <head> script stamped this so the right tab painted immediately.
-  // The .active classes now agree with it, so drop it and leave styling purely
-  // class-driven (keeps :hover and later switches working normally).
+  // The inline <head> script stamped these so the right tab and settings page
+  // painted immediately. The .active classes now agree with them, so drop them
+  // and leave styling purely class-driven (keeps :hover and later switches
+  // working normally).
   delete document.documentElement.dataset.view;
+  delete document.documentElement.dataset.settingsPage;
+  // Let things animate again, from the next frame — by which point everything
+  // restored above has already been painted in place rather than eased into.
+  requestAnimationFrame(() => {
+    document.documentElement.classList.remove("booting");
+  });
 }
 
 function toggleTheme() {
-  const next =
-    document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+}
+
+// One way in, so the topbar button and the Appearance page can't disagree.
+// Each accent scheme carries a dark and a light value, so changing theme also
+// changes which colour "the same accent" means.
+function setTheme(next, { store = true } = {}) {
   document.documentElement.dataset.theme = next;
-  localStorage.setItem(STORAGE_KEYS.theme, next);
+  if (store) localStorage.setItem(STORAGE_KEYS.theme, next);
   els.themeToggle.textContent = next === "dark" ? "☾" : "☀";
+  els.themeDark.classList.toggle("active", next === "dark");
+  els.themeLight.classList.toggle("active", next === "light");
+  applyAccent(appliedAccent, next);
+  if (accentDial) {
+    accentDial.repaint(next);
+    paintAccentState();
+  }
+}
+
+// The wheel picks the page; everything inside a page is an ordinary control.
+function setupSettings() {
+  const showSettingsPage = (id) => {
+    for (const page of document.querySelectorAll(".settings-page")) {
+      page.classList.toggle("active", page.dataset.page === id);
+    }
+  };
+
+  settingsPages = createWheel(
+    els.settingsWheel,
+    [
+      { id: "appearance", label: "Appearance" },
+      { id: "data", label: "Your data" },
+      { id: "backups", label: "Automatic backups" },
+      { id: "cookies", label: "Importing video" },
+    ],
+    (entry) => {
+      showSettingsPage(entry.id);
+      setSettingsPage(entry.id);
+    },
+    { startAt: state.settingsPage },
+  );
+  // createWheel deliberately doesn't fire onSelect for its starting row, so
+  // the markup (which hard-codes Appearance) is brought into line here.
+  showSettingsPage(state.settingsPage);
+
+  accentDial = createAccentDial({
+    dial: els.accentDial,
+    face: els.accentFace,
+    hub: els.accentHub,
+    onPreview: paintAccentState,
+  });
+  accentDial.show(appliedAccent, document.documentElement.dataset.theme);
+
+  els.applyAccent.addEventListener("click", () => {
+    appliedAccent = accentDial.scheme().id;
+    storeAccent(appliedAccent);
+    applyAccent(appliedAccent, document.documentElement.dataset.theme);
+    paintAccentState();
+  });
+  els.themeDark.addEventListener("click", () => setTheme("dark"));
+  els.themeLight.addEventListener("click", () => setTheme("light"));
+}
+
+// Turning the dial repaints Settings alone, so a colour can be judged against
+// real controls before the rest of the app commits to it.
+function paintAccentState() {
+  const scheme = accentDial.scheme();
+  const settled = scheme.id === appliedAccent;
+  els.accentName.textContent = scheme.name;
+  els.accentNote.textContent = scheme.note;
+  els.accentBay.classList.toggle("previewing", !settled);
+  els.accentPill.textContent = settled ? "In use everywhere" : "Preview only";
+  els.accentPill.classList.toggle("settled", settled);
+  els.applyAccent.disabled = settled;
+  els.applyAccent.textContent = settled
+    ? "Already in use"
+    : "Use this everywhere";
+  if (settled) {
+    els.settingsLayout.style.removeProperty("--accent");
+  } else {
+    els.settingsLayout.style.setProperty(
+      "--accent",
+      accentFor(scheme.id, document.documentElement.dataset.theme),
+    );
+  }
 }
 
 function handleVideoInput(event) {
@@ -933,3 +1056,9 @@ async function saveCookieSettings() {
     els.cookieStatus.textContent = err.message;
   }
 }
+
+// Started last, not from the middle of the file. Functions hoist but `const`s
+// don't: opening straight into Settings called renderDataPanel() before
+// ESTIMATED_QUOTA below had been evaluated, which threw and left the rest of
+// init — including the first-paint cleanup — unrun.
+init();

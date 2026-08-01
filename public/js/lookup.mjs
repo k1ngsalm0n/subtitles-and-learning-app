@@ -1,5 +1,5 @@
-const CACHE_KEY = "miraaStudio.lookupCache";
-const CACHE_VERSION_KEY = "miraaStudio.lookupCacheVersion";
+const CACHE_KEY = "stele.lookupCache";
+const CACHE_VERSION_KEY = "stele.lookupCacheVersion";
 // 11: explanation describes the word only + forced English output; bump to
 // drop stale entries.
 const CACHE_VERSION = 11;

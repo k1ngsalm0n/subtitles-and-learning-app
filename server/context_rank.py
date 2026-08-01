@@ -119,7 +119,7 @@ def main():
 
     best = scored[0]["def"] if scored else args.defs[0]
 
-    # Meaning-focused note (Miraa-style): say what the WORD means in this
+    # Meaning-focused note: say what the WORD means in this
     # context instead of dumping the whole sentence's translation. We use the
     # word-only translation, which is the model's gloss for the word as used
     # here. If it adds nothing over the chosen definition (`best`, already shown

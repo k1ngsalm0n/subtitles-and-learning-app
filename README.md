@@ -1,4 +1,4 @@
-# Miraa-style Language Studio
+# Stele
 
 A dependency-free personal web app for bilingual subtitle study: play local or
 imported video with source + translated subtitles synced to playback, a
