@@ -790,8 +790,12 @@ function setupImagesMode() {
         end: null,
         text: line.text,
         box: line.box,
+        // Interface furniture the recogniser picked up. Kept in the list so it
+        // gets translated too — it's only hidden — but folded away by default.
+        chrome: Boolean(line.chrome),
       }));
       state.activeIndex = 0;
+      state.showChrome = false;
       renderAll(els);
       // The point of the feature is the translation, so don't make them ask.
       await runTranslation(els);

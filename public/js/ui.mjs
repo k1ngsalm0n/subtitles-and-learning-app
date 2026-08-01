@@ -57,8 +57,14 @@ export function renderTranscript(els) {
   for (const card of state.cards) {
     if (card.word) savedWords.add(card.word);
   }
+  // Lines the recogniser found but nobody came for — a phone's clock, its
+  // battery, the "type a message" box. Folded away, never dropped: the toggle
+  // below the transcript brings them back, so a wrong guess costs a click.
+  const chrome = state.subtitles.filter((line) => line.chrome).length;
+
   const html = state.subtitles
     .map((line, index) => ({ line, index }))
+    .filter(({ line }) => !line.chrome || state.showChrome)
     .filter(
       ({ line }) =>
         !query ||
@@ -80,8 +86,16 @@ export function renderTranscript(els) {
     })
     .join("");
 
+  const toggle = chrome
+    ? `<button type="button" class="chrome-toggle" id="chromeToggle">${
+        state.showChrome
+          ? "Hide interface text"
+          : `Show ${chrome} line${chrome === 1 ? "" : "s"} of interface text`
+      }</button>`
+    : "";
+
   e.transcript.innerHTML =
-    html || `<p class="muted">No matching subtitles.</p>`;
+    (html || `<p class="muted">No matching subtitles.</p>`) + toggle;
 }
 
 let _transcriptDelegated = false;
@@ -91,6 +105,12 @@ export function setupTranscriptDelegation(els) {
   const e = els || _els;
 
   e.transcript.addEventListener("click", (event) => {
+    if (event.target.closest(".chrome-toggle")) {
+      state.showChrome = !state.showChrome;
+      renderTranscript(e);
+      return;
+    }
+
     const wordEl = event.target.closest(".word");
     if (wordEl) {
       event.stopPropagation();

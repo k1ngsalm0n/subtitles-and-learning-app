@@ -387,6 +387,19 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .dropzone.dragging .dz-drop { display: block; }
 /* Fills the row the way the URL box it replaces does. */
 #imageBrowse { flex: 1 1 180px; }
+/* Folded-away interface text: a quiet line, not a button competing with the
+   transcript it sits under. */
+.chrome-toggle {
+  height: auto;
+  margin: 6px 0 2px 12px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.chrome-toggle:hover { color: var(--accent); background: none; border-color: transparent; }
 .empty-player kbd {
   font: inherit;
   font-size: 12px;

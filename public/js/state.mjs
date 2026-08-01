@@ -115,6 +115,10 @@ export const state = {
   ),
   sources: loadJson(STORAGE_KEYS.sources, []),
   activeIndex: 0,
+  // Whether the transcript is currently showing the lines an image's own
+  // interface contributed (clock, battery, "type a message"). Per-image, so
+  // it isn't stored — a fresh screenshot starts folded.
+  showChrome: false,
   showingBack: false,
   learningLang: "zh",
   // Deck filter in the cards view: "all" or a deck id. Review draws from it.
