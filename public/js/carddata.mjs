@@ -127,6 +127,39 @@ export function deckRows(decks) {
   return rows;
 }
 
+// Apply a whole arrangement at once: `entries` is [{ id, parentId }] in the
+// order the rows ended up, which is what a drag produces. Order and parentage
+// land together — committing them separately would briefly describe a tree
+// that isn't allowed. Any parent change that fails validateNesting is dropped
+// (that deck keeps the parent it had) rather than rejecting the whole move, so
+// a stray drop can never leave the sidebar in a shape the renderer can't draw.
+export function applyDeckTree(decks, entries) {
+  const items = decks || [];
+  const list = entries || [];
+  const next = orderByIds(
+    items,
+    list.map((entry) => entry?.id),
+  );
+
+  // Parentage second: validate against the *new* ordering, and apply to copies
+  // so a rejected move leaves the original untouched.
+  const wanted = new Map(list.map((entry) => [entry?.id, entry?.parentId || null]));
+  const moved = next.map((deck) => {
+    const parentId = wanted.has(deck.id) ? wanted.get(deck.id) : deck.parentId || null;
+    return parentId === (deck.parentId || null) ? deck : { ...deck, parentId };
+  });
+  const result = moved.map((deck, index) => {
+    const original = next[index];
+    if (deck === original) return deck;
+    return validateNesting(moved, deck.id, deck.parentId) ? original : deck;
+  });
+
+  const unchanged =
+    result.length === items.length &&
+    result.every((deck, index) => deck === items[index]);
+  return unchanged ? items : result;
+}
+
 // Whether `deckId` may be nested under `parentId` (null = move to top level).
 // Returns an error message to show the user, or null when it's allowed.
 export function validateNesting(decks, deckId, parentId) {
