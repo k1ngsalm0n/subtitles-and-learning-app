@@ -31,9 +31,54 @@ _HAN = r"㐀-䶿一-鿿豈-﫿"
 _HAN_RUN = re.compile(f"[{_HAN}]+|[^{_HAN}]+")
 
 
+# Polyphone corrections, applied once before the first reading.
+#
+# pypinyin resolves a polyphone from its phrase dictionary and falls back to a
+# default reading when the phrase isn't in it. Its dictionary is good — 长城
+# cháng, 校长 zhǎng, 银行 háng, 重新 chóng all come out right — so corrections
+# belong only where the *fallback* is wrong, or where a common phrase is
+# missing. Anything genuinely ambiguous is left alone.
+#
+# 长: the bare character defaults to zhǎng, which makes 很长 "hěn zhǎng". cháng
+# is the commoner reading, and every zhǎng word above is in the phrase
+# dictionary, so flipping the default fixes 很长, 太长, 多长, 长时间 and 长 alone
+# without disturbing 长大, 校长, 队长, 成长 or 长辈.
+SINGLE_OVERRIDES = {"长": "cháng,zhǎng"}
+
+# Phrases the dictionary lacks, plus one it doesn't need but the changed default
+# above would otherwise alter.
+#
+# 干 is left defaulting to gàn: unlike 长, a bare 干 is genuinely either "dry" or
+# "to do", so only the unambiguous phrases are pinned.
+PHRASE_OVERRIDES = {
+    "很干": [["hěn"], ["gān"]],
+    "太干": [["tài"], ["gān"]],
+    # Both readings are real ("vehicle length" / "conductor"); keep the one
+    # pypinyin already gave rather than change it as a side effect.
+    "车长": [["chē"], ["zhǎng"]],
+}
+
+_tuned = False
+
+
+def _tune_pinyin():
+    """Apply the corrections once, before anything is read."""
+    global _tuned
+    if _tuned:
+        return
+    _tuned = True
+    try:
+        from pypinyin import load_phrases_dict, load_single_dict
+    except ImportError:
+        return
+    load_single_dict({ord(char): reading for char, reading in SINGLE_OVERRIDES.items()})
+    load_phrases_dict(PHRASE_OVERRIDES)
+
+
 def pinyin_tokens(text):
     from pypinyin import Style, pinyin
 
+    _tune_pinyin()
     tokens = []
     for run in _HAN_RUN.findall(text):
         if re.match(f"[{_HAN}]", run):
