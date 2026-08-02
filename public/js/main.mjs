@@ -49,6 +49,7 @@ import { describeReport } from "./portability.mjs";
 import { createWheel } from "./wheel.mjs";
 import { paintHighlight, clearHighlight } from "./imagehighlight.mjs";
 import { chooseScript } from "./zhscript.mjs";
+import { romanizeSubtitles } from "./romanize.mjs";
 import {
   createAccentDial,
   applyAccent,
@@ -368,12 +369,13 @@ function bindEvents() {
 
   setupSettings();
   setupImagesMode();
-  els.zhSimp.addEventListener("click", () =>
-    chooseScript("simp", els, () => renderTranscript(els)),
-  );
-  els.zhTrad.addEventListener("click", () =>
-    chooseScript("trad", els, () => renderTranscript(els)),
-  );
+  // One control, one behaviour: press it and you get the other script. Which
+  // half of it was pressed doesn't matter — the lit half is a readout, not a
+  // pair of targets.
+  els.zhScriptToggle.addEventListener("click", () => {
+    const next = state.zhScript === "trad" ? "simp" : "trad";
+    chooseScript(next, els, () => renderTranscript(els));
+  });
 
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
@@ -824,6 +826,10 @@ function setupImagesMode() {
       state.activeIndex = 0;
       state.showChrome = false;
       renderAll(els);
+      // Lines loaded from a subtitle file get their pronunciation line from
+      // loadSubtitles(); these bypass that, so ask for it here or a screenshot
+      // would be the one place in the app with no pinyin.
+      romanizeSubtitles();
       // The point of the feature is the translation, so don't make them ask.
       await runTranslation(els);
     } catch (error) {

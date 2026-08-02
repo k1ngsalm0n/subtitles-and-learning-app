@@ -16,7 +16,12 @@ import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
-import { displayText, savedWordForms, refreshScript } from "./zhscript.mjs";
+import {
+  displayText,
+  displayTokens,
+  savedWordForms,
+  refreshScript,
+} from "./zhscript.mjs";
 import {
   removeCard,
   moveCardToDeck,
@@ -76,14 +81,14 @@ export function renderTranscript(els) {
     )
     .map(({ line, index }) => {
       const translation = getTranslation(line);
-      // The source text is shown in the reader's chosen Chinese script. Ruby
-      // tokens are built from the original, so they're only used when no
-      // conversion is in play — otherwise the pronunciation would sit over
-      // characters it wasn't computed for.
+      // The source text is shown in the reader's chosen Chinese script, and
+      // the pronunciation that goes above it is the one computed for those
+      // characters — not the one computed for the script it was loaded in.
       const shown = displayText(line);
+      const tokens = displayTokens(line);
       const original =
-        line.tokens && line.tokens.length && shown === line.text
-          ? renderRubyTranscript(line.tokens, line.text, savedWords)
+        tokens && tokens.length
+          ? renderRubyTranscript(tokens, shown, savedWords)
           : tokenize(shown, savedWords);
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${line.start == null ? "" : formatTime(line.start)}</span>

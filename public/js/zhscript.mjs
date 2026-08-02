@@ -9,6 +9,7 @@
 // the browser gets all three wrong.
 
 import { state, setZhScript } from "./state.mjs";
+import { detectLanguage } from "./languages.mjs";
 
 // Han characters. Bopomofo, kana and Latin are all outside this, so a Japanese
 // or English transcript never offers the toggle.
@@ -90,6 +91,45 @@ export function savedWordForms(word) {
 }
 
 // ---------------------------------------------------------------------------
+// Pronunciation for converted text.
+//
+// A line's `tokens` are ruby pairs computed for the characters it was loaded
+// with. Show it in the other script and those pairs describe glyphs that are no
+// longer on screen, so the pinyin has to be fetched again for what is actually
+// being drawn. Same endpoint romanize.mjs uses, cached by the converted string.
+
+const ruby = new Map();
+
+export function displayTokens(line) {
+  if (!line) return null;
+  const shown = displayText(line);
+  if (shown === line.text) return line.tokens;
+  return ruby.get(shown) || null;
+}
+
+async function fetchRuby(texts) {
+  const wanted = [...new Set(texts)].filter((text) => text && !ruby.has(text));
+  if (!wanted.length) return false;
+
+  const lang = detectLanguage(wanted.join("\n"));
+  if (!lang) return false;
+
+  const res = await fetch("/api/romanize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ language: lang, lines: wanted }),
+  }).catch(() => null);
+  if (!res || !res.ok) return false;
+
+  const { tokens } = (await res.json().catch(() => ({}))) || {};
+  if (!Array.isArray(tokens)) return false;
+  // Cached even when empty, so a line the romanizer had nothing to say about
+  // isn't asked for again on every render.
+  wanted.forEach((text, index) => {
+    ruby.set(text, Array.isArray(tokens[index]) ? tokens[index] : []);
+  });
+  return true;
+}
 
 // Everything on screen that a script change affects: the lines themselves, and
 // the deck's words, which have to be matched against them.
@@ -114,20 +154,44 @@ export function refreshScript(els, rerender) {
   if (els.loopLine) els.loopLine.hidden = !els.video?.getAttribute("src");
   if (!chinese || working) return;
 
-  els.zhSimp.classList.toggle("active", state.zhScript === "simp");
-  els.zhTrad.classList.toggle("active", state.zhScript === "trad");
+  const showing = state.zhScript === "simp" ? "simp" : "trad";
+  els.zhSimp.classList.toggle("active", showing === "simp");
+  els.zhTrad.classList.toggle("active", showing === "trad");
+  els.zhScriptToggle.setAttribute(
+    "aria-label",
+    showing === "simp"
+      ? "Showing Simplified characters — switch to Traditional"
+      : "Showing Traditional characters — switch to Simplified",
+  );
+  els.zhScriptToggle.title = els.zhScriptToggle.getAttribute("aria-label");
 
   // No preference yet: ask once which script this text is already in, and
   // adopt it. Converting to the script it is already in changes nothing, so
   // this only lights the right button — the first click is what alters text.
   const script = state.zhScript || "trad";
-  if (!missing(relevantTexts(), script).length) return;
+  const shownTexts = state.subtitles.map((line) => displayText(line));
+  const needsText = missing(relevantTexts(), script).length > 0;
+  const needsRuby = shownTexts.some(
+    (shown, index) => shown !== state.subtitles[index].text && !ruby.has(shown),
+  );
+  if (!needsText && !needsRuby) return;
 
   working = true;
-  ensureConverted(relevantTexts(), script)
-    .then((detected) => {
+  (async () => {
+    let changed = false;
+    if (needsText) {
+      const detected = await ensureConverted(relevantTexts(), script);
       if (!state.zhScript && detected) setZhScript(detected);
-    })
+      changed = true;
+    }
+    // Read the converted text again: the call above may have just produced it.
+    const converted = state.subtitles
+      .map((line) => displayText(line))
+      .filter((shown, index) => shown !== state.subtitles[index].text);
+    if (converted.length && (await fetchRuby(converted))) changed = true;
+    return changed;
+  })()
+    .catch(() => false)
     .finally(() => {
       working = false;
       rerender?.();
