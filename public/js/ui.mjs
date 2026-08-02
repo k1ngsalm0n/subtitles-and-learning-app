@@ -16,6 +16,7 @@ import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
+import { displayText, savedWordForms, refreshScript } from "./zhscript.mjs";
 import {
   removeCard,
   moveCardToDeck,
@@ -55,7 +56,10 @@ export function renderTranscript(els) {
   // mark in the transcript so it's obvious what's already in the deck.
   const savedWords = new Set();
   for (const card of state.cards) {
-    if (card.word) savedWords.add(card.word);
+    // Every script the word might be written in, so a card saved as 头发 still
+    // marks 頭髮 when the transcript is showing Traditional — otherwise you can
+    // quietly save the same word twice.
+    if (card.word) for (const form of savedWordForms(card.word)) savedWords.add(form);
   }
   // Lines the recogniser found but nobody came for — a phone's clock, its
   // battery, the "type a message" box. Folded away, never dropped: the toggle
@@ -72,10 +76,15 @@ export function renderTranscript(els) {
     )
     .map(({ line, index }) => {
       const translation = getTranslation(line);
+      // The source text is shown in the reader's chosen Chinese script. Ruby
+      // tokens are built from the original, so they're only used when no
+      // conversion is in play — otherwise the pronunciation would sit over
+      // characters it wasn't computed for.
+      const shown = displayText(line);
       const original =
-        line.tokens && line.tokens.length
+        line.tokens && line.tokens.length && shown === line.text
           ? renderRubyTranscript(line.tokens, line.text, savedWords)
-          : tokenize(line.text, savedWords);
+          : tokenize(shown, savedWords);
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${line.start == null ? "" : formatTime(line.start)}</span>
         <div>
@@ -96,6 +105,11 @@ export function renderTranscript(els) {
 
   e.transcript.innerHTML =
     (html || `<p class="muted">No matching subtitles.</p>`) + toggle;
+
+  // Keeps the Chinese script toggle (and Loop Line) in step with what is on
+  // screen. Cheap unless something still needs converting, and the re-render it
+  // asks for finds everything cached, so it can't loop.
+  refreshScript(e, () => renderTranscript(e));
 }
 
 let _transcriptDelegated = false;

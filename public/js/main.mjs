@@ -48,6 +48,7 @@ import {
 import { describeReport } from "./portability.mjs";
 import { createWheel } from "./wheel.mjs";
 import { paintHighlight, clearHighlight } from "./imagehighlight.mjs";
+import { chooseScript } from "./zhscript.mjs";
 import {
   createAccentDial,
   applyAccent,
@@ -102,6 +103,9 @@ const els = {
   reviewDue: document.querySelector("#reviewDue"),
   searchInput: document.querySelector("#searchInput"),
   loopLine: document.querySelector("#loopLine"),
+  zhScriptToggle: document.querySelector("#zhScriptToggle"),
+  zhSimp: document.querySelector("#zhSimp"),
+  zhTrad: document.querySelector("#zhTrad"),
   saveLine: document.querySelector("#saveLine"),
   translateFrom: document.querySelector("#translateFrom"),
   translateTo: document.querySelector("#translateTo"),
@@ -364,6 +368,12 @@ function bindEvents() {
 
   setupSettings();
   setupImagesMode();
+  els.zhSimp.addEventListener("click", () =>
+    chooseScript("simp", els, () => renderTranscript(els)),
+  );
+  els.zhTrad.addEventListener("click", () =>
+    chooseScript("trad", els, () => renderTranscript(els)),
+  );
 
   els.cookieModeNone.addEventListener("click", () => setCookieMode("none"));
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));

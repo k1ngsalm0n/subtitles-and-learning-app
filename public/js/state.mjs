@@ -24,6 +24,7 @@ export const STORAGE_KEYS = {
   // index.html can apply it without knowing the palette (see applyAccent).
   accentColor: "stele.accentColor",
   settingsPage: "stele.settingsPage",
+  zhScript: "stele.zhScript",
   session: "stele.session",
   view: "stele.view",
   selectedDeck: "stele.selectedDeck",
@@ -132,6 +133,9 @@ export const state = {
   lastView: loadString(STORAGE_KEYS.view, "study"),
   // …and the page the settings wheel was left on, for the same reason.
   settingsPage: loadString(STORAGE_KEYS.settingsPage, "appearance"),
+  // Which Chinese script the transcript is *shown* in. Never changes what was
+  // imported or recognised — only what is drawn. Empty means "as it came".
+  zhScript: loadString(STORAGE_KEYS.zhScript, ""),
   cardSearch: loadString(STORAGE_KEYS.cardSearch, ""),
   // Study view: the transcript filter and the translate bar's target language.
   transcriptSearch: loadString(STORAGE_KEYS.transcriptSearch, ""),
@@ -395,6 +399,12 @@ export function setLastView(view) {
 export function setSettingsPage(page) {
   state.settingsPage = page || "appearance";
   storeString(STORAGE_KEYS.settingsPage, state.settingsPage);
+}
+
+// A reader's script preference is a stable thing, not a per-image decision.
+export function setZhScript(script) {
+  state.zhScript = script === "simp" || script === "trad" ? script : "";
+  storeString(STORAGE_KEYS.zhScript, state.zhScript);
 }
 
 // The rest of the per-view UI state that should survive a reload: which deck

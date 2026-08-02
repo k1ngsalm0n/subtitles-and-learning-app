@@ -410,6 +410,10 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   cursor: pointer;
 }
 .chrome-toggle:hover { color: var(--accent); background: none; border-color: transparent; }
+/* Simplified/Traditional sits where Loop Line does, and appears on the same
+   terms: only when the text it applies to is on screen. */
+.zh-toggle { flex: 0 0 auto; }
+.zh-toggle button { min-width: 38px; padding: 0 10px; font-size: 15px; }
 .empty-player kbd {
   font: inherit;
   font-size: 12px;
@@ -1887,6 +1891,10 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <section class="transcript-pane">
             <div class="toolbar-row">
               <div class="search-box"><input id="searchInput" type="search" placeholder="Search transcript" /></div>
+              <div id="zhScriptToggle" class="segmented zh-toggle" role="group" aria-label="Chinese script" hidden>
+                <button id="zhSimp" type="button" lang="zh-Hans" title="Show Simplified characters">简</button>
+                <button id="zhTrad" type="button" lang="zh-Hant" title="Show Traditional characters">繁</button>
+              </div>
               <button id="loopLine" type="button" aria-pressed="false">Loop Line</button>
               <button id="saveLine" type="button">Save Line</button>
             </div>
