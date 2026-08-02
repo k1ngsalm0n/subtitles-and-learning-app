@@ -76,6 +76,24 @@ body {
   font-size: 14px;
 }
 button, input, textarea { font: inherit; }
+
+/* Text you select takes the accent, instead of the browser's blue — the last
+   place the app still looked like someone else's default. */
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* One focus ring for keyboard users, in the same colour as everything else.
+   :focus-visible so it appears for Tab and not for a mouse click. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The two long scrolling surfaces, so they stop looking like raw browser chrome. */
+#transcript, #cardList, .backup-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
 /* One type scale for the whole app. Section headings had no rule at all, so
    they fell back to the browser's 1.5em — 21px in Study, Flashcards and
    Library, against 17px in Settings and 16px in dialogs. Same word, same job,
@@ -242,18 +260,17 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
 .media-pane { grid-area: media; }
 .learning-pane { grid-area: controls; align-self: start; }
 .media-pane {
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--surface);
-  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 /* The shell owns the layout slot: 16:9, capped so the video never outgrows the
    viewport (topbar + paddings ≈ 130px). The player-wrap fills the shell, and
    detaches from it in mini mode. */
 .player-shell {
   position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
   aspect-ratio: 16/9;
   max-height: calc(100vh - 130px);
   max-height: calc(100dvh - 130px);
@@ -463,9 +480,18 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .import-bar, .url-row, .toolbar-row, .manual-card, .card-actions {
   display: flex;
   gap: 8px;
-  padding: 12px;
+  padding: 12px 0;
   border-top: 1px solid var(--border);
   flex-wrap: wrap;
+}
+/* A rule between rows, not above the first one — and no leading gap, so the two
+   panes start on the same line now that no box edge is doing that for them. */
+.media-pane > :first-child,
+.transcript-pane > :first-child,
+.card-panel > :first-child,
+.review-panel > :first-child {
+  border-top: none;
+  padding-top: 0;
 }
 .url-row input, .search-box { flex: 1 1 180px; }
 .source-status { flex: 1 1 100%; color: var(--muted); min-height: 18px; font-size: 13px; }
@@ -514,9 +540,6 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   flex-direction: column;
   max-height: calc(100vh - 92px);
   max-height: calc(100dvh - 92px);
-  border-radius: var(--radius);
-  background: var(--surface);
-  border: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -586,19 +609,24 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   /* inline-block so the box (background + karaoke outline) wraps the whole
      stacked unit — pinyin reading and character together, not just the base. */
   display: inline-block;
-  padding: 2px 3px;
-  border-radius: 4px;
+  /* A little more padding and a rounder box, so the highlight reads as a soft
+     shape around the word rather than a tight rectangle. */
+  padding: 3px 5px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background 0.1s, box-shadow 0.1s;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.1s ease;
 }
-.word:hover { background: rgba(110,231,183,0.15); }
+/* Hover fills the word in the accent you picked — the tint, the character and
+   its reading together, so it lights up as one unit rather than the base
+   changing while the pinyin above it stays grey. */
+.word:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+.word:hover rt { color: var(--accent); }
 /* Karaoke highlight: the word currently being spoken on the active line. */
 .word.spoken {
-  background: rgba(110, 231, 183, 0.25);
-  box-shadow: 0 0 0 2px var(--accent);
-}
-:root[data-theme="light"] .word.spoken {
-  background: rgba(5, 150, 105, 0.15);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
   box-shadow: 0 0 0 2px var(--accent);
 }
 /* Words that already have a flashcard */
@@ -623,7 +651,7 @@ rt {
    browse list gets the narrower one — it's for scanning, not for reading. */
 .cards-layout {
   display: grid;
-  grid-template-columns: 230px minmax(440px, 1.35fr) minmax(300px, 1fr);
+  grid-template-columns: 264px minmax(400px, 1.3fr) minmax(300px, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -818,15 +846,15 @@ rt {
   }
   .accent-bay { grid-template-columns: 1fr; justify-items: start; }
 }
+/* Panes hold their layout and their breathing room; the box itself is gone, so
+   Study and Flashcards read the same as Settings and Library. What separates
+   them now is space and the hairlines already inside them. */
 .review-panel, .card-panel, .deck-sidebar, .panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 16px;
+  padding: 0;
 }
 
 /* Deck sidebar */
-.deck-nav { display: grid; gap: 4px; }
+.deck-nav { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .deck-nav-item {
   height: auto;
   min-height: 38px;
@@ -1023,6 +1051,9 @@ rt {
   padding: 2px 8px;
 }
 .deck-chip {
+  /* A chip hugs its text. In a column layout a bare span stretches instead,
+     which read as a bar across the card. */
+  width: fit-content;
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);
@@ -1121,9 +1152,26 @@ rt {
   max-width: 130px;
 }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+@keyframes card-turn {
+  0% { transform: rotateY(0deg); }
+  50% { transform: rotateY(90deg); }
+  100% { transform: rotateY(0deg); }
+}
+.review-panel { perspective: 1400px; }
+.review-card.turning { animation: card-turn 320ms ease-in-out; }
+@media (prefers-reduced-motion: reduce) {
+  .review-card.turning { animation: none; }
+}
+
 .review-card {
-  min-height: min(56vh, 440px);
-  min-height: min(56dvh, 440px);
+  /* Fixed, not min: a long back face used to stretch the card and push Flip and
+     the grade buttons down the page, so answering meant chasing them. The card
+     keeps its size and its content scrolls inside it instead. */
+  height: min(56vh, 440px);
+  height: min(56dvh, 440px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-2);
@@ -1134,6 +1182,7 @@ rt {
      of a 440px-tall card empty underneath. */
   place-items: center;
   place-content: center;
+  place-content: safe center;
   gap: 12px;
   text-align: center;
 }
@@ -1745,7 +1794,8 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   .transcript-pane { position: static; max-height: 70vh; }
 }
 @media (max-width: 1250px) {
-  .cards-layout { grid-template-columns: 210px 1fr; }
+  /* Still room for a deck name with an emoji, an indent and a count. */
+  .cards-layout { grid-template-columns: 250px 1fr; }
   .deck-sidebar { grid-row: span 2; }
 }
 @media (max-width: 900px) {

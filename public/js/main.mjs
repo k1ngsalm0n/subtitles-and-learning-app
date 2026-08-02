@@ -78,6 +78,7 @@ import {
   visibleCards,
   setElements,
   setSourceStatus,
+  flipWithTurn,
   setSourceJumper,
   setPracticeOpener,
 } from "./ui.mjs";
@@ -316,7 +317,7 @@ function bindEvents() {
   els.sourceUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") importSourceUrl(); });
   els.newCardButton.addEventListener("click", () => openCardModal());
   bindDeckEvents();
-  els.flipCard.addEventListener("click", flipReviewCard);
+  els.flipCard.addEventListener("click", () => flipWithTurn(flipReviewCard));
   document.querySelectorAll("#cardsView .grade-button").forEach((button) => {
     button.addEventListener("click", () => gradeCard(button.dataset.grade));
   });
@@ -471,7 +472,7 @@ function handleReviewKeys(event) {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (event.key === " ") {
     event.preventDefault();
-    flipReviewCard();
+    flipWithTurn(flipReviewCard);
   } else if (GRADE_KEYS[event.key]) {
     gradeCard(GRADE_KEYS[event.key]);
   }

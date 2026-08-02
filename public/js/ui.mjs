@@ -117,6 +117,26 @@ export function renderTranscript(els) {
   refreshScript(e, () => renderTranscript(e));
 }
 
+// Turn the card over instead of swapping its face instantly. The content is
+// replaced at 90 degrees, where it can't be seen, so one element does the whole
+// flip and the markup needs no second face. Falls straight through to the flip
+// when the animation is off, or when a turn is already running — a second press
+// mid-turn should be ignored, not queued.
+const TURN_MS = 320;
+
+export function flipWithTurn(flip) {
+  const card = _els?.reviewCard;
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!card || still) {
+    flip();
+    return;
+  }
+  if (card.classList.contains("turning")) return;
+  card.classList.add("turning");
+  setTimeout(flip, TURN_MS / 2);
+  setTimeout(() => card.classList.remove("turning"), TURN_MS);
+}
+
 let _transcriptDelegated = false;
 export function setupTranscriptDelegation(els) {
   if (_transcriptDelegated) return;
