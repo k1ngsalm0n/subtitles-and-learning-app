@@ -76,6 +76,16 @@ body {
   font-size: 14px;
 }
 button, input, textarea { font: inherit; }
+/* One type scale for the whole app. Section headings had no rule at all, so
+   they fell back to the browser's 1.5em — 21px in Study, Flashcards and
+   Library, against 17px in Settings and 16px in dialogs. Same word, same job,
+   three sizes, and the pages stopped looking related. */
+h2 { font-size: 17px; font-weight: 600; line-height: 1.3; }
+h3 { font-size: 14px; font-weight: 600; }
+/* The quiet line that explains a section, wherever it appears. */
+.data-note, .section-note { font-size: 12px; line-height: 1.5; color: var(--muted); }
+
+
 button, .file-button {
   height: 36px;
   border: 1px solid var(--border);
@@ -399,7 +409,10 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
 #imageBrowse { flex: 1 1 180px; }
 /* Video and Images are the two halves of one choice, so they split the row. */
 .import-bar > button[aria-pressed] { flex: 1 1 0; min-width: 0; }
-.icon-only { flex: 0 0 auto; width: 36px; padding: 0; }
+.icon-only { flex: 0 0 auto; width: 44px; padding: 0; }
+/* Import is the row's main action; give it room rather than letting the
+   label decide how big it is. */
+#queueUrl { flex: 0 0 auto; min-width: 104px; }
 /* Folded-away interface text: a quiet line, not a button competing with the
    transcript it sits under. */
 .chrome-toggle {
@@ -641,6 +654,11 @@ rt {
   margin: 0 auto;
   padding-left: 214px;
 }
+/* A surface marks a *pane* — a region you work in beside another one, like the
+   video against the transcript, or the deck list against the cards. A page
+   that is one column of content (Settings, Library) doesn't need one: the page
+   is already the container. Nothing is ever boxed inside a box. */
+.page-column { max-width: 790px; display: grid; gap: 10px; }
 .settings-layout .panel {
   border: none;
   background: none;
@@ -651,7 +669,7 @@ rt {
    page before any module has loaded. */
 .settings-page { display: none; }
 .settings-page.active { display: block; }
-.settings-layout h2 { font-size: 17px; margin-bottom: 8px; }
+.settings-layout h2 { margin-bottom: 8px; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .settings-layout .data-row { margin-top: 8px; }
 .settings-layout .modal-section-label { margin-top: 16px; }
@@ -950,7 +968,6 @@ rt {
 .backup-item .backup-size { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
 #nestDeckDialog { width: min(340px, calc(100vw - 32px)); padding: 14px 16px; }
 #nestDeckDialog .word-form { gap: 10px; }
-#nestDeckDialog h2 { font-size: 16px; }
 
 /* Drag to reorder decks. The grip is the handle — faint until you hover the
    row, solid under the cursor — and the row it belongs to fades while it's in
@@ -1060,11 +1077,9 @@ rt {
 #deckSettingsDialog { width: min(300px, calc(100vw - 32px)); padding: 14px 16px; }
 #emptyCardsDialog { width: min(360px, calc(100vw - 32px)); padding: 14px 16px; }
 #emptyCardsDialog .word-form { gap: 10px; }
-#emptyCardsDialog h2 { font-size: 16px; }
 .empty-cards-note { font-size: 12px; }
 #deckSettingsDialog .word-form { gap: 10px; }
 #deckSettingsDialog .section-title { margin-bottom: 2px; }
-#deckSettingsDialog h2 { font-size: 16px; }
 #deckSettingsDialog .icon-button { width: 28px; height: 28px; min-height: 28px; }
 #deckSettingsDialog menu button { height: 30px; padding: 0 12px; font-size: 12px; }
 /* Beats `.word-form label { display: grid }` above. */
@@ -1900,7 +1915,6 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             </div>
             <div class="url-row">
               <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
-              <button id="queueUrl" type="button">Import</button>
               <button id="videoBrowse" class="icon-only" type="button"
                       title="Open a video from your files"
                       aria-label="Open a video from your files">
@@ -1909,6 +1923,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                   <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17.5z" />
                 </svg>
               </button>
+              <button id="queueUrl" type="button">Import</button>
               <!-- Takes the URL box's place in Images mode: the row stays, so
                    the panel keeps its height and nothing shifts. -->
               <button id="imageBrowse" type="button" hidden>Choose a file…</button>
@@ -2002,7 +2017,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
       </section>
 
       <section id="libraryView" class="view">
-        <section class="panel">
+        <section class="page-column">
           <h2>Queued Sources</h2>
           <div id="sourceList" class="source-list"></div>
         </section>
