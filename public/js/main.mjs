@@ -93,8 +93,8 @@ const els = {
   miniDragSurface: document.querySelector("#miniDragSurface"),
   miniExpand: document.querySelector("#miniExpand"),
   videoInput: document.querySelector("#videoInput"),
-  originalInput: document.querySelector("#originalInput"),
-  translationInput: document.querySelector("#translationInput"),
+  videoMode: document.querySelector("#videoMode"),
+  videoBrowse: document.querySelector("#videoBrowse"),
   sourceUrl: document.querySelector("#sourceUrl"),
   queueUrl: document.querySelector("#queueUrl"),
   sourceStatus: document.querySelector("#sourceStatus"),
@@ -295,8 +295,6 @@ function bindEvents() {
 
   els.themeToggle.addEventListener("click", toggleTheme);
   els.videoInput.addEventListener("change", handleVideoInput);
-  els.originalInput.addEventListener("change", () => readSubtitleInputs());
-  els.translationInput.addEventListener("change", () => readSubtitleInputs());
   els.video.addEventListener("timeupdate", () => syncToVideo(els));
   els.video.addEventListener("pause", persistPlaybackTime);
   document.addEventListener("visibilitychange", () => {
@@ -735,6 +733,11 @@ function setupImagesMode() {
   const setImagesMode = (on) => {
     els.imagesMode.setAttribute("aria-pressed", String(on));
     els.imagesMode.classList.toggle("active", on);
+    els.videoMode.setAttribute("aria-pressed", String(!on));
+    els.videoMode.classList.toggle("active", !on);
+    // The folder opens a video; in Images mode "Choose a file…" already fills
+    // the row and opens the right kind of file.
+    els.videoBrowse.hidden = on;
     syncPlayerBox();
     // The URL row stays put and swaps its contents. Hiding the whole row would
     // change the panel's height, which shifts the page — and can take the
@@ -760,9 +763,12 @@ function setupImagesMode() {
     if (inImagesMode()) repaintHighlight();
   });
 
-  els.imagesMode.addEventListener("click", () => {
-    setImagesMode(els.imagesMode.getAttribute("aria-pressed") !== "true");
-  });
+  // Video and Images choose a layout, not a file. Picking a file is its own
+  // button — the folder beside Import — so going back to the video doesn't
+  // ambush you with a file dialog.
+  els.videoMode.addEventListener("click", () => setImagesMode(false));
+  els.imagesMode.addEventListener("click", () => setImagesMode(true));
+  els.videoBrowse.addEventListener("click", () => els.videoInput.click());
   els.videoInput.addEventListener("change", () => setImagesMode(false));
 
   // ---- getting an image in: paste, drop, or browse ----
@@ -898,6 +904,10 @@ function setupImagesMode() {
     event.preventDefault();
     readImage(item.getAsFile());
   });
+
+  // Establish the starting state, so the pair shows which layout you're in
+  // from the first paint rather than only after the first click.
+  setImagesMode(false);
 }
 
 // The wheel picks the page; everything inside a page is an ordinary control.
@@ -1067,15 +1077,6 @@ function jumpToSource(sourceId, time) {
     return;
   }
   showToast("Re-import this source to load its video.");
-}
-
-async function readSubtitleInputs() {
-  const originalFile = els.originalInput.files[0];
-  const translationFile = els.translationInput.files[0];
-  if (!originalFile) return;
-  const original = await originalFile.text();
-  const translation = translationFile ? await translationFile.text() : "";
-  loadSubtitles(original, translation);
 }
 
 

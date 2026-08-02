@@ -397,6 +397,9 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .dropzone.dragging .dz-drop { display: block; }
 /* Fills the row the way the URL box it replaces does. */
 #imageBrowse { flex: 1 1 180px; }
+/* Video and Images are the two halves of one choice, so they split the row. */
+.import-bar > button[aria-pressed] { flex: 1 1 0; min-width: 0; }
+.icon-only { flex: 0 0 auto; width: 36px; padding: 0; }
 /* Folded-away interface text: a quiet line, not a button competing with the
    transcript it sits under. */
 .chrome-toggle {
@@ -1891,14 +1894,21 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <p id="translateStatus" class="translate-status" role="status" aria-live="polite"></p>
             </div>
             <div class="import-bar">
-              <label class="file-button">Video<input id="videoInput" type="file" accept="video/*" /></label>
-              <label class="file-button">Original SRT/VTT<input id="originalInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
-              <label class="file-button">Translation SRT/VTT<input id="translationInput" type="file" accept=".srt,.vtt,text/vtt,text/plain" /></label>
+              <button id="videoMode" type="button" aria-pressed="true">Video</button>
               <button id="imagesMode" type="button" aria-pressed="false">Images</button>
+              <input id="videoInput" type="file" accept="video/*" hidden />
             </div>
             <div class="url-row">
               <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
               <button id="queueUrl" type="button">Import</button>
+              <button id="videoBrowse" class="icon-only" type="button"
+                      title="Open a video from your files"
+                      aria-label="Open a video from your files">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17.5z" />
+                </svg>
+              </button>
               <!-- Takes the URL box's place in Images mode: the row stays, so
                    the panel keeps its height and nothing shifts. -->
               <button id="imageBrowse" type="button" hidden>Choose a file…</button>
