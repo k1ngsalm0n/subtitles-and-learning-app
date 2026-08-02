@@ -96,7 +96,7 @@ button, input, textarea { font: inherit; }
 
 /* One type scale for the whole app. Section headings had no rule at all, so
    they fell back to the browser's 1.5em — 21px in Study, Flashcards and
-   Library, against 17px in Settings and 16px in dialogs. Same word, same job,
+   and Library, against 17px in Settings and 16px in dialogs. Same word, same job,
    three sizes, and the pages stopped looking related. */
 h2 { font-size: 17px; font-weight: 600; line-height: 1.3; }
 h3 { font-size: 14px; font-weight: 600; }
@@ -219,14 +219,12 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
    isn't the stored view is hidden, and the stored one is shown. */
 :root[data-view]:not([data-view="study"]) #studyView { display: none; }
 :root[data-view="cards"] #cardsView,
-:root[data-view="library"] #libraryView,
 :root[data-view="settings"] #settingsView { display: block; }
 :root[data-view]:not([data-view="study"]) .nav-tab[data-view="study"] {
   background: transparent;
   color: var(--muted);
 }
 :root[data-view="cards"] .nav-tab[data-view="cards"],
-:root[data-view="library"] .nav-tab[data-view="library"],
 :root[data-view="settings"] .nav-tab[data-view="settings"] {
   background: var(--surface-2);
   color: var(--text);
@@ -646,7 +644,7 @@ rt {
 /* Karaoke highlight sweeps the whole word, reading included. */
 .word.spoken rt { color: var(--text); }
 
-/* Cards & Library views */
+/* Cards view */
 /* Review is the main event here, so it takes the wider flexible column and the
    browse list gets the narrower one — it's for scanning, not for reading. */
 .cards-layout {
@@ -654,11 +652,6 @@ rt {
   grid-template-columns: 264px minmax(400px, 1.3fr) minmax(300px, 1fr);
   gap: 20px;
   align-items: start;
-}
-.library-layout {
-  display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 20px;
 }
 /* Settings: a wheel of page names parked in the middle of the window, and one
    page at a time beside it. Nothing in here is boxed — the wheel has no surface
@@ -684,7 +677,7 @@ rt {
 }
 /* A surface marks a *pane* — a region you work in beside another one, like the
    video against the transcript, or the deck list against the cards. A page
-   that is one column of content (Settings, Library) doesn't need one: the page
+   that is one column of content, like Settings, doesn't need one: the page
    is already the container. Nothing is ever boxed inside a box. */
 .page-column { max-width: 790px; display: grid; gap: 10px; }
 .settings-layout .panel {
@@ -847,7 +840,7 @@ rt {
   .accent-bay { grid-template-columns: 1fr; justify-items: start; }
 }
 /* Panes hold their layout and their breathing room; the box itself is gone, so
-   Study and Flashcards read the same as Settings and Library. What separates
+   Study and Flashcards read the same as Settings. What separates
    them now is space and the hairlines already inside them. */
 .review-panel, .card-panel, .deck-sidebar, .panel {
   padding: 0;
@@ -1799,8 +1792,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   .deck-sidebar { grid-row: span 2; }
 }
 @media (max-width: 900px) {
-  .cards-layout, .library-layout { grid-template-columns: 1fr; }
-  .deck-sidebar { grid-row: auto; }
+  .cards-layout,   .deck-sidebar { grid-row: auto; }
 }
     </style>
     <script>
@@ -1855,7 +1847,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 
       try {
         var lastView = localStorage.getItem("stele.view");
-        if (lastView === "cards" || lastView === "library" || lastView === "settings") {
+        if (lastView === "cards" || lastView === "settings") {
           document.documentElement.dataset.view = lastView;
         }
         // Same again one level down: the settings wheel's page. Restoring this
@@ -1886,7 +1878,6 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
       <nav class="nav-tabs" aria-label="Main views">
         <button class="nav-tab active" data-view="study" type="button">Study</button>
         <button class="nav-tab" data-view="cards" type="button">Flashcards</button>
-        <button class="nav-tab" data-view="library" type="button">Library</button>
         <button class="nav-tab" data-view="settings" type="button">Settings</button>
       </nav>
 
@@ -2066,11 +2057,6 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         </div>
       </section>
 
-      <section id="libraryView" class="view">
-        <section class="page-column">
-          <h2>Queued Sources</h2>
-          <div id="sourceList" class="source-list"></div>
-        </section>
       </section>
 
       <section id="settingsView" class="view">

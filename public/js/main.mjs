@@ -72,7 +72,6 @@ import {
   renderTranscript,
   startHighlightLoop,
   setupTranscriptDelegation,
-  renderSources,
   renderCardList,
   renderReviewCard,
   visibleCards,
@@ -120,7 +119,6 @@ const els = {
   flipCard: document.querySelector("#flipCard"),
   shuffleCards: document.querySelector("#shuffleCards"),
   exportCards: document.querySelector("#exportCards"),
-  sourceList: document.querySelector("#sourceList"),
   cookieModeNone: document.querySelector("#cookieModeNone"),
   cookieModeBrowser: document.querySelector("#cookieModeBrowser"),
   cookieModeFile: document.querySelector("#cookieModeFile"),
@@ -1049,7 +1047,7 @@ function persistPlaybackTime() {
 function jumpToSource(sourceId, time) {
   const source = state.sources.find((s) => s.id === sourceId);
   if (!source) {
-    showToast("That source is no longer in the library.");
+    showToast("That source isn't loaded any more.");
     return;
   }
   switchView("study");
@@ -1112,7 +1110,6 @@ async function importSourceUrl() {
   state.sources.unshift(source);
   saveSources();
   els.queueUrl.disabled = true;
-  renderSources(els);
 
   showProgress("Connecting and looking for captions...", 10);
 
@@ -1223,8 +1220,7 @@ async function importSourceUrl() {
   } finally {
     els.queueUrl.disabled = false;
     saveSources();
-    renderSources(els);
-  }
+    }
 }
 
 function setCookieMode(mode) {

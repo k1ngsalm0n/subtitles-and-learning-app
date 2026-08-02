@@ -45,7 +45,6 @@ export function renderAll(els) {
   renderDeckHeader(e);
   renderCardList(e);
   renderReviewCard(e);
-  renderSources(e);
   updateStats(e);
 }
 
@@ -1030,22 +1029,6 @@ export function renderReviewCard(els) {
       preview[button.dataset.grade],
     );
   });
-}
-
-export function renderSources(els) {
-  const e = els || _els;
-  e.sourceList.innerHTML =
-    state.sources
-      .map(
-        (source) => `<article class="source-item">
-      <strong>${escapeHtml(source.status)}</strong>
-      ${source.title ? `<p>${escapeHtml(source.title)}</p>` : ""}
-      <p class="muted">${escapeHtml(source.url)}</p>
-      ${source.error ? `<p class="danger">${escapeHtml(source.error)}</p>` : ""}
-    </article>`,
-      )
-      .join("") ||
-    `<p class="muted">Queued media URLs will appear here.</p>`;
 }
 
 export function updateStats(els) {
