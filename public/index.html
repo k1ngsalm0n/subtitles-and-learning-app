@@ -356,6 +356,16 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   background: #000;
 }
 .image-view.hidden { display: none; }
+/* Where the selected line was read from, drawn over the picture. One box per
+   row the sentence occupies, so it reads like a text selection. */
+.image-highlight { position: absolute; inset: 0; pointer-events: none; }
+.image-highlight span {
+  position: absolute;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
+  transition: opacity 0.12s ease;
+}
 /* The player itself is the drop target, and says so without being dragged on. */
 .empty-player.dropzone {
   inset: 12px;
@@ -1808,6 +1818,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                 <!-- Takes the player's place while Images is on. Same
                      .empty-player overlay as above, so nothing resizes. -->
                 <img id="imageView" class="image-view hidden" alt="" />
+                <div id="imageHighlight" class="image-highlight" aria-hidden="true"></div>
                 <div id="imagePane" class="empty-player dropzone hidden">
                   <strong id="dropMessage" class="dz-drop">Drop to read it</strong>
                   <span class="dz-idle">

@@ -47,6 +47,7 @@ import {
 } from "./backup.mjs";
 import { describeReport } from "./portability.mjs";
 import { createWheel } from "./wheel.mjs";
+import { paintHighlight, clearHighlight } from "./imagehighlight.mjs";
 import {
   createAccentDial,
   applyAccent,
@@ -198,6 +199,7 @@ const els = {
   imagesMode: document.querySelector("#imagesMode"),
   imagePane: document.querySelector("#imagePane"),
   imageView: document.querySelector("#imageView"),
+  imageHighlight: document.querySelector("#imageHighlight"),
   imageInput: document.querySelector("#imageInput"),
   imageBrowse: document.querySelector("#imageBrowse"),
   dropMessage: document.querySelector("#dropMessage"),
@@ -715,6 +717,7 @@ function setupImagesMode() {
     els.imageView.classList.toggle("hidden", !on || !image);
     els.imagePane.classList.toggle("hidden", !on || image);
     els.imageBrowse.textContent = image ? "Replace image…" : "Choose a file…";
+    if (!on || !image) clearHighlight(els);
   };
 
   const setImagesMode = (on) => {
@@ -734,6 +737,16 @@ function setupImagesMode() {
       els.emptyPlayer.classList.toggle("hidden", promptWasHidden);
     }
   };
+
+  // The highlight is drawn in pixels over a scaled picture, so it has to be
+  // redrawn whenever that scaling changes — on load, when the natural size is
+  // finally known, and on any resize.
+  const repaintHighlight = () =>
+    paintHighlight(els, state.subtitles[state.activeIndex]);
+  els.imageView.addEventListener("load", repaintHighlight);
+  addEventListener("resize", () => {
+    if (inImagesMode()) repaintHighlight();
+  });
 
   els.imagesMode.addEventListener("click", () => {
     setImagesMode(els.imagesMode.getAttribute("aria-pressed") !== "true");
@@ -755,6 +768,7 @@ function setupImagesMode() {
     setImagesMode(true);
     if (preview) URL.revokeObjectURL(preview);
     preview = URL.createObjectURL(file);
+    clearHighlight(els);
     els.imageView.src = preview;
     // Once a picture is on screen the drop zone goes behind it, and the button
     // in the row below becomes the visible way to swap it out — and says so.
@@ -790,6 +804,9 @@ function setupImagesMode() {
         end: null,
         text: line.text,
         box: line.box,
+        // One box per character, when the recogniser gave them: what lets a
+        // selected line highlight its own characters on the picture.
+        chars: line.chars || null,
         // Interface furniture the recogniser picked up. Kept in the list so it
         // gets translated too — it's only hidden — but folded away by default.
         chrome: Boolean(line.chrome),

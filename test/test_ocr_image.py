@@ -200,3 +200,77 @@ class SplitSentencesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def charline(text, y, height=0.06, x=0.10, char_w=0.05):
+    """A line carrying one box per character, laid out left to right."""
+    chars = [
+        {"t": ch, "box": [round(x + i * char_w, 5), y, char_w, height]}
+        for i, ch in enumerate(text)
+    ]
+    return {
+        "text": text,
+        "score": 0.99,
+        "box": [x, y, round(char_w * len(text), 5), height],
+        "chars": chars,
+        "chrome": False,
+    }
+
+
+def rebuilds(line):
+    """The invariant everything downstream leans on."""
+    return "".join(item["t"] for item in line["chars"]) == line["text"]
+
+
+class CharBoxTests(unittest.TestCase):
+    # If characters and text ever drift apart, highlights point at the wrong
+    # place — silently. So it is checked after every transform.
+    def test_chars_still_rebuild_the_text_after_a_cjk_merge(self):
+        lines = [charline("那我们去那家新开的", 0.30), charline("火锅店吧。", 0.37)]
+        merged = merge_wrapped(lines)
+        self.assertEqual(len(merged), 1)
+        self.assertTrue(rebuilds(merged[0]))
+        self.assertEqual(merged[0]["text"], "那我们去那家新开的火锅店吧。")
+
+    def test_chars_still_rebuild_the_text_after_a_latin_merge(self):
+        lines = [charline("the quick brown", 0.30), charline("fox jumps", 0.37)]
+        merged = merge_wrapped(lines)
+        self.assertEqual(merged[0]["text"], "the quick brown fox jumps")
+        self.assertTrue(rebuilds(merged[0]))
+
+    def test_chars_still_rebuild_the_text_after_splitting(self):
+        merged = merge_wrapped([charline("第一句。第二句。", 0.30)])
+        pieces = split_sentences(merged)
+        self.assertEqual([p["text"] for p in pieces], ["第一句。", "第二句。"])
+        for piece in pieces:
+            self.assertTrue(rebuilds(piece), piece["text"])
+
+    def test_each_sentence_gets_only_its_own_characters(self):
+        pieces = split_sentences([charline("第一句。第二句。", 0.30)])
+        self.assertEqual(pieces[0]["chars"][0]["t"], "第")
+        self.assertEqual(pieces[1]["chars"][0]["t"], "第")
+        # The second sentence starts where the first ended, not at the origin.
+        self.assertGreater(pieces[1]["chars"][0]["box"][0], pieces[0]["chars"][0]["box"][0])
+
+    def test_a_split_sentence_gets_an_exact_box_not_an_estimate(self):
+        pieces = split_sentences([charline("第一句。第二句。", 0.30)])
+        # Four characters each, 0.05 wide, starting at x=0.10.
+        self.assertAlmostEqual(pieces[0]["box"][0], 0.10, places=4)
+        self.assertAlmostEqual(pieces[0]["box"][2], 0.20, places=4)
+        self.assertAlmostEqual(pieces[1]["box"][0], 0.30, places=4)
+
+    # A row the recogniser gave no characters for must not poison its neighbour.
+    def test_merging_with_a_charless_row_drops_the_characters(self):
+        first = charline("那我们去那家新开的", 0.30)
+        second = charline("火锅店吧。", 0.37)
+        del second["chars"]
+        merged = merge_wrapped([first, second])
+        self.assertEqual(len(merged), 1)
+        self.assertNotIn("chars", merged[0])
+        self.assertEqual(merged[0]["text"], "那我们去那家新开的火锅店吧。")
+
+    def test_lines_without_characters_still_split(self):
+        line = {"text": "第一句。第二句。", "score": 0.9, "box": [0.1, 0.2, 0.8, 0.4]}
+        pieces = split_sentences([line])
+        self.assertEqual([p["text"] for p in pieces], ["第一句。", "第二句。"])
+        self.assertNotIn("chars", pieces[0])

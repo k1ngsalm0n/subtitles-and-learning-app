@@ -1,4 +1,5 @@
 import { state, deckName } from "./state.mjs";
+import { paintHighlight } from "./imagehighlight.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { addCard } from "./flashcards.mjs";
 import { showToast } from "./toast.mjs";
@@ -41,6 +42,9 @@ export function activateLine(index, seek, els) {
   if (seek && Number.isFinite(state.subtitles[index]?.start)) {
     els.video.currentTime = state.subtitles[index].start;
   }
+  // A video seeks to the moment the line was said; an image has no time, so
+  // the equivalent is showing where on the page it was read from.
+  paintHighlight(els, state.subtitles[index]);
   renderTranscript(els);
 }
 

@@ -55,30 +55,33 @@ def read_image(path):
     from rapidocr import RapidOCR
 
     engine = RapidOCR()
-    out = engine(path)
+    # `return_word_box` also yields a box per character, which is what lets the
+    # reader highlight the characters of a sentence rather than a rectangle
+    # around the paragraph it lives in.
+    out = engine(path, return_word_box=True)
     if not getattr(out, "txts", None):
         return []
+    per_char = list(getattr(out, "word_results", None) or [])
 
     # Every box is four corner points; reduce to a rectangle, then normalise
     # against the image's own extent so the caller can scale it freely.
     width, height = _image_size(path)
     lines = []
-    for box, text, score in zip(out.boxes, out.txts, out.scores):
-        text, score = text.strip(), float(score)
+    for index, (box, text, score) in enumerate(zip(out.boxes, out.txts, out.scores)):
+        raw, score = text, float(score)
+        text = raw.strip()
         if not text or score < MIN_SCORE:
             continue
-        xs = [float(p[0]) for p in box]
-        ys = [float(p[1]) for p in box]
+        chars = _char_boxes(per_char[index] if index < len(per_char) else None, raw, width, height)
         lines.append(
             {
                 "text": text,
                 "score": round(score, 4),
-                "box": [
-                    round(min(xs) / width, 5),
-                    round(min(ys) / height, 5),
-                    round((max(xs) - min(xs)) / width, 5),
-                    round((max(ys) - min(ys)) / height, 5),
-                ],
+                "box": _norm_quad(box, width, height),
+                # Missing or inconsistent per-character data is left off
+                # entirely; the reader falls back to the row's own box rather
+                # than drawing a highlight in the wrong place.
+                **({"chars": chars} if chars else {}),
             }
         )
 
@@ -90,6 +93,51 @@ def read_image(path):
     # original size (the test is relative to the median row height), then join
     # the wrapped ones into whole sentences.
     return split_sentences(merge_wrapped(mark_chrome(_group_rows(lines))))
+
+
+def _norm_quad(quad, width, height):
+    """Four corner points -> [x, y, w, h] as fractions of the image."""
+    xs = [float(point[0]) for point in quad]
+    ys = [float(point[1]) for point in quad]
+    left, top = min(xs), min(ys)
+    return [
+        round(left / width, 5),
+        round(top / height, 5),
+        round((max(xs) - left) / width, 5),
+        round((max(ys) - top) / height, 5),
+    ]
+
+
+def _char_boxes(entries, text, width, height):
+    """One box per character, but only if they rebuild the text exactly.
+
+    The highlight is drawn by slicing this list with character offsets taken
+    from the text, so the two must stay in step. If the recogniser gives a
+    character list that doesn't reassemble into what it said the row was, the
+    offsets would point at the wrong characters and every highlight after the
+    discrepancy would be subtly wrong — better to have none.
+    """
+    if not entries:
+        return None
+    chars = []
+    for entry in entries:
+        try:
+            glyph, _score, quad = entry
+        except (TypeError, ValueError):
+            return None
+        chars.append({"t": glyph, "box": _norm_quad(quad, width, height)})
+
+    if "".join(item["t"] for item in chars) != text:
+        return None
+
+    # The row's own text is stripped, so drop the same characters here to keep
+    # offsets aligned with it.
+    start, end = 0, len(chars)
+    while start < end and chars[start]["t"].isspace():
+        start += 1
+    while end > start and chars[end - 1]["t"].isspace():
+        end -= 1
+    return chars[start:end] or None
 
 
 def _is_cjk(ch):
@@ -153,6 +201,17 @@ def merge_wrapped(lines):
         )
         if tail and _continues(tail, line):
             joiner = "" if _joins_without_space(previous["text"], line["text"]) else " "
+            # Characters follow the text exactly, joiner included, or the
+            # offsets used to slice them later would drift by one per join.
+            if "chars" in previous and "chars" in line:
+                if joiner:
+                    previous["chars"] = previous["chars"] + [
+                        {"t": joiner, "box": None}
+                    ] + line["chars"]
+                else:
+                    previous["chars"] = previous["chars"] + line["chars"]
+            else:
+                previous.pop("chars", None)
             previous["text"] = previous["text"].rstrip() + joiner + line["text"].lstrip()
             ax, ay, aw, ah = previous["box"]
             bx, by, bw, bh = line["box"]
@@ -202,18 +261,50 @@ def split_sentences(lines):
 
         total = sum(len(piece) for piece in pieces) or 1
         x, y, width, height = line["box"]
+        chars = line.get("chars")
+        # Walk the original text so each sentence takes the characters that are
+        # actually its own. `pieces` are stripped, so find each one rather than
+        # assuming the offsets line up.
+        cursor = 0
         offset = 0.0
         for piece in pieces:
             share = len(piece) / total
+            piece_chars = None
+            if chars:
+                at = line["text"].find(piece, cursor)
+                if at != -1:
+                    piece_chars = chars[at : at + len(piece)]
+                    cursor = at + len(piece)
             out.append(
                 {
                     **line,
                     "text": piece,
-                    "box": [x, round(y + height * offset, 5), width, round(height * share, 5)],
+                    # Exact when the characters are known; the proportional
+                    # slice of the block is the fallback.
+                    "box": _chars_box(piece_chars)
+                    or [x, round(y + height * offset, 5), width, round(height * share, 5)],
+                    **({"chars": piece_chars} if piece_chars else {}),
                 }
             )
+            if not piece_chars:
+                out[-1].pop("chars", None)
             offset += share
     return out
+
+
+def _chars_box(chars):
+    """Union of the characters' boxes, ignoring ones with no geometry."""
+    boxes = [item["box"] for item in chars or [] if item.get("box")]
+    if not boxes:
+        return None
+    left = min(box[0] for box in boxes)
+    top = min(box[1] for box in boxes)
+    return [
+        round(left, 5),
+        round(top, 5),
+        round(max(box[0] + box[2] for box in boxes) - left, 5),
+        round(max(box[1] + box[3] for box in boxes) - top, 5),
+    ]
 
 
 def mark_chrome(lines):
