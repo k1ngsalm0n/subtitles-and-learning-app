@@ -56,6 +56,12 @@ PHRASE_OVERRIDES = {
     # Both readings are real ("vehicle length" / "conductor"); keep the one
     # pypinyin already gave rather than change it as a side effect.
     "车长": [["chē"], ["zhǎng"]],
+    # "how many/much" is said with a neutral 少. The written form duō shǎo is
+    # the other sense — "to some extent" — which keeps its tone below, and
+    # pypinyin prefers the longer phrase, so both come out right.
+    "多少": [["duō"], ["shao"]],
+    "多少有点": [["duō"], ["shǎo"], ["yǒu"], ["diǎn"]],
+    "多少有些": [["duō"], ["shǎo"], ["yǒu"], ["xiē"]],
 }
 
 _tuned = False

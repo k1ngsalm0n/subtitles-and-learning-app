@@ -63,6 +63,28 @@ class PolyphoneTests(unittest.TestCase):
         self.assertEqual(reading("干活"), "gàn huó")
         self.assertEqual(reading("干净"), "gān jìng")
 
+    # "how many/much" is said with a neutral 少.
+    def test_duo_shao_is_neutral_when_it_means_how_many(self):
+        self.assertEqual(reading("多少"), "duō shao")
+        self.assertEqual(reading("多少钱"), "duō shao qián")
+        self.assertEqual(reading("有多少"), "yǒu duō shao")
+        self.assertEqual(reading("多少人"), "duō shao rén")
+
+    # …but 多少 also means "to some extent", and that one keeps its tone. The
+    # longer phrase has to win, or fixing one sense would break the other.
+    def test_duo_shao_keeps_its_tone_in_the_other_sense(self):
+        self.assertEqual(reading("多少有点"), "duō shǎo yǒu diǎn")
+        self.assertEqual(reading("多少有些"), "duō shǎo yǒu xiē")
+
+    def test_other_shao_words_are_unharmed(self):
+        for word, want in [
+            ("很少", "hěn shǎo"),
+            ("减少", "jiǎn shǎo"),
+            ("少数", "shǎo shù"),
+            ("差不多", "chà bu duō"),
+        ]:
+            self.assertEqual(reading(word), want, word)
+
     # Corrections must not disturb the polyphones pypinyin already handles.
     def test_untouched_polyphones(self):
         for word, want in [
