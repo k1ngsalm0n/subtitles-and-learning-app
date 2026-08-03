@@ -236,14 +236,14 @@ const VOICE_DIR = join(
   "stele",
   "voices",
 );
-const VOICES = [
+const VOICE_MODELS = [
   ["zh_CN-huayan-medium", "zh/zh_CN/huayan/medium"],
   ["en_US-amy-medium", "en/en_US/amy/medium"],
 ];
 
 function ensureVoices() {
   mkdirSync(VOICE_DIR, { recursive: true });
-  for (const [name, path_] of VOICES) {
+  for (const [name, path_] of VOICE_MODELS) {
     const model = join(VOICE_DIR, `${name}.onnx`);
     if (existsSync(model)) {
       console.log(`   ${name} — already there`);
@@ -271,11 +271,16 @@ function ensureVoices() {
   }
 }
 
-if (process.env.SKIP_VOICES) {
-  console.log("\n→ SKIP_VOICES set — not downloading speech voices.");
-} else {
+// Opt-in: 126 MB on top of Whisper and NLLB, for a button some people never
+// press. Without a voice the app still speaks, just robotically.
+if (process.env.VOICES) {
   console.log("\n→ Fetching speech voices (skips what's already there)…");
   ensureVoices();
+} else {
+  console.log(
+    "\n→ Skipping speech voices. `listen` will use espeak-ng, which is robotic.",
+  );
+  console.log("   For a natural voice: VOICES=1 npm run sync   (~63 MB each)");
 }
 
 console.log("\n✓ Done. Start the app with: npm start");

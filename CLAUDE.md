@@ -36,8 +36,9 @@ lifting — speech-to-text and offline translation — runs through Python.
   `.onnx` voice sits in `~/.local/share/stele/voices`, then **espeak-ng**.
   Firefox on Linux typically reports *zero* voices, which is why the server path
   exists at all — `tts.mjs` used to hide audio entirely in that case. Voices are
-  fetched by `npm run sync` (`SKIP_VOICES=1` to skip) and live beside the
-  backups, outside the repo, because they are 63 MB each.
+  opt-in — `VOICES=1 npm run sync` — and live beside the backups, outside the
+  repo, because they are 63 MB each. Left out of the default bootstrap on
+  purpose: it already pulls Whisper and NLLB, and the app speaks without them.
 - **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
 
 Key server modules: `import.mjs` (URL import via yt-dlp), `transcribe.py`
