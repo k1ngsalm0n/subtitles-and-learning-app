@@ -250,6 +250,8 @@ setElements(els);
 // dial. `appliedAccent` is the scheme the whole app is wearing; the dial can
 // sit on a different one while you're trying it out.
 let settingsPages = null;
+// Set by setupImagesMode; restoreSession needs it and lives outside that closure.
+let enterImagesMode = null;
 let accentDial = null;
 let appliedAccent = storedAccent();
 
@@ -765,6 +767,7 @@ function setupImagesMode() {
   // Video and Images choose a layout, not a file. Picking a file is its own
   // button — the folder beside Import — so going back to the video doesn't
   // ambush you with a file dialog.
+  enterImagesMode = setImagesMode;
   els.videoMode.addEventListener("click", () => setImagesMode(false));
   els.imagesMode.addEventListener("click", () => setImagesMode(true));
   els.videoBrowse.addEventListener("click", () => els.videoInput.click());
@@ -772,7 +775,6 @@ function setupImagesMode() {
 
   // ---- getting an image in: paste, drop, or browse ----
 
-  let preview = null;
   let reading = false;
 
   async function readImage(file) {
@@ -783,10 +785,12 @@ function setupImagesMode() {
     }
     reading = true;
     setImagesMode(true);
-    if (preview) URL.revokeObjectURL(preview);
-    preview = URL.createObjectURL(file);
     clearHighlight(els);
-    els.imageView.src = preview;
+    // A data URL rather than an object URL: it draws identically and it is the
+    // only form that survives being written to storage, which is what lets a
+    // reload put the picture back.
+    const dataUrl = await fileAsDataUrl(file).catch(() => null);
+    els.imageView.src = dataUrl || URL.createObjectURL(file);
     // Once a picture is on screen the drop zone goes behind it, and the button
     // in the row below becomes the visible way to swap it out — and says so.
     syncPlayerBox();
@@ -837,6 +841,9 @@ function setupImagesMode() {
       romanizeSubtitles();
       // The point of the feature is the translation, so don't make them ask.
       await runTranslation(els);
+      // Remember it, the way a URL import remembers its video, so a reload
+      // doesn't throw away the reading you were in the middle of.
+      rememberImageSession(dataUrl);
     } catch (error) {
       els.transcript.innerHTML = '<p class="muted">Couldn\'t read that image.</p>';
       showToast(error.message || "Couldn't read that image.");
@@ -907,6 +914,31 @@ function setupImagesMode() {
   // Establish the starting state, so the pair shows which layout you're in
   // from the first paint rather than only after the first click.
   setImagesMode(false);
+}
+
+// A screenshot big enough to threaten the storage budget is kept out of the
+// session; the recognised text still survives, which is the part you were
+// reading. Roughly 1.5 MB of base64, well under the ~5 MB localStorage gives us
+// and clear of the card store.
+const MAX_REMEMBERED_IMAGE = 1_500_000;
+
+function fileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function rememberImageSession(dataUrl) {
+  saveSession({
+    kind: "image",
+    // Lines carry their text, translation, character boxes and chrome flag, so
+    // the transcript comes back whole — highlights and folding included.
+    lines: state.subtitles,
+    image: dataUrl && dataUrl.length <= MAX_REMEMBERED_IMAGE ? dataUrl : "",
+  });
 }
 
 // The wheel picks the page; everything inside a page is an ordinary control.
@@ -997,6 +1029,22 @@ function handleVideoInput(event) {
 // source's video is gone.
 function restoreSession() {
   const session = loadSession();
+
+  // A screenshot session comes back straight from what was stored: there is no
+  // source to look up and nothing to re-recognise, so the reading is where you
+  // left it rather than back at the sample lesson.
+  if (session?.kind === "image" && Array.isArray(session.lines) && session.lines.length) {
+    state.subtitles = session.lines;
+    state.activeIndex = 0;
+    state.showChrome = false;
+    if (session.image) els.imageView.src = session.image;
+    // Only claim the picture is there when it actually is; a screenshot too
+    // large to store leaves the text and an empty drop zone.
+    enterImagesMode?.(true);
+    renderAll(els);
+    return;
+  }
+
   const source =
     session && state.sources.find((s) => s.id === session.sourceId);
   if (!source || !source.videoUrl) {
