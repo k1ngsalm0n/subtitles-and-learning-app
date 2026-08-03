@@ -165,8 +165,20 @@ input:focus, textarea:focus { border-color: var(--accent); }
   font-size: 16px;
 }
 .brand h1 { font-size: 16px; font-weight: 700; }
-.nav-tabs { display: flex; gap: 4px; }
+/* The tabs are the one part of the topbar that can't be dropped, so they get to
+   scroll rather than push the toggle off the end and take the whole page's
+   horizontal scroll with them. In practice it never engages — the rules below
+   shrink the bar to fit first — it just means no future label can break it. */
+.nav-tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav-tabs::-webkit-scrollbar { display: none; }
 .nav-tab {
+  flex: 0 0 auto;
   border: none;
   background: transparent;
   color: var(--muted);
@@ -195,6 +207,24 @@ input:focus, textarea:focus { border-color: var(--accent); }
   padding: 4px 10px;
 }
 .stat-pill strong { color: var(--text); font-size: 13px; }
+/* The topbar is a single unshrinkable row — brand, tabs, three pills, the theme
+   toggle — so on a narrow screen it forces the whole page to scroll sideways,
+   and every view underneath looks broken. Something has to give, and it's the
+   pills: they're ambient, and the same counts appear on the pages themselves.
+   Navigation is what survives to the smallest width. */
+@media (max-width: 700px) {
+  .topbar { padding: 0 14px; gap: 10px; }
+  .stat-pill { display: none; }
+}
+@media (max-width: 460px) {
+  .brand h1 { display: none; }
+  .nav-tab { padding: 6px 10px; }
+}
+@media (max-width: 360px) {
+  .topbar { padding: 0 12px; gap: 8px; }
+  .brand-mark { width: 28px; height: 28px; font-size: 14px; }
+  .nav-tab { padding: 6px 8px; font-size: 12px; }
+}
 .segmented {
   display: flex;
   gap: 2px;
@@ -257,6 +287,9 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
 }
 .media-pane { grid-area: media; }
 .learning-pane { grid-area: controls; align-self: start; }
+/* As on .cards-layout: a grid item's min-width defaults to its content, so one
+   unshrinkable control can widen the pane it sits in. */
+.workspace > * { min-width: 0; }
 .media-pane {
   display: flex;
   flex-direction: column;
@@ -491,7 +524,9 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   border-top: none;
   padding-top: 0;
 }
-.url-row input, .search-box { flex: 1 1 180px; }
+/* An input's min-content width comes from its size attribute, not its flex
+   basis, so without min-width it refuses to shrink and pushes its row wide. */
+.url-row input, .search-box { flex: 1 1 180px; min-width: 0; }
 .source-status { flex: 1 1 100%; color: var(--muted); min-height: 18px; font-size: 13px; }
 .progress-wrap { flex: 1 1 100%; display: none; }
 .progress-wrap.visible { display: block; }
@@ -653,6 +688,9 @@ rt {
   gap: 20px;
   align-items: start;
 }
+/* A grid item's default min-width is its content, so a long deck name or a row
+   of grade buttons can push a pane wider than the track it sits in. */
+.cards-layout > * { min-width: 0; }
 /* Settings: a wheel of page names parked in the middle of the window, and one
    page at a time beside it. Nothing in here is boxed — the wheel has no surface
    of its own and the panels drop their frame — so it reads as a single sheet
@@ -1792,7 +1830,11 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 
 @media (max-width: 1100px) {
   .workspace {
-    grid-template-columns: 1fr;
+    /* minmax(0, …) rather than a bare 1fr: 1fr means minmax(auto, 1fr), so the
+       track can't go narrower than its content's min-content width — the
+       toolbar row's input floored it wider than a phone screen, and the panes
+       spilled over the page's right-hand padding. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "media"
       "controls"
@@ -1801,12 +1843,20 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   .transcript-pane { position: static; max-height: 70vh; }
 }
 @media (max-width: 1250px) {
-  /* Still room for a deck name with an emoji, an indent and a count. */
-  .cards-layout { grid-template-columns: 250px 1fr; }
+  /* Two columns: decks keep their own, review and browse share the other and
+     stack. Still room for a deck name with an emoji, an indent and a count. */
+  .cards-layout { grid-template-columns: 250px minmax(0, 1fr); }
   .deck-sidebar { grid-row: span 2; }
 }
+/* One column. The fixed deck track can't survive down here: it left the browse
+   list stranded in a 250px column with the rest of the row empty, and by phone
+   widths it pushed the review panel clean off the side of the screen. So the
+   three panes stack in reading order — decks, review, browse — and the deck
+   list is capped so a long one can't bury Review below the fold. */
 @media (max-width: 900px) {
-  .cards-layout,   .deck-sidebar { grid-row: auto; }
+  .cards-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .deck-sidebar, .review-panel, .card-panel { grid-row: auto; grid-column: 1; }
+  .deck-nav { max-height: 40vh; overflow-y: auto; scrollbar-gutter: stable; }
 }
     </style>
     <script>
