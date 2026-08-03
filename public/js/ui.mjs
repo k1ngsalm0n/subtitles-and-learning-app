@@ -16,6 +16,7 @@ import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
+import { speak } from "./tts.mjs";
 import {
   displayText,
   displayTokens,
@@ -1049,6 +1050,12 @@ function getBubble() {
   _bubble = document.createElement("div");
   _bubble.className = "word-bubble";
   _bubble.hidden = true;
+  // Delegated, because the bubble replaces its own innerHTML when the lookup
+  // arrives — a listener bound to the first button would die with it.
+  _bubble.addEventListener("click", (event) => {
+    if (!event.target.closest(".bubble-speak")) return;
+    speak(_bubble.dataset.speakText || "", _bubble.dataset.speakLang || "");
+  });
   document.body.appendChild(_bubble);
   return _bubble;
 }
@@ -1091,9 +1098,11 @@ async function openWordBubble(anchor, context, els) {
   const lang = state.learningLang;
 
   bubble.innerHTML = `
-    <div class="bubble-word">${escapeHtml(word)}</div>
+    <div class="bubble-word">${escapeHtml(word)}<button type="button" class="bubble-speak" aria-label="Listen">▸</button></div>
     <div class="bubble-pron muted">…</div>
     <div class="bubble-meaning">Looking up…</div>`;
+  bubble.dataset.speakText = word;
+  bubble.dataset.speakLang = lang || "";
   getBackdrop().hidden = false;
   positionBubble(bubble);
 
@@ -1128,7 +1137,7 @@ async function openWordBubble(anchor, context, els) {
     ? `<div class="bubble-tag">${escapeHtml(result.partOfSpeech)}</div>`
     : "";
   bubble.innerHTML = `
-    <div class="bubble-word">${escapeHtml(word)}</div>
+    <div class="bubble-word">${escapeHtml(word)}<button type="button" class="bubble-speak" aria-label="Listen">▸</button></div>
     ${pron}
     ${meaningHtml}
     ${explanationHtml}

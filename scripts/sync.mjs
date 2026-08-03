@@ -14,6 +14,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { chmodSync, mkdirSync, renameSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -223,6 +224,58 @@ if (process.env.SKIP_MODELS) {
   // --no-sync so uv doesn't re-resolve the env back to the locked CPU torch and
   // undo the GPU build installed above.
   run("uv", ["run", "--no-sync", "python", "scripts/prefetch_models.py"]);
+}
+
+
+// Neural speech voices for the "listen" button. Without one the app falls back
+// to espeak-ng, which is intelligible but robotic — fine as a safety net, not
+// something to learn pronunciation from. They live beside the backups, outside
+// the repo, because they are 60 MB each and must not end up in a commit.
+const VOICE_DIR = join(
+  process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
+  "stele",
+  "voices",
+);
+const VOICES = [
+  ["zh_CN-huayan-medium", "zh/zh_CN/huayan/medium"],
+  ["en_US-amy-medium", "en/en_US/amy/medium"],
+];
+
+function ensureVoices() {
+  mkdirSync(VOICE_DIR, { recursive: true });
+  for (const [name, path_] of VOICES) {
+    const model = join(VOICE_DIR, `${name}.onnx`);
+    if (existsSync(model)) {
+      console.log(`   ${name} — already there`);
+      continue;
+    }
+    const base = `https://huggingface.co/rhasspy/piper-voices/resolve/main/${path_}`;
+    console.log(`   ${name} — downloading (~63 MB)…`);
+    // Best-effort: a machine with no network still gets a working app, just a
+    // robotic voice.
+    // spawnSync directly, not run(): run() exits the process on failure, and a
+    // voice that won't download must not abort the whole bootstrap.
+    const got = spawnSync("curl", ["-sL", "--fail", "-o", model, `${base}/${name}.onnx`], {
+      cwd: ROOT,
+      stdio: "inherit",
+    });
+    if (got.status !== 0) {
+      rmSync(model, { force: true });
+      console.log(`   ${name} — download failed, the app falls back to espeak-ng`);
+      continue;
+    }
+    spawnSync("curl", ["-sL", "--fail", "-o", `${model}.json`, `${base}/${name}.onnx.json`], {
+      cwd: ROOT,
+      stdio: "inherit",
+    });
+  }
+}
+
+if (process.env.SKIP_VOICES) {
+  console.log("\n→ SKIP_VOICES set — not downloading speech voices.");
+} else {
+  console.log("\n→ Fetching speech voices (skips what's already there)…");
+  ensureVoices();
 }
 
 console.log("\n✓ Done. Start the app with: npm start");

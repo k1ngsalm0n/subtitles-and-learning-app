@@ -36,18 +36,55 @@ export function voiceFor(lang) {
   );
 }
 
-export function ttsAvailable(lang) {
-  return Boolean(voiceFor(lang));
+// The server can always speak, so audio is offered even when the browser
+// reports no voices — which on Linux is the usual case, and used to hide the
+// feature completely.
+export function ttsAvailable() {
+  return true;
 }
 
+let audio = null;
+
+// A browser voice is preferred: no round trip, and usually a better voice than
+// the offline synthesiser. Falling back to the server is what makes the button
+// worth showing at all on a machine whose browser exposes nothing.
 export function speak(text, lang) {
-  const voice = voiceFor(lang);
   const trimmed = String(text || "").trim();
-  if (!voice || !trimmed) return false;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(trimmed);
-  utterance.voice = voice;
-  utterance.lang = voice.lang;
-  window.speechSynthesis.speak(utterance);
+  if (!trimmed) return false;
+
+  const voice = voiceFor(lang);
+  if (voice) {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(trimmed);
+    utterance.voice = voice;
+    utterance.lang = voice.lang;
+    window.speechSynthesis.speak(utterance);
+    return true;
+  }
+
+  speakViaServer(trimmed, lang);
   return true;
+}
+
+async function speakViaServer(text, lang) {
+  try {
+    const res = await fetch("/api/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, lang }),
+    });
+    if (!res.ok) return;
+    const url = URL.createObjectURL(await res.blob());
+    // One player, so a second press replaces the first instead of talking over
+    // it — the same thing speechSynthesis.cancel() does above.
+    if (audio) {
+      audio.pause();
+      URL.revokeObjectURL(audio.src);
+    }
+    audio = new Audio(url);
+    audio.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
+    await audio.play();
+  } catch {
+    // Speech is a nicety; a failure here shouldn't interrupt reading.
+  }
 }

@@ -84,13 +84,22 @@ export async function ensureCommand(command, installMessage) {
 }
 
 export function runCommand(command, args, options = {}) {
-  const { timeoutMs = 60_000, allowFailure = false, input = null, env } = options;
+  const {
+    timeoutMs = 60_000,
+    allowFailure = false,
+    input = null,
+    env,
+    // Collect stdout as a Buffer instead of a string. Anything that isn't text
+    // — a WAV from the speech engine, say — is corrupted by decoding it.
+    binary = false,
+  } = options;
 
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: [input != null ? "pipe" : "ignore", "pipe", "pipe"],
       env,
     });
+    const stdoutChunks = [];
     let stdout = "";
     let stderr = "";
 
@@ -106,7 +115,8 @@ export function runCommand(command, args, options = {}) {
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
+      if (binary) stdoutChunks.push(chunk);
+      else stdout += chunk.toString();
     });
 
     child.stderr.on("data", (chunk) => {
@@ -115,14 +125,20 @@ export function runCommand(command, args, options = {}) {
 
     child.on("error", (error) => {
       clearTimeout(timer);
-      if (allowFailure) resolve({ code: 1, stdout, stderr: error.message });
+      if (allowFailure) {
+        resolve({
+          code: 1,
+          stdout: binary ? Buffer.concat(stdoutChunks) : stdout,
+          stderr: error.message,
+        });
+      }
       else reject(error);
     });
 
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0 || allowFailure) {
-        resolve({ code, stdout, stderr });
+        resolve({ code, stdout: binary ? Buffer.concat(stdoutChunks) : stdout, stderr });
       } else {
         reject(new Error(stderr.trim() || `${command} exited with code ${code}`));
       }

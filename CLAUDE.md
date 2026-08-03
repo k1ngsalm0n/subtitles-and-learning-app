@@ -30,6 +30,14 @@ lifting — speech-to-text and offline translation — runs through Python.
   is caught rather than shifting every later translation onto the wrong cue.
   Falls back to the offline path on *any* doubt — no key, `LLM_TRANSLATE=off`,
   over 400 lines, a bad response, a timeout. Configured in `.env`.
+- **Listening:** `POST /api/speak` (`speak.mjs`) returns a WAV. Three engines,
+  best first: the browser's own speechSynthesis (handled in `tts.mjs`, and it
+  never reaches the server when a voice exists), then **piper** when a matching
+  `.onnx` voice sits in `~/.local/share/stele/voices`, then **espeak-ng**.
+  Firefox on Linux typically reports *zero* voices, which is why the server path
+  exists at all — `tts.mjs` used to hide audio entirely in that case. Voices are
+  fetched by `npm run sync` (`SKIP_VOICES=1` to skip) and live beside the
+  backups, outside the repo, because they are 63 MB each.
 - **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
 
 Key server modules: `import.mjs` (URL import via yt-dlp), `transcribe.py`

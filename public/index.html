@@ -1275,6 +1275,17 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   background: rgba(0, 0, 0, 0.25);
 }
 :root[data-theme="light"] .bubble-backdrop { background: rgba(0, 0, 0, 0.12); }
+.bubble-speak {
+  height: 26px;
+  width: 26px;
+  margin-left: 8px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 11px;
+  vertical-align: middle;
+  color: var(--accent);
+}
+.bubble-speak:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .word-bubble {
   /* Centered pop-up: fixed to the viewport, not anchored to the word. */
   position: fixed;
@@ -1287,17 +1298,20 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   overflow-y: auto;
   padding: 20px 22px;
   animation: bubble-pop 0.15s ease-out;
-  border: none;
+  /* Built from the theme's own surface and text, so the pop-up belongs to
+     whichever theme is on rather than being a second palette to keep in sync.
+     Slightly translucent because it sits over the transcript and the blur
+     behind it is the point. */
+  border: 1px solid var(--border);
   border-radius: 18px;
-  background: rgba(40, 40, 46, 0.95);
+  background: color-mix(in srgb, var(--surface-2) 94%, transparent);
   backdrop-filter: blur(16px);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
-  color: #f0ece4;
+  color: var(--text);
   font-size: 14px;
 }
 :root[data-theme="light"] .word-bubble {
-  background: rgba(255, 255, 255, 0.96);
-  color: #1a1a1a;
+  /* Only the shadow differs: a dark-theme drop shadow is invisible on paper. */
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
 }
 @keyframes bubble-pop {
