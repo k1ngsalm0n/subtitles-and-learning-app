@@ -565,10 +565,11 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   background: var(--surface);
   border: 1px solid var(--border);
   min-width: 0;
-  /* The rows inside carry their own vertical padding and hairlines; this is the
-     breathing room at the sides, so Video/Images and the import row don't sit
-     hard against the border. */
-  padding: 0 14px;
+  /* The rows inside carry their own vertical padding and hairlines, so this is
+     the breathing room at the sides — and above the first one, which is a
+     tinted bar and looked like a band cut off by the border rather than a
+     block sitting inside it. The last row's own padding covers the bottom. */
+  padding: 12px 14px 0;
 }
 /* Right-hand transcript column: sticky under the topbar, capped to the
    viewport, with the line list scrolling inside it. */
@@ -590,6 +591,8 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   gap: 8px;
   padding: 10px;
   background: var(--surface-2);
+  /* Inset on all four sides now, so it needs its own corners. */
+  border-radius: 8px;
   flex-wrap: wrap;
 }
 .translate-langs {
