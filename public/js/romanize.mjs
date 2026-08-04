@@ -24,15 +24,25 @@ export async function romanizeSubtitles() {
       body: JSON.stringify({ language: lang, lines: texts }),
     });
     if (!res.ok) return;
-    const { tokens } = await res.json();
+    const { tokens, words } = await res.json();
     if (!Array.isArray(tokens)) return;
-    // A newer load may have replaced the subtitles while we were waiting.
-    if (state.subtitles !== lines) return;
 
+    // The subtitles may have been *replaced* while we were waiting rather than
+    // changed: translating rebuilds the array (`{...line, translation}`), and a
+    // screenshot translates itself the moment it is read. Matching on array
+    // identity threw the pronunciation away every time that won the race — so
+    // match on the text instead, which still declines to annotate a document
+    // that genuinely isn't the one we asked about.
+    const current = state.subtitles;
     let any = false;
-    lines.forEach((line, i) => {
-      line.tokens = Array.isArray(tokens[i]) ? tokens[i] : [];
-      if (line.tokens.some(([, pron]) => pron)) any = true;
+    current.forEach((line, index) => {
+      const at = texts[index] === line.text ? index : texts.indexOf(line.text);
+      if (at < 0) return;
+      line.tokens = Array.isArray(tokens[at]) ? tokens[at] : [];
+      // Word boundaries for scripts that don't space them (Chinese). Empty for
+      // everything else, and the renderer falls back to Intl.Segmenter.
+      line.words = Array.isArray(words?.[at]) ? words[at] : [];
+      if (line.tokens.some(([, pron]) => pron) || line.words.length) any = true;
     });
     if (any) renderAll();
   } catch {

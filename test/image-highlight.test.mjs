@@ -82,3 +82,45 @@ test("no area before the picture has loaded", () => {
   assert.equal(drawnArea(0, 0, 400, 400), null);
   assert.equal(drawnArea(800, 400, 0, 0), null);
 });
+
+// Clicking a word asks about that word, so the picture should point at it and
+// not at the whole sentence around it.
+test("a range narrows the highlight to one word's characters", () => {
+  const line = {
+    chars: [
+      char("东", 0.10, 0.2), char("弗", 0.15, 0.2), char("里", 0.20, 0.2),
+      char("斯", 0.25, 0.2), char("兰", 0.30, 0.2), char("号", 0.35, 0.2),
+    ],
+  };
+  // 弗里斯兰 — four characters starting at index 1.
+  const rects = rectsFor(line, { start: 1, length: 4 });
+  assert.equal(rects.length, 1);
+  sameRect(rects[0], [0.15, 0.2, 0.20, 0.06]);
+});
+
+test("a word that wrapped still gets one rectangle per row", () => {
+  const line = {
+    chars: [
+      char("一", 0.8, 0.2), char("二", 0.85, 0.2),
+      char("三", 0.1, 0.4), char("四", 0.15, 0.4),
+    ],
+  };
+  // 二 ends one row and 三 begins the next, so the word spans both.
+  const rects = rectsFor(line, { start: 1, length: 2 });
+  assert.equal(rects.length, 2);
+  sameRect(rects[0], [0.85, 0.2, 0.05, 0.06], "row 1");
+  sameRect(rects[1], [0.1, 0.4, 0.05, 0.06], "row 2");
+});
+
+// A range that points nowhere must not blank the highlight — better to show the
+// whole line than to leave the reader with no idea where the text came from.
+test("an out-of-range word falls back to the whole line", () => {
+  const line = { chars: [char("一", 0.1, 0.2), char("二", 0.15, 0.2)] };
+  sameRect(rectsFor(line, { start: 9, length: 3 })[0], [0.1, 0.2, 0.1, 0.06]);
+  sameRect(rectsFor(line, { start: 0, length: 0 })[0], [0.1, 0.2, 0.1, 0.06]);
+});
+
+test("no range still highlights the whole line", () => {
+  const line = { chars: [char("一", 0.1, 0.2), char("二", 0.15, 0.2)] };
+  sameRect(rectsFor(line)[0], [0.1, 0.2, 0.1, 0.06]);
+});

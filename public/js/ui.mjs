@@ -16,10 +16,12 @@ import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
+import { paintHighlight } from "./imagehighlight.mjs";
 import { speak } from "./tts.mjs";
 import {
   displayText,
   displayTokens,
+  displayWords,
   savedWordForms,
   refreshScript,
 } from "./zhscript.mjs";
@@ -88,7 +90,7 @@ export function renderTranscript(els) {
       const tokens = displayTokens(line);
       const original =
         tokens && tokens.length
-          ? renderRubyTranscript(tokens, shown, savedWords)
+          ? renderRubyTranscript(tokens, shown, savedWords, displayWords(line))
           : tokenize(shown, savedWords);
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${line.start == null ? "" : formatTime(line.start)}</span>
@@ -156,6 +158,7 @@ export function setupTranscriptDelegation(els) {
       const lineEl = wordEl.closest(".line");
       if (!lineEl) return;
       const line = state.subtitles[Number(lineEl.dataset.index)];
+      highlightWord(wordEl, line, e);
       openWordBubble(wordEl, line?.text || "", e);
       return;
     }
@@ -170,6 +173,7 @@ export function setupTranscriptDelegation(els) {
         const lineEl = nearestWord.closest(".line");
         if (!lineEl) return;
         const line = state.subtitles[Number(lineEl.dataset.index)];
+        highlightWord(nearestWord, line, e);
         openWordBubble(nearestWord, line?.text || "", e);
         return;
       }
@@ -180,6 +184,19 @@ export function setupTranscriptDelegation(els) {
       activateLine(Number(lineEl.dataset.index), true, e);
     }
   });
+}
+
+// On a screenshot, point at the word being looked up rather than the whole
+// sentence it sits in — the reader asked about one word, so show them where
+// that word is. `data-start`/`data-len` are character counts the renderer
+// worked out, and the recogniser's boxes are one per character, so they index
+// straight into each other. No-op for video, where there is nothing to point at.
+function highlightWord(wordEl, line, els) {
+  if (!line?.chars?.length) return;
+  const start = Number(wordEl.dataset.start);
+  const length = Number(wordEl.dataset.len);
+  if (!Number.isFinite(start) || !Number.isFinite(length) || !length) return;
+  paintHighlight(els, line, { start, length });
 }
 
 function findNearestWord(x, y, container) {
@@ -228,18 +245,40 @@ function pronByOffset(tokens) {
   return map;
 }
 
+// Walk `text` as words, preferring the server's word list. Yields the same
+// shape Intl.Segmenter does — { segment, index, isWordLike } — so one loop
+// below handles both. Falling back matters: the server list is Chinese-only,
+// and it's dropped whenever it doesn't rebuild the string exactly.
+function* wordsOf(text, words) {
+  if (!words?.length || words.join("") !== text) {
+    yield* _segmenter.segment(text);
+    return;
+  }
+  let index = 0;
+  for (const segment of words) {
+    yield { segment, index, isWordLike: /[\p{L}\p{N}]/u.test(segment) };
+    index += segment.length;
+  }
+}
+
 // Transcript: clickable words, pinyin stacked over each character. Words in
 // `savedWords` get a "saved" mark. data-len carries the base character count so
 // the ruby annotation text inside <rt> doesn't inflate the count and skew the
-// karaoke highlight now running on the active transcript line.
-function renderRubyTranscript(tokens, text, savedWords) {
+// karaoke highlight now running on the active transcript line, and data-start
+// says where the word begins so the picture can point at just that word.
+function renderRubyTranscript(tokens, text, savedWords, words) {
   const savedClass = (word) => (savedWords?.has(word) ? " saved" : "");
   if (isCharAligned(tokens)) {
     const pron = pronByOffset(tokens);
+    // Character index, not UTF-16 offset: the highlight indexes into the
+    // recogniser's per-character boxes, which are one per character.
+    let charStart = 0;
     let html = "";
-    for (const seg of _segmenter.segment(text)) {
+    for (const seg of wordsOf(text, words)) {
+      const length = [...seg.segment].length;
       if (!isWord(seg)) {
         html += escapeHtml(seg.segment);
+        charStart += length;
         continue;
       }
       let inner = "";
@@ -248,7 +287,8 @@ function renderRubyTranscript(tokens, text, savedWords) {
         inner += rubyUnit(ch, pron.get(off) || "");
         off += ch.length;
       }
-      html += `<span class="word${savedClass(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${[...seg.segment].length}">${inner}</span>`;
+      html += `<span class="word${savedClass(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${length}" data-start="${charStart}">${inner}</span>`;
+      charStart += length;
     }
     return html;
   }
@@ -1070,7 +1110,7 @@ function getBackdrop() {
   _backdrop.hidden = true;
   _backdrop.addEventListener("click", (ev) => {
     ev.stopPropagation();
-    closeBubble();
+    dismissBubble();
   });
   document.body.appendChild(_backdrop);
   return _backdrop;
@@ -1083,6 +1123,16 @@ function closeBubble() {
     _bubbleCleanup();
     _bubbleCleanup = null;
   }
+}
+
+// Closing because the reader is done, rather than because another word is
+// opening. Only then does the word's highlight go back to the whole line —
+// openWordBubble closes the previous bubble first, and restoring here would
+// wipe the highlight the new word had just painted.
+function dismissBubble() {
+  closeBubble();
+  const line = state.subtitles[state.activeIndex];
+  if (_els && line?.chars?.length) paintHighlight(_els, line);
 }
 
 // The bubble is a viewport-centered pop-up (see .word-bubble CSS); showing it
@@ -1106,7 +1156,7 @@ async function openWordBubble(anchor, context, els) {
   getBackdrop().hidden = false;
   positionBubble(bubble);
 
-  const onKey = (ev) => { if (ev.key === "Escape") closeBubble(); };
+  const onKey = (ev) => { if (ev.key === "Escape") dismissBubble(); };
   document.addEventListener("keydown", onKey);
   _bubbleCleanup = () => document.removeEventListener("keydown", onKey);
 
@@ -1152,7 +1202,7 @@ async function openWordBubble(anchor, context, els) {
   // Reverse / Stroke order / a custom one), a live preview, and the deck
   // (Default or a new one) are chosen before saving.
   bubble.querySelector(".bubble-save").addEventListener("click", () => {
-    closeBubble();
+    dismissBubble();
     const line = state.subtitles[state.activeIndex];
     openCardModal({
       word,

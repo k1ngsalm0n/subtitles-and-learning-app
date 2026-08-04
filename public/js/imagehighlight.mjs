@@ -13,8 +13,17 @@ const ROW_TOLERANCE = 0.6;
 
 // One rectangle per row of the sentence. A sentence that wrapped gets two,
 // exactly as a selection would.
-export function rectsFor(line) {
-  const chars = (line?.chars || []).filter((item) => item?.box);
+// `range` narrows the highlight to one word: {start, length} in characters,
+// counted the same way the transcript counts them. Out of range or absent, the
+// whole line lights up as before — a word whose characters the recogniser
+// didn't box individually should still show the reader where it came from.
+export function rectsFor(line, range) {
+  let chars = (line?.chars || []).filter((item) => item?.box);
+  if (range && chars.length) {
+    const start = Math.max(0, range.start | 0);
+    const slice = chars.slice(start, start + Math.max(0, range.length | 0));
+    if (slice.length) chars = slice;
+  }
   if (!chars.length) return line?.box ? [line.box] : [];
 
   const rows = [];
@@ -61,7 +70,7 @@ export function clearHighlight(els) {
   els?.imageHighlight?.replaceChildren();
 }
 
-export function paintHighlight(els, line) {
+export function paintHighlight(els, line, range) {
   const layer = els?.imageHighlight;
   const image = els?.imageView;
   if (!layer || !image) return;
@@ -77,7 +86,7 @@ export function paintHighlight(els, line) {
   );
   if (!area) return;
 
-  for (const [x, y, width, height] of rectsFor(line)) {
+  for (const [x, y, width, height] of rectsFor(line, range)) {
     const mark = document.createElement("span");
     mark.style.left = `${area.left + x * area.width}px`;
     mark.style.top = `${area.top + y * area.height}px`;

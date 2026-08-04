@@ -8,11 +8,19 @@
 - Latin-script languages -> nothing (a romanization would just strip accents)
 
 Reads one JSON object on stdin: {"lang": str, "lines": [str, ...]}.
-Writes one JSON object on stdout: {"tokens": [line, ...]} where each `line` is a
-list of [base, pron] pairs. Concatenating every `base` reconstructs the line, so
-the frontend can stack `pron` directly over the character(s) it belongs to
-(ruby/furigana style). `pron` is "" for anything not romanized (punctuation,
-spaces, already-Latin text).
+Writes one JSON object on stdout: {"tokens": [...], "words": [...]}.
+
+`tokens[i]` is a list of [base, pron] pairs. Concatenating every `base`
+reconstructs the line, so the frontend can stack `pron` directly over the
+character(s) it belongs to (ruby/furigana style). `pron` is "" for anything not
+romanized (punctuation, spaces, already-Latin text).
+
+`words[i]` is the same line cut into words, as a list of strings that also
+concatenate back to it. Pronunciation is per character but *clicking* is per
+word, and the two boundaries are different — so they travel separately. Only
+Chinese fills this in; everything else sends an empty list and the frontend
+falls back to Intl.Segmenter, which is adequate for scripts that put spaces
+between their words.
 """
 
 import json
@@ -121,6 +129,35 @@ def translit_tokens(text):
     return tokens
 
 
+# Chinese writes without spaces, so "which characters make one word" is a guess
+# somebody has to make. The browser's own Intl.Segmenter makes a poor one: it
+# cut 弗里斯兰 into 弗 | 里斯 | 兰, 日德兰 (Jutland) into three, and 战列舰
+# (battleship) into 战 | 列 | 舰 — so clicking a name looked up a fragment of it
+# and the reader got nothing back. jieba keeps all three whole.
+#
+# Best-effort like everything else here: if it isn't installed, the frontend
+# still has Intl.Segmenter to fall back on.
+def chinese_words(text):
+    try:
+        import jieba
+    except ImportError:
+        return []
+
+    jieba.setLogLevel(60)  # its "building prefix dict" chatter is not ours
+    words = [w for w in jieba.cut(text) if w]
+    # The frontend rebuilds the line from these, so a segmenter that dropped or
+    # altered a character would silently shift every word after it. Cheaper to
+    # check than to debug.
+    return words if "".join(words) == text else []
+
+
+def word_splitter(lang):
+    lang = (lang or "").lower()
+    if lang in ("zh", "zh-cn", "zh-tw", "chinese"):
+        return chinese_words
+    return None
+
+
 def get_tokenizer(lang):
     lang = (lang or "").lower()
     if lang in ("zh", "zh-cn", "zh-tw", "chinese"):
@@ -147,7 +184,18 @@ def main():
             except Exception:
                 out.append([[str(line), ""]])
 
-    json.dump({"tokens": out}, sys.stdout, ensure_ascii=False)
+    split = word_splitter(req.get("lang"))
+    if split is None:
+        words = [[] for _ in lines]
+    else:
+        words = []
+        for line in lines:
+            try:
+                words.append(split(str(line)))
+            except Exception:
+                words.append([])
+
+    json.dump({"tokens": out, "words": words}, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
 
 

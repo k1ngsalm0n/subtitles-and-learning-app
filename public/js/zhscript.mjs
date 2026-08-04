@@ -99,12 +99,23 @@ export function savedWordForms(word) {
 // being drawn. Same endpoint romanize.mjs uses, cached by the converted string.
 
 const ruby = new Map();
+// Word boundaries for the converted string. Conversion is character-for-
+// character, so the cuts land in the same places — but the words are made of
+// the glyphs actually on screen, so a saved word matches what was clicked.
+const cuts = new Map();
 
 export function displayTokens(line) {
   if (!line) return null;
   const shown = displayText(line);
   if (shown === line.text) return line.tokens;
   return ruby.get(shown) || null;
+}
+
+export function displayWords(line) {
+  if (!line) return null;
+  const shown = displayText(line);
+  if (shown === line.text) return line.words;
+  return cuts.get(shown) || null;
 }
 
 async function fetchRuby(texts) {
@@ -121,12 +132,13 @@ async function fetchRuby(texts) {
   }).catch(() => null);
   if (!res || !res.ok) return false;
 
-  const { tokens } = (await res.json().catch(() => ({}))) || {};
+  const { tokens, words } = (await res.json().catch(() => ({}))) || {};
   if (!Array.isArray(tokens)) return false;
   // Cached even when empty, so a line the romanizer had nothing to say about
   // isn't asked for again on every render.
   wanted.forEach((text, index) => {
     ruby.set(text, Array.isArray(tokens[index]) ? tokens[index] : []);
+    cuts.set(text, Array.isArray(words?.[index]) ? words[index] : []);
   });
   return true;
 }

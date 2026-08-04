@@ -24,6 +24,9 @@ dependencies = [
     "pypinyin==0.55.0",
     "pykakasi==2.3.0",
     "Unidecode==1.4.0",
+    # Chinese word segmentation, so clicking a word looks up the word rather
+    # than one character of it (server/romanize.py). Pure Python, no model.
+    "jieba==0.42.1",
     "rapidocr>=3.9.1",
     "onnxruntime>=1.24.3",
     "sentencepiece>=0.2.2",

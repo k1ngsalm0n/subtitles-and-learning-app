@@ -40,6 +40,18 @@ lifting — speech-to-text and offline translation — runs through Python.
   repo, because they are 63 MB each. Left out of the default bootstrap on
   purpose: it already pulls Whisper and NLLB, and the app speaks without them.
 - **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
+- **Word boundaries:** the same endpoint returns `words` beside `tokens` — the
+  line cut into *clickable* units, which for Chinese is a different boundary
+  from the per-character pinyin. jieba does the cutting, because the browser's
+  `Intl.Segmenter` split 弗里斯兰 into 弗|里斯|兰 and 战列舰 into three, so
+  clicking a name looked up a fragment of it. Chinese only; everything else
+  sends `[]` and the renderer falls back to `Intl.Segmenter`. Both the frontend
+  and `chinese_words()` drop a word list that doesn't reconstruct the line
+  exactly, so a bad cut degrades instead of shifting every later word.
+  `romanizeSubtitles()` attaches the result by **text**, not array identity:
+  translating rebuilds `state.subtitles`, and a screenshot translates itself
+  the moment it is read, so identity-matching lost the pinyin whenever
+  translation won that race.
 
 Key server modules: `import.mjs` (URL import via yt-dlp), `transcribe.py`
 (faster-whisper), `ocr_captions.py` (burned-in caption OCR via RapidOCR — runs
