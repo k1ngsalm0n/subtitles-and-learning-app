@@ -1,7 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { matchesLanguage, espeakVoiceFor } from "../server/speak.mjs";
+
+// handleVoices reads STELE_VOICE_DIR, which speak.mjs resolves at import time,
+// so each case gets its own module instance pointed at its own directory.
+async function voicesWith(dir) {
+  process.env.STELE_VOICE_DIR = dir;
+  const mod = await import(`../server/speak.mjs?voices=${encodeURIComponent(dir)}`);
+  let body = null;
+  const res = { writeHead() {}, end(text) { body = text; } };
+  await mod.handleVoices({}, res);
+  return JSON.parse(body);
+}
 
 // Voice files are named like zh_CN-huayan-medium.onnx.
 test("a voice file is matched to its language", () => {
@@ -46,4 +61,36 @@ test("languages espeak names the same way pass straight through", () => {
 test("no language falls back to English rather than failing", () => {
   assert.equal(espeakVoiceFor(""), "en");
   assert.equal(espeakVoiceFor(null), "en");
+});
+
+// GET /api/voices tells the browser which languages have a real voice here.
+// It matters because the browser can't tell: on Linux its whole list usually
+// comes from speech-dispatcher driving espeak-ng, so every "voice" it offers
+// is the robotic engine under a different name.
+test("the voice list reports one entry per language, not per file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "stele-voices-"));
+  for (const name of [
+    "zh_CN-huayan-medium.onnx",
+    "zh_CN-huayan-medium.onnx.json",
+    "en_US-amy-medium.onnx",
+    "en_GB-alan-low.onnx",
+    "notes.txt",
+  ]) {
+    await writeFile(join(dir, name), "");
+  }
+  const { languages } = await voicesWith(dir);
+  assert.deepEqual(languages.sort(), ["en", "zh"]);
+});
+
+test("no voices installed means no languages claimed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "stele-voices-"));
+  const { languages } = await voicesWith(dir);
+  assert.deepEqual(languages, []);
+});
+
+// A missing directory is the default state — voices are opt-in — and must read
+// as "nothing installed" rather than throwing on every page load.
+test("a missing voice directory is not an error", async () => {
+  const { languages } = await voicesWith(join(tmpdir(), "stele-does-not-exist"));
+  assert.deepEqual(languages, []);
 });

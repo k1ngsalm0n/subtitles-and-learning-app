@@ -31,14 +31,27 @@ lifting — speech-to-text and offline translation — runs through Python.
   Falls back to the offline path on *any* doubt — no key, `LLM_TRANSLATE=off`,
   over 400 lines, a bad response, a timeout. Configured in `.env`.
 - **Listening:** `POST /api/speak` (`speak.mjs`) returns a WAV. Three engines,
-  best first: the browser's own speechSynthesis (handled in `tts.mjs`, and it
-  never reaches the server when a voice exists), then **piper** when a matching
-  `.onnx` voice sits in `~/.local/share/stele/voices`, then **espeak-ng**.
-  Firefox on Linux typically reports *zero* voices, which is why the server path
-  exists at all — `tts.mjs` used to hide audio entirely in that case. Voices are
-  opt-in — `VOICES=1 npm run sync` — and live beside the backups, outside the
-  repo, because they are 63 MB each. Left out of the default bootstrap on
-  purpose: it already pulls Whisper and NLLB, and the app speaks without them.
+  best first: **piper** when a matching `.onnx` voice sits in
+  `~/.local/share/stele/voices`, then the browser's own speechSynthesis
+  (`tts.mjs`), then **espeak-ng**.
+
+  The order used to put the browser first, on the assumption that its voice was
+  better than anything local. On Linux it usually *is* the local one: Firefox's
+  list comes from speech-dispatcher, whose only output module is typically
+  espeak-ng, so it offers thousands of names that are all the same robotic
+  engine — this machine reported 14,805 — and the piper voice on disk was never
+  reached. The browser can't detect this about itself, so `GET /api/voices`
+  reports which languages have a real voice installed and `tts.mjs` prefers the
+  server for those. (Firefox with *zero* voices also happens, which is why the
+  server path exists at all; `tts.mjs` used to hide audio entirely in that case.)
+
+  Voices are opt-in — `VOICES=1 npm run sync` — and live beside the backups,
+  outside the repo, because they are 63 MB each. That step installs
+  **piper-tts** as well as the `.onnx` files: the voices are useless without the
+  synthesiser, and a missing `python -m piper` fails *silently*, because
+  `handleSpeak` treats a failed piper run as "try the next engine" and lands on
+  espeak-ng. Left out of the default bootstrap on purpose: it already pulls
+  Whisper and NLLB, and the app speaks without them.
 - **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
 - **Word boundaries:** the same endpoint returns `words` beside `tokens` — the
   line cut into *clickable* units, which for Chinese is a different boundary

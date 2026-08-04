@@ -242,6 +242,20 @@ const VOICE_MODELS = [
 ];
 
 function ensureVoices() {
+  // The voices are useless without the synthesiser that plays them: downloading
+  // 126 MB of .onnx and leaving `python -m piper` missing means every press
+  // falls through to espeak-ng, which is the robotic voice this step exists to
+  // replace — and it does it silently, because the server treats a failed piper
+  // run as "try the next engine".
+  console.log("   piper (the synthesiser that plays them)…");
+  const piper = spawnSync("uv", ["pip", "install", "-q", "piper-tts"], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+  if (piper.status !== 0) {
+    console.log("   ⚠ piper install failed — voices downloaded but unusable.");
+  }
+
   mkdirSync(VOICE_DIR, { recursive: true });
   for (const [name, path_] of VOICE_MODELS) {
     const model = join(VOICE_DIR, `${name}.onnx`);

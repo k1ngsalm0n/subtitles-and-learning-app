@@ -100,6 +100,25 @@ async function speakWithEspeak(text, lang) {
   return result.stdout;
 }
 
+// GET /api/voices -> { languages: ["en", "zh"] }
+//
+// Which languages this machine can speak *well*. The browser can't work this
+// out for itself: on Linux its whole voice list usually comes from
+// speech-dispatcher, whose one output module is espeak-ng, so every "voice" it
+// offers is the robotic engine under a different name. Only the server knows a
+// neural voice is installed, so only the server can say so.
+export async function handleVoices(req, res) {
+  const models = await listVoices();
+  const languages = [
+    ...new Set(
+      models
+        .map((name) => name.toLowerCase().split(/[-_]/)[0])
+        .filter(Boolean),
+    ),
+  ];
+  sendJson(res, 200, { languages });
+}
+
 export async function handleSpeak(req, res) {
   let body;
   try {

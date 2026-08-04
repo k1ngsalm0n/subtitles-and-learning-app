@@ -8,7 +8,7 @@ import { handleTranslate } from "./translate.mjs";
 import { handleRomanize } from "./romanize.mjs";
 import { handleOcrImage } from "./ocr.mjs";
 import { handleZhConvert } from "./zh.mjs";
-import { handleSpeak } from "./speak.mjs";
+import { handleSpeak, handleVoices } from "./speak.mjs";
 import { handleStrokes } from "./strokes.mjs";
 import {
   handleSaveBackup,
@@ -69,6 +69,10 @@ createServer(async (req, res) => {
     }
     if (req.method === "POST" && req.url === "/api/speak") {
       await handleSpeak(req, res);
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/voices") {
+      await handleVoices(req, res);
       return;
     }
     if (req.method === "GET" && req.url.startsWith("/api/strokes")) {

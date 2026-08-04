@@ -1,7 +1,13 @@
-// Text-to-speech via the browser's built-in speechSynthesis — the app has no
-// TTS engine of its own and never calls an external service. Voices are
-// feature-detected: when no voice matches the learning language (common on
-// Linux), audio fields are hidden entirely rather than leaving dead buttons.
+// Text-to-speech, best engine first. Nothing leaves the machine.
+//
+//   1. piper, via the server, when a neural voice for the language is
+//      installed — the one that sounds like a person.
+//   2. the browser's speechSynthesis, when it is a *different* engine from the
+//      server's fallback (macOS, Windows).
+//   3. the server again, which ends at espeak-ng: robotic, but it means the
+//      button works on a machine with no voice model at all.
+//
+// See `neural` below for why the browser isn't simply preferred.
 
 const supported =
   typeof window !== "undefined" && "speechSynthesis" in window;
@@ -45,14 +51,34 @@ export function ttsAvailable() {
 
 let audio = null;
 
-// A browser voice is preferred: no round trip, and usually a better voice than
-// the offline synthesiser. Falling back to the server is what makes the button
-// worth showing at all on a machine whose browser exposes nothing.
+// Languages the server has a neural voice for. Asked once, at load, so the
+// answer is in hand long before anyone presses a button; until it arrives, and
+// on any failure, the browser keeps its old first refusal.
+let neural = new Set();
+if (typeof fetch === "function") {
+  fetch("/api/voices")
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (Array.isArray(data?.languages)) neural = new Set(data.languages);
+    })
+    .catch(() => {});
+}
+
+// A browser voice is preferred where it is genuinely a different engine: no
+// round trip, and on macOS or Windows a better voice than anything here.
+//
+// On Linux it usually isn't a different engine. Firefox's voice list comes from
+// speech-dispatcher, whose only output module is typically espeak-ng — so the
+// browser offers a long list of names that are all the same robotic
+// synthesiser, and preferring it meant the piper voice sitting on disk was
+// never reached. So when the server says it has a real voice for this
+// language, that wins.
 export function speak(text, lang) {
   const trimmed = String(text || "").trim();
   if (!trimmed) return false;
 
-  const voice = voiceFor(lang);
+  const short = String(lang || "").toLowerCase().slice(0, 2);
+  const voice = neural.has(short) ? null : voiceFor(lang);
   if (voice) {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(trimmed);
