@@ -3,7 +3,8 @@
 // preview is exactly what you review.
 
 import { getField, fieldText } from "./carddata.mjs";
-import { ttsAvailable, speak } from "./tts.mjs";
+import { ttsAvailable } from "./tts.mjs";
+import { createSpeakButtons } from "./speakbuttons.mjs";
 import { renderStrokeOrder, hasHan } from "./strokes.mjs";
 
 // Render one face of a card into `el`.
@@ -26,20 +27,12 @@ export function renderCardFace(el, card, fieldKeys, opts = {}) {
       const text = String(field.speak(card) ?? "").trim();
       // No matching voice or nothing to say → no dead 🔊 buttons.
       if (!text || !ttsAvailable(lang)) continue;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "cf-audio";
-      button.textContent = "🔊";
-      button.title = `Play “${text}”`;
-      button.setAttribute("aria-label", button.title);
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        event.preventDefault();
-        speak(text, lang);
-      });
+      // The same two speeds the transcript offers: a card is where you most
+      // want the slow one, since you are trying to say it back.
+      const buttons = createSpeakButtons(text, lang);
       const row = document.createElement("div");
       row.className = `cf cf-${key}`;
-      row.appendChild(button);
+      row.appendChild(buttons);
       el.appendChild(row);
       rendered++;
       continue;

@@ -31,8 +31,10 @@ lifting — speech-to-text and offline translation — runs through Python.
   Falls back to the offline path on *any* doubt — no key, `LLM_TRANSLATE=off`,
   over 400 lines, a bad response, a timeout. Configured in `.env`.
 - **Listening:** `POST /api/speak` (`speak.mjs`) returns a WAV. Two speeds —
-  `rate: "fast" | "slow"`, offered as a pair of buttons in the word pop-up,
-  same play mark on each with the word underneath. "fast" is the phrase said
+  `rate: "fast" | "slow"`. `speakbuttons.mjs` is the one place that builds the
+  pair — a drawn speaker plus the word underneath — and the transcript pop-up
+  and *both faces of a flashcard* use it. They used to disagree: the pop-up had
+  two speeds and a play mark, a card had one speed and a 🔊 emoji. "fast" is the phrase said
   normally; it is named for the pair, not for being hurried, and is what an
   unrecognised or missing rate means. Each engine expresses speed differently
   (espeak counts words per minute, piper stretches phonemes with

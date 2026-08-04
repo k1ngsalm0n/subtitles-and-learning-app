@@ -13,6 +13,7 @@
     <link rel="modulepreload" href="./js/backup.mjs" />
     <link rel="modulepreload" href="./js/carddata.mjs" />
     <link rel="modulepreload" href="./js/health.mjs" />
+    <link rel="modulepreload" href="./js/speakbuttons.mjs" />
     <link rel="modulepreload" href="./js/cardface.mjs" />
     <link rel="modulepreload" href="./js/cardmodal.mjs" />
     <link rel="modulepreload" href="./js/flashcards.mjs" />
@@ -564,6 +565,10 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   background: var(--surface);
   border: 1px solid var(--border);
   min-width: 0;
+  /* The rows inside carry their own vertical padding and hairlines; this is the
+     breathing room at the sides, so Video/Images and the import row don't sit
+     hard against the border. */
+  padding: 0 14px;
 }
 /* Right-hand transcript column: sticky under the topbar, capped to the
    viewport, with the line list scrolling inside it. */
@@ -1423,11 +1428,12 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   background: rgba(0, 0, 0, 0.25);
 }
 :root[data-theme="light"] .bubble-backdrop { background: rgba(0, 0, 0, 0.12); }
-/* Two speeds of the same action, so the mark is identical on both and the word
-   beneath is what tells them apart. Stacked rather than side by side to keep
-   each one a single target with its own label. */
-.bubble-speak-row { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
-.bubble-speak {
+/* Two speeds of the same action, so the speaker is identical on both and the
+   word beneath is what tells them apart. Used by the transcript pop-up and by
+   both faces of a flashcard — one control, one place. */
+.speak-row { display: inline-flex; gap: 4px; vertical-align: middle; }
+.bubble-word .speak-row { margin-left: 8px; }
+.speak-button {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -1440,15 +1446,19 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   color: var(--accent);
   line-height: 1;
 }
-.bubble-speak-mark { font-size: 12px; }
-.bubble-speak-label {
+.speak-icon { display: block; }
+.speak-label {
   font-size: 9px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.bubble-speak:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
-.bubble-speak:hover .bubble-speak-label { color: var(--text); }
+.speak-button:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.speak-button:hover .speak-label { color: var(--text); }
+/* A row in the card list has no room to spell the speeds out, and the pair is
+   already explained wherever the card is actually being studied. */
+.card-face-compact .speak-button { min-width: 0; height: 26px; padding: 2px 5px; }
+.card-face-compact .speak-label { display: none; }
 .word-bubble {
   /* Centered pop-up: fixed to the viewport, not anchored to the word. */
   position: fixed;
@@ -1623,7 +1633,6 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .card-face .cf-examplePinyin, .card-face .cf-exampleTranslation { color: var(--muted); font-size: 13px; }
 .card-face .cf-empty { color: var(--muted); opacity: 0.6; }
 .card-face .cf-strokes { justify-self: center; }
-.cf-audio { border: none; background: var(--surface-3); border-radius: 50%; width: 34px; height: 34px; padding: 0; font-size: 15px; }
 .card-face-compact { justify-items: start; text-align: left; gap: 1px; }
 .card-face-compact .cf-word { font-size: 15px; }
 .card-face-compact .cf-translation { font-size: 12px; }
@@ -1640,7 +1649,6 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   white-space: nowrap;
   line-height: 1.4;
 }
-.card-face-compact .cf-audio { width: 26px; height: 26px; font-size: 12px; }
 
 /* Template manager + editor */
 .card-tools { display: flex; gap: 8px; align-items: center; }
@@ -1709,8 +1717,21 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .tpl-side { border: 1px solid var(--border); border-radius: 8px; padding: 10px; min-width: 0; }
 .tpl-side legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
 .tpl-fields { display: grid; gap: 6px; }
-.tpl-field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.tpl-field input { width: auto; }
+/* `.word-form label { display: grid }` above wins on specificity, which stacked
+   every checkbox on top of the choice it belongs to. These put the row back and
+   send the box to the end, so the list reads as choices with a box beside each
+   rather than a column of loose boxes. */
+.word-form .tpl-field,
+.word-form .tpl-strokes-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tpl-field { font-size: 13px; }
+.word-form .tpl-field input,
+.word-form .tpl-strokes-row input { order: 2; width: auto; flex: 0 0 auto; }
 .tpl-field.disabled { opacity: 0.45; }
 .tpl-strokes-row { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .tpl-strokes-row input { width: auto; }
