@@ -767,9 +767,21 @@ function setupImagesMode() {
   // Video and Images choose a layout, not a file. Picking a file is its own
   // button — the folder beside Import — so going back to the video doesn't
   // ambush you with a file dialog.
+  //
+  // Choosing one is worth remembering: a reload should reopen the layout that
+  // was on screen. Only an existing screenshot session is amended — switching
+  // layout is not itself a reason to start storing one.
+  const chooseMode = (on) => {
+    setImagesMode(on);
+    const session = loadSession();
+    if (session?.kind !== "image") return;
+    session.mode = on ? "image" : "video";
+    saveSession(session);
+  };
+
   enterImagesMode = setImagesMode;
-  els.videoMode.addEventListener("click", () => setImagesMode(false));
-  els.imagesMode.addEventListener("click", () => setImagesMode(true));
+  els.videoMode.addEventListener("click", () => chooseMode(false));
+  els.imagesMode.addEventListener("click", () => chooseMode(true));
   els.videoBrowse.addEventListener("click", () => els.videoInput.click());
   els.videoInput.addEventListener("change", () => setImagesMode(false));
 
@@ -934,6 +946,8 @@ function fileAsDataUrl(file) {
 function rememberImageSession(dataUrl) {
   saveSession({
     kind: "image",
+    // Reading a picture puts you on Images, whatever the last session said.
+    mode: "image",
     // Lines carry their text, translation, character boxes and chrome flag, so
     // the transcript comes back whole — highlights and folding included.
     lines: state.subtitles,
@@ -1038,9 +1052,13 @@ function restoreSession() {
     state.activeIndex = 0;
     state.showChrome = false;
     if (session.image) els.imageView.src = session.image;
+    // Come back to the layout that was on screen, not to the one that happened
+    // to store the reading: a screenshot whose reader had switched to Video
+    // reopened on Images, which looks like the tab ignoring you. The lines and
+    // the picture are kept either way, so switching back still has both.
     // Only claim the picture is there when it actually is; a screenshot too
     // large to store leaves the text and an empty drop zone.
-    enterImagesMode?.(true);
+    enterImagesMode?.(session.mode !== "video");
     renderAll(els);
     return;
   }
