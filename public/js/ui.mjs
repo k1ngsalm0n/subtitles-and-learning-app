@@ -113,6 +113,7 @@ export function renderTranscript(els) {
 
   e.transcript.innerHTML =
     (html || `<p class="muted">No matching subtitles.</p>`) + toggle;
+  setRovingFocus(e);
 
   // Keeps the Chinese script toggle (and Loop Line) in step with what is on
   // screen. Cheap unless something still needs converting, and the re-render it
@@ -141,10 +142,96 @@ export function flipWithTurn(flip) {
 }
 
 let _transcriptDelegated = false;
+// Keyboard access to the transcript.
+//
+// Every word is a control, so every word needs to be reachable and announced —
+// but giving each one a tab stop would mean 31 presses to cross the sample
+// lesson and thousands to cross a film, which is technically operable and
+// practically useless. So the transcript is one stop (the roving-tabindex
+// pattern): Tab lands on a word, arrows move between words and lines, Enter or
+// Space looks one up.
+let _rovingWord = 0; // which word carries the tab stop, by document order
+
+function words(e) {
+  return [...(e || _els).transcript.querySelectorAll(".word")];
+}
+
+// Exactly one word may be tabbable at a time; the rest are reachable only by
+// arrow key. Re-applied after each render, since the markup is rebuilt.
+export function setRovingFocus(els, index) {
+  const list = words(els);
+  if (!list.length) return;
+  if (index !== undefined) _rovingWord = index;
+  _rovingWord = Math.max(0, Math.min(list.length - 1, _rovingWord));
+  list.forEach((word, at) => {
+    word.tabIndex = at === _rovingWord ? 0 : -1;
+  });
+}
+
+function moveFocus(els, to) {
+  const list = words(els);
+  if (!list.length) return;
+  const next = Math.max(0, Math.min(list.length - 1, to));
+  setRovingFocus(els, next);
+  list[next].focus();
+}
+
+// Up and down move by line rather than by word, keeping roughly the same
+// position across the jump — the transcript reads as rows, so that is what the
+// arrows should follow.
+function lineStep(els, from, direction) {
+  const list = words(els);
+  const line = list[from]?.closest(".line");
+  if (!line) return from;
+  const inLine = [...line.querySelectorAll(".word")];
+  const column = inLine.indexOf(list[from]);
+  const lines = [...(els || _els).transcript.querySelectorAll(".line")];
+  const at = lines.indexOf(line) + direction;
+  const target = lines[at];
+  if (!target) return from;
+  const targetWords = [...target.querySelectorAll(".word")];
+  if (!targetWords.length) return from;
+  return list.indexOf(targetWords[Math.min(column, targetWords.length - 1)]);
+}
+
+function handleTranscriptKeys(event, e) {
+  const word = event.target.closest?.(".word");
+  if (!word) return;
+  const list = words(e);
+  const at = list.indexOf(word);
+  if (at === -1) return;
+
+  const line = word.closest(".line");
+  const inLine = line ? [...line.querySelectorAll(".word")] : list;
+
+  switch (event.key) {
+    case "ArrowRight": moveFocus(e, at + 1); break;
+    case "ArrowLeft": moveFocus(e, at - 1); break;
+    case "ArrowDown": moveFocus(e, lineStep(e, at, 1)); break;
+    case "ArrowUp": moveFocus(e, lineStep(e, at, -1)); break;
+    case "Home": moveFocus(e, list.indexOf(inLine[0])); break;
+    case "End": moveFocus(e, list.indexOf(inLine[inLine.length - 1])); break;
+    case "Enter":
+    case " ": {
+      const lineEl = word.closest(".line");
+      const subtitle = state.subtitles[Number(lineEl?.dataset.index)];
+      highlightWord(word, subtitle, e);
+      openWordBubble(word, subtitle?.text || "", e);
+      break;
+    }
+    default: return;
+  }
+  // Only reached when the key was one of ours: Space would scroll the page and
+  // the arrows would scroll the transcript out from under the reader.
+  event.preventDefault();
+}
+
 export function setupTranscriptDelegation(els) {
   if (_transcriptDelegated) return;
   _transcriptDelegated = true;
   const e = els || _els;
+
+  e.transcript.addEventListener("keydown", (event) => handleTranscriptKeys(event, e));
 
   e.transcript.addEventListener("click", (event) => {
     if (event.target.closest(".chrome-toggle")) {
@@ -288,7 +375,10 @@ function renderRubyTranscript(tokens, text, savedWords, words) {
         inner += rubyUnit(ch, pron.get(off) || "");
         off += ch.length;
       }
-      html += `<span class="word${savedClass(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${length}" data-start="${charStart}">${inner}</span>`;
+      // aria-label carries the bare word: the ruby annotations inside would
+      // otherwise be read out as part of the name, so a screen reader would
+      // announce "d o ng" before every character.
+      html += `<span class="word${savedClass(seg.segment)}" role="button" tabindex="-1" aria-label="${escapeHtml(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${length}" data-start="${charStart}">${inner}</span>`;
       charStart += length;
     }
     return html;
@@ -297,7 +387,7 @@ function renderRubyTranscript(tokens, text, savedWords, words) {
   return tokens
     .map(([base, pron]) =>
       pron
-        ? `<span class="word${savedClass(base)}" data-word="${escapeHtml(base)}" data-len="${[...base].length}">${rubyUnit(base, pron)}</span>`
+        ? `<span class="word${savedClass(base)}" role="button" tabindex="-1" aria-label="${escapeHtml(base)}" data-word="${escapeHtml(base)}" data-len="${[...base].length}">${rubyUnit(base, pron)}</span>`
         : escapeHtml(base),
     )
     .join("");
@@ -1085,12 +1175,19 @@ export function updateStats(els) {
 let _bubble = null;
 let _backdrop = null;
 let _bubbleCleanup = null;
+let _returnFocusTo = null;
 
 function getBubble() {
   if (_bubble) return _bubble;
   _bubble = document.createElement("div");
   _bubble.className = "word-bubble";
   _bubble.hidden = true;
+  // It behaves as a modal already — a backdrop, Escape to close — so it should
+  // be announced as one rather than as a stray heap of text.
+  _bubble.setAttribute("role", "dialog");
+  _bubble.setAttribute("aria-modal", "true");
+  _bubble.setAttribute("aria-label", "Word lookup");
+  _bubble.tabIndex = -1;
   // Delegated, because the bubble replaces its own innerHTML when the lookup
   // arrives — a listener bound to the first button would die with it.
   _bubble.addEventListener("click", (event) => {
@@ -1137,6 +1234,8 @@ function closeBubble() {
 // wipe the highlight the new word had just painted.
 function dismissBubble() {
   closeBubble();
+  if (_returnFocusTo?.isConnected) _returnFocusTo.focus();
+  _returnFocusTo = null;
   const line = state.subtitles[state.activeIndex];
   if (_els && line?.chars?.length) paintHighlight(_els, line);
 }
@@ -1161,6 +1260,10 @@ async function openWordBubble(anchor, context, els) {
   bubble.dataset.speakLang = lang || "";
   getBackdrop().hidden = false;
   positionBubble(bubble);
+  // Where focus goes back to when this closes. Without it, dismissing the
+  // pop-up drops the reader at the top of the document.
+  _returnFocusTo = anchor;
+  bubble.focus();
 
   const onKey = (ev) => { if (ev.key === "Escape") dismissBubble(); };
   document.addEventListener("keydown", onKey);

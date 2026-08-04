@@ -28,7 +28,10 @@ export function tokenize(text, savedWords) {
     .map((seg) => {
       if (isWord(seg)) {
         const saved = savedWords?.has(seg.segment) ? " saved" : "";
-        return `<span class="word${saved}" data-word="${escapeHtml(seg.segment)}">${escapeHtml(seg.segment)}</span>`;
+        // role/tabindex: a word is an actual control, so it has to be
+        // reachable and announced as one. -1 by default — exactly one word in
+        // the transcript carries 0, see `setRovingFocus` in ui.mjs.
+        return `<span class="word${saved}" role="button" tabindex="-1" data-word="${escapeHtml(seg.segment)}">${escapeHtml(seg.segment)}</span>`;
       }
       return escapeHtml(seg.segment);
     })

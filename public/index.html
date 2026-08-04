@@ -662,6 +662,13 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
 /* Hover fills the word in the accent you picked — the tint, the character and
    its reading together, so it lights up as one unit rather than the base
    changing while the pinyin above it stays grey. */
+/* Keyboard focus has to be visible, and has to differ from the hover tint —
+   the reader arrowing through a line needs to see where they are. */
+.word:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 8px;
+}
 .word:hover {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
