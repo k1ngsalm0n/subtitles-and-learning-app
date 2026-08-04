@@ -97,9 +97,10 @@ export function speak(text, lang, rate = "fast") {
     const utterance = new SpeechSynthesisUtterance(trimmed);
     utterance.voice = voice;
     utterance.lang = voice.lang;
-    // 1 is the browser's normal; 0.6 is slow enough to separate syllables
-    // without the pitch artefacts that come further down.
-    utterance.rate = slow ? 0.6 : 1;
+    // 1 is the browser's normal. 0.45 is about the same stretch the other two
+    // engines give, so a word doesn't change pace depending on which one
+    // happens to be speaking it.
+    utterance.rate = slow ? 0.45 : 1;
     window.speechSynthesis.speak(utterance);
     return true;
   }

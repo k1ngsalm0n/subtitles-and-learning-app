@@ -39,8 +39,12 @@ const ESPEAK_VOICES = {
 // actually said, slow is for pulling a syllable apart and copying it. Each
 // engine expresses that differently — espeak counts words per minute, piper
 // stretches each phoneme — so the app names the intent and maps it here.
-const WORDS_PER_MINUTE = { fast: 140, slow: 85 };
-const LENGTH_SCALE = { fast: 1, slow: 1.45 };
+// espeak-ng's floor is 80 wpm — below that `-s` does nothing, and `-g` (word
+// gap) can't help Chinese, which has no word boundaries to widen. That already
+// gives 1.8x, so it is piper that had to catch up: at 1.45 its "slow" was only
+// 1.14x, close enough to normal to look broken. 2.5 measures 1.64x.
+const WORDS_PER_MINUTE = { fast: 140, slow: 80 };
+const LENGTH_SCALE = { fast: 1, slow: 2.5 };
 
 // "fast" is the phrase at its natural speed, not a rushed one — it is only
 // called that because it is the faster of the two on offer. Anything
