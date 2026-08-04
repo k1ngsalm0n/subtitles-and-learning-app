@@ -63,8 +63,9 @@ export function createWheel(scroller, entries, onSelect, { startAt } = {}) {
     }
   }
 
-  function land() {
-    const next = clamp(Math.round(scroller.scrollTop / rowHeight()));
+  // Commit a row: the one place that decides what is selected, so a gesture
+  // and a click can't disagree about it.
+  function commit(next) {
     if (next === current) return;
     current = next;
     wanted = next;
@@ -74,12 +75,33 @@ export function createWheel(scroller, entries, onSelect, { startAt } = {}) {
     onSelect(entries[current], current);
   }
 
+  // Where a gesture came to rest. A scroll this wheel started itself is not a
+  // gesture: it reports wherever it got to, which may be short of the row that
+  // was asked for, and rounding that would quietly undo the choice.
+  let expecting = null;
+  function land() {
+    if (expecting !== null) {
+      expecting = null;
+      return;
+    }
+    commit(clamp(Math.round(scroller.scrollTop / rowHeight())));
+  }
+
+  // Asking for a row directly — a click, or a caller choosing one. The choice
+  // is committed here rather than left to the scroll it starts, because that
+  // scroll is not guaranteed to happen: the drum may already be where it is
+  // going, the browser may not animate, and the last row can sit past the
+  // furthest the drum can actually scroll, in which case `land` would round to
+  // its neighbour and the row could never be picked at all. The scroll is how
+  // it looks; this is what it means.
   function select(index) {
     wanted = clamp(index);
+    expecting = wanted;
     scroller.scrollTo({
       top: wanted * rowHeight(),
       behavior: smooth ? "smooth" : "auto",
     });
+    commit(wanted);
   }
 
   scroller.addEventListener("scroll", () => {
