@@ -849,10 +849,16 @@ function setupImagesMode() {
       renderAll(els);
       // Lines loaded from a subtitle file get their pronunciation line from
       // loadSubtitles(); these bypass that, so ask for it here or a screenshot
-      // would be the one place in the app with no pinyin.
-      romanizeSubtitles();
+      // would be the one place in the app with no pinyin. Started now so it
+      // runs alongside the translation rather than after it…
+      const pronunciation = romanizeSubtitles();
       // The point of the feature is the translation, so don't make them ask.
       await runTranslation(els);
+      // …but waited for before storing, because what gets stored is what a
+      // reload gets back. A cold start makes this the slower of the two, and a
+      // reading saved without its pronunciation never gets one: restoreSession
+      // hands the lines straight to the transcript.
+      await pronunciation;
       // Remember it, the way a URL import remembers its video, so a reload
       // doesn't throw away the reading you were in the middle of.
       rememberImageSession(dataUrl);
@@ -1060,6 +1066,13 @@ function restoreSession() {
     // large to store leaves the text and an empty drop zone.
     enterImagesMode?.(session.mode !== "video");
     renderAll(els);
+    // A reading stored before its pronunciation arrived comes back without it,
+    // and nothing here would ever ask again — the video path re-romanizes
+    // through loadSubtitles, this one returns straight to the transcript. So a
+    // screenshot could lose its pinyin permanently, and with it the word
+    // boundaries that ride along, leaving the transcript split per character.
+    // Ask again when it's missing; the answer is cached and the call is cheap.
+    if (state.subtitles.some((line) => !line.tokens?.length)) romanizeSubtitles();
     return;
   }
 
