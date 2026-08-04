@@ -12,12 +12,17 @@
 // dropped connection — all return null and the caller runs the offline path.
 // A worse translation beats no translation.
 
+import { readPrefs } from "./prefs.mjs";
+
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
 const LLM_BASE_URL = (
   process.env.LLM_BASE_URL || "https://api.openai.com/v1"
 ).replace(/\/$/, "");
 const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
-const ENABLED = String(process.env.LLM_TRANSLATE || "").toLowerCase() !== "off";
+// LLM_TRANSLATE=off is the deployment-level switch and still wins; the
+// Settings toggle is the reader's, checked per call so flipping it takes effect
+// without a restart.
+const ENV_ENABLED = String(process.env.LLM_TRANSLATE || "").toLowerCase() !== "off";
 
 // Lines per request. Enough neighbouring text for names and pronouns to settle,
 // small enough that one bad batch costs little and nothing gets truncated.
@@ -135,13 +140,21 @@ async function askModel(prompt, lines) {
   return content ? readTranslations(content, lines.length) : null;
 }
 
-export function llmTranslationAvailable() {
-  return Boolean(LLM_API_KEY) && ENABLED;
+// Whether a chat model *could* be used: a key is set and the deployment hasn't
+// forbidden it. Says nothing about the reader's preference — see the caller.
+export function llmTranslationConfigured() {
+  return Boolean(LLM_API_KEY) && ENV_ENABLED;
+}
+
+export async function llmTranslationAvailable() {
+  if (!llmTranslationConfigured()) return false;
+  const { llm } = await readPrefs();
+  return llm !== "off";
 }
 
 // Returns a translated SRT, or null to mean "use the offline translator".
 export async function translateSrtWithLlm(srt, from, to) {
-  if (!llmTranslationAvailable()) return null;
+  if (!(await llmTranslationAvailable())) return null;
 
   const cues = parseCues(srt);
   if (!cues.length || cues.length > MAX_LINES) return null;

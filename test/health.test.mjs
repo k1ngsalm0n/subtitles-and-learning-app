@@ -66,3 +66,35 @@ test("the answer is cached, and ?fresh=1 goes around the cache", async () => {
   await health("/api/health");
   assert.ok(Date.now() - started < 100, "a cached answer should be immediate");
 });
+
+// The page renders a control from this, so the shape has to be dependable.
+test("a toggleable row describes its own control", async () => {
+  const { checks } = await health("/api/health?fresh=1");
+  const toggles = checks.filter((c) => c.toggle);
+  assert.ok(toggles.length >= 2, "listening and translation are both choices");
+  for (const { id, toggle } of toggles) {
+    assert.ok(toggle.name, `${id}: a toggle needs a name to post back`);
+    assert.ok(toggle.options.length >= 2, `${id}: a choice needs alternatives`);
+    for (const option of toggle.options) {
+      assert.ok(option.value, `${id}: an option needs a value`);
+      assert.ok(option.label, `${id}: an option needs a label`);
+      assert.equal(typeof option.enabled, "boolean", `${id}: enabled must be set`);
+    }
+    // The selected value must be one the page can render as selected.
+    assert.ok(
+      toggle.options.some((o) => o.value === toggle.value),
+      `${id}: current value ${toggle.value} isn't among its options`,
+    );
+  }
+});
+
+// A row that can be switched is a choice, not a defect, so it must never tell
+// the reader to go and install something to change it back.
+test("rows the reader controls don't also demand a command", async () => {
+  const { checks } = await health();
+  const speech = checks.find((c) => c.id === "speech");
+  assert.ok(speech.toggle, "listening is toggleable");
+  if (speech.toggle.value !== "auto") {
+    assert.equal(speech.fix, null, "a chosen fallback isn't something to fix");
+  }
+});

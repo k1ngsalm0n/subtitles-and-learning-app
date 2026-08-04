@@ -1,4 +1,5 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readPrefs } from "./prefs.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sendJson, runCommand } from "./util.mjs";
@@ -134,6 +135,10 @@ const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
 
 async function lookupWithLlm(word, lang, context, dictDefs) {
   if (!LLM_API_KEY) return null;
+  // The reader can turn the chat model off in Settings → What's running;
+  // meanings then come from the dictionary and the offline model alone.
+  const { llm } = await readPrefs();
+  if (llm === "off") return null;
   const cache = await loadCache();
   // Include the model and prompt version in the key so switching providers or
   // changing the prompt refreshes answers. Bump the version token on any prompt

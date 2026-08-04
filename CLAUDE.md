@@ -114,6 +114,19 @@ wrong GPU is the usual way). Answers are cached 60s server-side and in
 sends `?fresh=1` past both. Add a capability here whenever you add a fallback —
 a silent one is a bug report waiting to happen.
 
+Two rows carry a `toggle`, because they are a *choice* rather than a defect:
+which engine speaks, and whether text goes to a chat model at all. The rest are
+missing software, where a switch would be a lie, so they keep their command.
+Choices live in `prefs.mjs` → `~/.local/share/stele/settings.json` (beside the
+backups, because the server acts on them and they must outlive the browser's
+storage), are validated against `ALLOWED` on the way in, and are read *per
+call* so flipping one needs no restart. `POST /api/prefs` replies with the
+stored state rather than an acknowledgement, so the page can't show a choice
+the server refused. Note `/api/voices` carries `prefer` as well as the language
+list: an empty list alone means "the browser may speak", which is right for
+"Browser voice" and wrong for "espeak-ng" — on a Mac that would hand it to a
+system voice, which is neither engine the reader asked for.
+
 **Settings.** One page at a time, chosen from a picker wheel parked in the
 middle of the window — `wheel.mjs` is the reusable drum (hidden scrollbar,
 snap-to-centre, one row per wheel notch because a notch is ~100px and a row is

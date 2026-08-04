@@ -15,7 +15,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand, sendJson } from "./util.mjs";
+import { runCommand, sendJson, readJsonBody } from "./util.mjs";
+import { readPrefs, writePrefs, ALLOWED } from "./prefs.mjs";
+import { llmTranslationConfigured } from "./llmTranslate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -62,11 +64,20 @@ async function probePython() {
   }
 }
 
-function llmConfigured() {
-  return Boolean(
-    (process.env.LLM_API_KEY && process.env.LLM_BASE_URL && process.env.LLM_MODEL) ||
-      process.env.OPENAI_API_KEY,
-  );
+// POST /api/prefs { speech, llm } -> the settings as they now stand.
+// The reply is the stored state rather than an acknowledgement, so a page can
+// never end up showing a choice the server didn't accept.
+export async function handlePrefs(req, res) {
+  let body = {};
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    body = {};
+  }
+  const prefs = await writePrefs(body);
+  // The health answer describes the prefs, so it is stale the moment they move.
+  cached = null;
+  sendJson(res, 200, { prefs, allowed: ALLOWED });
 }
 
 // Answering means spawning Python and importing a dozen packages, and the
@@ -82,53 +93,97 @@ export async function handleHealth(req, res) {
     sendJson(res, 200, cached.body);
     return;
   }
-  const [python, voices, strokes, ytdlp, deno] = await Promise.all([
+  const [python, voices, strokes, ytdlp, deno, prefs] = await Promise.all([
     probePython(),
     countVoices(),
     exists(path.join(ROOT, "data", "graphics.txt")),
     exists(path.join(ROOT, ".venv", "bin", "yt-dlp")),
     exists(path.join(ROOT, ".venv", "bin", "deno")),
+    readPrefs(),
   ]);
   const has = (name) => Boolean(python.modules?.[name]);
 
   const checks = [];
 
   // --- Listening -----------------------------------------------------------
+  //
+  // Two different questions get answered in one row: what is installed, and
+  // what the reader asked for. A chosen fallback is not a problem to fix, so it
+  // doesn't offer a command — it offers the way back.
   const piperReady = has("piper") && voices > 0;
+  const speechChoice = prefs.speech;
+  const speechForced = speechChoice !== "auto";
   checks.push({
     id: "speech",
     label: "Listening",
-    state: piperReady ? BEST : FALLBACK,
-    using: piperReady
-      ? `piper — a neural voice (${voices} installed)`
-      : has("piper")
-        ? "espeak-ng — piper is installed but has no voice to use"
-        : "espeak-ng — a formant synthesiser",
-    detail: piperReady
-      ? "Words are spoken by a voice that sounds like a person."
-      : "The listen button still works, but the voice is robotic. On Linux the browser's own voices are usually this same engine under other names, so they don't help.",
-    fix: piperReady ? null : "VOICES=1 npm run sync",
-    fixNote: piperReady
-      ? null
-      : "Downloads a Chinese and an English voice (~63 MB each) and installs piper. Restart the app afterwards.",
+    state: speechForced ? FALLBACK : piperReady ? BEST : FALLBACK,
+    using: speechForced
+      ? speechChoice === "browser"
+        ? "your browser's own voice — chosen here"
+        : "espeak-ng — chosen here"
+      : piperReady
+        ? `piper — a neural voice (${voices} installed)`
+        : has("piper")
+          ? "espeak-ng — piper is installed but has no voice to use"
+          : "espeak-ng — a formant synthesiser",
+    detail: speechForced
+      ? "Set back to Best available to use the neural voice again."
+      : piperReady
+        ? "Words are spoken by a voice that sounds like a person."
+        : "The listen button still works, but the voice is robotic. On Linux the browser's own voices are usually this same engine under other names, so they don't help.",
+    fix: speechForced || piperReady ? null : "VOICES=1 npm run sync",
+    fixNote:
+      speechForced || piperReady
+        ? null
+        : "Downloads a Chinese and an English voice (~63 MB each) and installs piper. Restart the app afterwards.",
+    // Offering "Best available" when there is no neural voice would be a lie:
+    // it and espeak would do the same thing.
+    toggle: {
+      name: "speech",
+      value: speechChoice,
+      options: [
+        { value: "auto", label: "Best available", enabled: true },
+        { value: "browser", label: "Browser voice", enabled: true },
+        { value: "espeak", label: "espeak-ng", enabled: true },
+      ],
+      note: piperReady
+        ? null
+        : "Best available and espeak-ng are the same here until a voice is installed.",
+    },
   });
 
   // --- Translation and word lookups ---------------------------------------
-  const llm = llmConfigured();
+  const llmReady = llmTranslationConfigured();
+  const llmOn = llmReady && prefs.llm !== "off";
   checks.push({
     id: "llm",
     label: "Translation and word meanings",
-    state: llm ? BEST : FALLBACK,
-    using: llm
+    state: llmOn ? BEST : FALLBACK,
+    using: llmOn
       ? "a chat model, with the offline translator as backup"
-      : "the offline translator only",
-    detail: llm
+      : llmReady
+        ? "the offline translator only — chosen here"
+        : "the offline translator only",
+    detail: llmOn
       ? "Names and places are recognised rather than spelled out syllable by syllable, and word lookups come with real explanations."
       : "Works offline and costs nothing, but it transliterates names — 黑尔戈兰级 comes out as “Herle Golan class” rather than Helgoland — and word lookups give a bare meaning with no explanation.",
-    fix: llm ? null : "Add LLM_BASE_URL, LLM_MODEL and LLM_API_KEY to .env",
-    fixNote: llm
+    fix: llmReady ? null : "Add LLM_BASE_URL, LLM_MODEL and LLM_API_KEY to .env",
+    fixNote: llmReady
       ? null
       : "A free Groq key works: console.groq.com/keys. See .env.example. Anything over 400 lines uses the offline translator regardless, because it is faster in bulk.",
+    toggle: {
+      name: "llm",
+      value: prefs.llm,
+      options: [
+        // Without a key there is nothing to turn on, so say so rather than
+        // offering a switch that would do nothing.
+        { value: "on", label: "Use the chat model", enabled: llmReady },
+        { value: "off", label: "Offline only", enabled: true },
+      ],
+      note: llmReady
+        ? "Text is sent to the provider you configured. Offline keeps everything on this machine."
+        : "Needs a key before there is anything to choose.",
+    },
   });
 
   // --- Chinese word boundaries --------------------------------------------

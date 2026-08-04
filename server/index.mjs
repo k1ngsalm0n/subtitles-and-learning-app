@@ -9,7 +9,7 @@ import { handleRomanize } from "./romanize.mjs";
 import { handleOcrImage } from "./ocr.mjs";
 import { handleZhConvert } from "./zh.mjs";
 import { handleSpeak, handleVoices } from "./speak.mjs";
-import { handleHealth } from "./health.mjs";
+import { handleHealth, handlePrefs } from "./health.mjs";
 import { handleStrokes } from "./strokes.mjs";
 import {
   handleSaveBackup,
@@ -78,6 +78,10 @@ createServer(async (req, res) => {
     }
     if (req.method === "GET" && req.url.startsWith("/api/health")) {
       await handleHealth(req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/prefs") {
+      await handlePrefs(req, res);
       return;
     }
     if (req.method === "GET" && req.url.startsWith("/api/strokes")) {

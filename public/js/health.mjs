@@ -14,6 +14,8 @@ const LABELS = {
 };
 
 let loaded = false;
+// Kept so a toggle can re-render without its caller passing els back in.
+let _els = null;
 
 // The last answer, kept so reopening the page shows it at once instead of
 // flashing "Checking…" while a Python process starts. It is only ever a
@@ -36,6 +38,60 @@ function remember(data) {
   } catch {
     // Storage full or blocked: the page still works, it just re-checks.
   }
+}
+
+// Some rows are a *choice*, not a defect: which voice speaks, whether text is
+// sent to a chat model. Those get a segmented control. The rest are missing
+// software, where a switch would be a lie — they keep their command instead.
+function toggleRow(toggle) {
+  const wrap = document.createElement("div");
+  wrap.className = "health-toggle";
+
+  const group = document.createElement("div");
+  group.className = "segmented";
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", toggle.name);
+
+  for (const option of toggle.options) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = option.label;
+    button.setAttribute("role", "radio");
+    const active = option.value === toggle.value;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-checked", String(active));
+    if (!option.enabled) {
+      button.disabled = true;
+      button.title = "Not available on this machine";
+    }
+    button.addEventListener("click", async () => {
+      if (option.value === toggle.value) return;
+      for (const other of group.children) other.disabled = true;
+      try {
+        await fetch("/api/prefs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [toggle.name]: option.value }),
+        });
+      } catch {
+        // Re-reading below shows whether it actually took.
+      }
+      // Re-ask rather than assume: the row's wording, its state dot and its
+      // fix line all depend on the setting, and the server is what decides
+      // whether the change was accepted at all.
+      await renderHealth(_els, { force: true });
+    });
+    group.append(button);
+  }
+  wrap.append(group);
+
+  if (toggle.note) {
+    const note = document.createElement("p");
+    note.className = "health-note muted";
+    note.textContent = toggle.note;
+    wrap.append(note);
+  }
+  return wrap;
 }
 
 function checkRow(check) {
@@ -73,6 +129,8 @@ function checkRow(check) {
     detail.textContent = check.detail;
     row.append(detail);
   }
+
+  if (check.toggle) row.append(toggleRow(check.toggle));
 
   if (check.fix) {
     const fix = document.createElement("div");
@@ -116,7 +174,8 @@ function checkRow(check) {
 }
 
 export async function renderHealth(els, { force = false } = {}) {
-  const list = els?.healthList;
+  if (els) _els = els;
+  const list = _els?.healthList;
   if (!list) return;
   // Each visit would otherwise spawn a Python process to ask the same
   // questions; the answers only change when something is installed.

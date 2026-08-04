@@ -55,11 +55,15 @@ let audio = null;
 // answer is in hand long before anyone presses a button; until it arrives, and
 // on any failure, the browser keeps its old first refusal.
 let neural = new Set();
+// What the reader picked in Settings → What's running: "auto" leaves the choice
+// to the order below, "browser" and "espeak" name an engine outright.
+let prefer = "auto";
 if (typeof fetch === "function") {
   fetch("/api/voices")
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
       if (Array.isArray(data?.languages)) neural = new Set(data.languages);
+      if (data?.prefer) prefer = data.prefer;
     })
     .catch(() => {});
 }
@@ -78,7 +82,12 @@ export function speak(text, lang) {
   if (!trimmed) return false;
 
   const short = String(lang || "").toLowerCase().slice(0, 2);
-  const voice = neural.has(short) ? null : voiceFor(lang);
+  // Asking for espeak-ng means the server, which is the only thing that can
+  // guarantee it — a browser voice would be whatever the system happens to
+  // have. Asking for the browser skips the server entirely when it can.
+  const useBrowser =
+    prefer === "browser" ? true : prefer === "espeak" ? false : !neural.has(short);
+  const voice = useBrowser ? voiceFor(lang) : null;
   if (voice) {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(trimmed);

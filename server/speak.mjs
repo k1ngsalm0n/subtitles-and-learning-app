@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand, sendJson, HttpError, readJsonBody } from "./util.mjs";
+import { readPrefs } from "./prefs.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
@@ -108,6 +109,15 @@ async function speakWithEspeak(text, lang) {
 // offers is the robotic engine under a different name. Only the server knows a
 // neural voice is installed, so only the server can say so.
 export async function handleVoices(req, res) {
+  // The list alone can't carry the reader's choice. An empty list means "the
+  // browser is free to speak", which is right for "browser" and wrong for
+  // "espeak" — on a Mac that would hand it to a system voice, which is neither
+  // engine they asked for. So the choice travels too, and tts.mjs obeys it.
+  const { speech } = await readPrefs();
+  if (speech !== "auto") {
+    sendJson(res, 200, { languages: [], prefer: speech });
+    return;
+  }
   const models = await listVoices();
   const languages = [
     ...new Set(
@@ -116,7 +126,7 @@ export async function handleVoices(req, res) {
         .filter(Boolean),
     ),
   ];
-  sendJson(res, 200, { languages });
+  sendJson(res, 200, { languages, prefer: "auto" });
 }
 
 export async function handleSpeak(req, res) {
@@ -131,7 +141,11 @@ export async function handleSpeak(req, res) {
   if (!text) throw new HttpError(400, "Nothing to say.");
   const lang = body.lang;
 
-  const model = await voiceModelFor(lang);
+  // "espeak" is a real choice, not only a fallback: it is tiny, instant, and
+  // some readers prefer a flat voice for drilling. Asking for it must actually
+  // get it rather than being overruled by a better one being installed.
+  const { speech } = await readPrefs();
+  const model = speech === "espeak" ? null : await voiceModelFor(lang);
   let wav = null;
   let engine = "piper";
 

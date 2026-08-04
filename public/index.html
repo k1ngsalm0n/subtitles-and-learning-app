@@ -788,6 +788,12 @@ rt {
   font-size: 13px;
 }
 .health-copy { flex: 0 0 auto; font-size: 12px; }
+/* A row that is a choice rather than a defect. Reuses .segmented so it reads
+   as the same control as the ones in Study and Importing video. */
+.health-toggle { margin-top: 10px; }
+.health-toggle .segmented { display: inline-flex; flex-wrap: wrap; }
+.health-toggle .segmented button:disabled { opacity: 0.4; cursor: not-allowed; }
+.health-toggle .health-note { margin-top: 6px; }
 
 .settings-wheel {
   --wheel-item: 44px;
