@@ -98,3 +98,20 @@ test("a missing voice directory is not an error", async () => {
   const { languages } = await voicesWith(join(tmpdir(), "stele-does-not-exist"));
   assert.deepEqual(languages, []);
 });
+
+// Two speeds, named for the pair rather than for absolute tempo: "fast" is the
+// phrase said normally, "slow" is slow enough to copy a syllable at a time.
+test("a speed is only ever one of the two on offer", async () => {
+  const { speedOf } = await import("../server/speak.mjs");
+  assert.equal(speedOf("slow"), "slow");
+  assert.equal(speedOf("fast"), "fast");
+});
+
+// Anything unrecognised has to be the ordinary speed, not silently slow: the
+// endpoint is called without a rate by anything older than this change.
+test("no speed, or a nonsense one, means the ordinary one", async () => {
+  const { speedOf } = await import("../server/speak.mjs");
+  for (const bad of [undefined, null, "", "slowly", "0.5", 1, {}, "SLOW"]) {
+    assert.equal(speedOf(bad), "fast", `${JSON.stringify(bad)} should be fast`);
+  }
+});

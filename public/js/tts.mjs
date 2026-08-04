@@ -77,9 +77,13 @@ if (typeof fetch === "function") {
 // synthesiser, and preferring it meant the piper voice sitting on disk was
 // never reached. So when the server says it has a real voice for this
 // language, that wins.
-export function speak(text, lang) {
+// `rate` is "fast" or "slow" — an intent, not a number, because the three
+// engines below express speed in three different units. "fast" is the phrase
+// said normally; it is named for the pair it belongs to, not for being hurried.
+export function speak(text, lang, rate = "fast") {
   const trimmed = String(text || "").trim();
   if (!trimmed) return false;
+  const slow = rate === "slow";
 
   const short = String(lang || "").toLowerCase().slice(0, 2);
   // Asking for espeak-ng means the server, which is the only thing that can
@@ -93,20 +97,23 @@ export function speak(text, lang) {
     const utterance = new SpeechSynthesisUtterance(trimmed);
     utterance.voice = voice;
     utterance.lang = voice.lang;
+    // 1 is the browser's normal; 0.6 is slow enough to separate syllables
+    // without the pitch artefacts that come further down.
+    utterance.rate = slow ? 0.6 : 1;
     window.speechSynthesis.speak(utterance);
     return true;
   }
 
-  speakViaServer(trimmed, lang);
+  speakViaServer(trimmed, lang, slow ? "slow" : "fast");
   return true;
 }
 
-async function speakViaServer(text, lang) {
+async function speakViaServer(text, lang, rate) {
   try {
     const res = await fetch("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, lang }),
+      body: JSON.stringify({ text, lang, rate }),
     });
     if (!res.ok) return;
     const url = URL.createObjectURL(await res.blob());

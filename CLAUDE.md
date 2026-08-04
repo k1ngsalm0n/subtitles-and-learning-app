@@ -30,7 +30,14 @@ lifting — speech-to-text and offline translation — runs through Python.
   is caught rather than shifting every later translation onto the wrong cue.
   Falls back to the offline path on *any* doubt — no key, `LLM_TRANSLATE=off`,
   over 400 lines, a bad response, a timeout. Configured in `.env`.
-- **Listening:** `POST /api/speak` (`speak.mjs`) returns a WAV. Three engines,
+- **Listening:** `POST /api/speak` (`speak.mjs`) returns a WAV. Two speeds —
+  `rate: "fast" | "slow"`, offered as a pair of buttons in the word pop-up,
+  same play mark on each with the word underneath. "fast" is the phrase said
+  normally; it is named for the pair, not for being hurried, and is what an
+  unrecognised or missing rate means. Each engine expresses speed differently
+  (espeak counts words per minute, piper stretches phonemes with
+  `--length-scale`, speechSynthesis takes a `rate`), so the app names the
+  intent and each engine maps it. Three engines,
   best first: **piper** when a matching `.onnx` voice sits in
   `~/.local/share/stele/voices`, then the browser's own speechSynthesis
   (`tts.mjs`), then **espeak-ng**.

@@ -1423,17 +1423,32 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   background: rgba(0, 0, 0, 0.25);
 }
 :root[data-theme="light"] .bubble-backdrop { background: rgba(0, 0, 0, 0.12); }
+/* Two speeds of the same action, so the mark is identical on both and the word
+   beneath is what tells them apart. Stacked rather than side by side to keep
+   each one a single target with its own label. */
+.bubble-speak-row { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
 .bubble-speak {
-  height: 26px;
-  width: 26px;
-  margin-left: 8px;
-  padding: 0;
-  border-radius: 999px;
-  font-size: 11px;
-  vertical-align: middle;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 46px;
+  height: 38px;
+  padding: 2px 6px;
+  border-radius: 8px;
   color: var(--accent);
+  line-height: 1;
+}
+.bubble-speak-mark { font-size: 12px; }
+.bubble-speak-label {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .bubble-speak:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.bubble-speak:hover .bubble-speak-label { color: var(--text); }
 .word-bubble {
   /* Centered pop-up: fixed to the viewport, not anchored to the word. */
   position: fixed;

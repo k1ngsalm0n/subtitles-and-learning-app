@@ -1093,8 +1093,13 @@ function getBubble() {
   // Delegated, because the bubble replaces its own innerHTML when the lookup
   // arrives — a listener bound to the first button would die with it.
   _bubble.addEventListener("click", (event) => {
-    if (!event.target.closest(".bubble-speak")) return;
-    speak(_bubble.dataset.speakText || "", _bubble.dataset.speakLang || "");
+    const button = event.target.closest(".bubble-speak");
+    if (!button) return;
+    speak(
+      _bubble.dataset.speakText || "",
+      _bubble.dataset.speakLang || "",
+      button.dataset.rate || "fast",
+    );
   });
   document.body.appendChild(_bubble);
   return _bubble;
@@ -1135,6 +1140,21 @@ function dismissBubble() {
   if (_els && line?.chars?.length) paintHighlight(_els, line);
 }
 
+// Hearing a word once at speed is not the same as hearing it slowly enough to
+// copy, so both are offered rather than making one a setting. The mark is the
+// same on each — it is the same action — and the word beneath says which.
+function speakButtons() {
+  return `<span class="bubble-speak-row">${["slow", "fast"]
+    .map(
+      (rate) => `<button type="button" class="bubble-speak" data-rate="${rate}"
+        aria-label="${rate === "slow" ? "Listen slowly" : "Listen"}"
+      ><span class="bubble-speak-mark" aria-hidden="true">▸</span><span class="bubble-speak-label">${
+        rate === "slow" ? "Slow" : "Fast"
+      }</span></button>`,
+    )
+    .join("")}</span>`;
+}
+
 // The bubble is a viewport-centered pop-up (see .word-bubble CSS); showing it
 // is all that's left to do here.
 function positionBubble(bubble) {
@@ -1148,7 +1168,7 @@ async function openWordBubble(anchor, context, els) {
   const lang = state.learningLang;
 
   bubble.innerHTML = `
-    <div class="bubble-word">${escapeHtml(word)}<button type="button" class="bubble-speak" aria-label="Listen">▸</button></div>
+    <div class="bubble-word">${escapeHtml(word)}${speakButtons()}</div>
     <div class="bubble-pron muted">…</div>
     <div class="bubble-meaning">Looking up…</div>`;
   bubble.dataset.speakText = word;
@@ -1187,7 +1207,7 @@ async function openWordBubble(anchor, context, els) {
     ? `<div class="bubble-tag">${escapeHtml(result.partOfSpeech)}</div>`
     : "";
   bubble.innerHTML = `
-    <div class="bubble-word">${escapeHtml(word)}<button type="button" class="bubble-speak" aria-label="Listen">▸</button></div>
+    <div class="bubble-word">${escapeHtml(word)}${speakButtons()}</div>
     ${pron}
     ${meaningHtml}
     ${explanationHtml}

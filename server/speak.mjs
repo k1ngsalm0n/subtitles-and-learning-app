@@ -35,7 +35,19 @@ const ESPEAK_VOICES = {
   ja: "ja", ko: "ko", pt: "pt-br", nb: "nb",
 };
 
-const WORDS_PER_MINUTE = 140;
+// Two speeds, because one is no use for study: normal is how the phrase is
+// actually said, slow is for pulling a syllable apart and copying it. Each
+// engine expresses that differently — espeak counts words per minute, piper
+// stretches each phoneme — so the app names the intent and maps it here.
+const WORDS_PER_MINUTE = { fast: 140, slow: 85 };
+const LENGTH_SCALE = { fast: 1, slow: 1.45 };
+
+// "fast" is the phrase at its natural speed, not a rushed one — it is only
+// called that because it is the faster of the two on offer. Anything
+// unrecognised, or nothing at all, means that: the ordinary way to say it.
+export function speedOf(rate) {
+  return rate === "slow" ? "slow" : "fast";
+}
 const MAX_CHARS = 400;
 const TIMEOUT_MS = 60_000;
 
@@ -76,13 +88,17 @@ async function voiceModelFor(lang) {
   return match ? path.join(VOICE_DIR, match) : null;
 }
 
-async function speakWithPiper(text, model) {
+async function speakWithPiper(text, model, speed) {
   const out = path.join(
     os.tmpdir(),
     `stele-say-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`,
   );
   try {
-    await runCommand(PYTHON_BIN, ["-m", "piper", "-m", model, "-f", out], {
+    await runCommand(PYTHON_BIN, [
+      "-m", "piper", "-m", model,
+      "--length-scale", String(LENGTH_SCALE[speed]),
+      "-f", out,
+    ], {
       timeoutMs: TIMEOUT_MS,
       input: text,
     });
@@ -92,10 +108,10 @@ async function speakWithPiper(text, model) {
   }
 }
 
-async function speakWithEspeak(text, lang) {
+async function speakWithEspeak(text, lang, speed) {
   const result = await runCommand(
     "espeak-ng",
-    ["-v", espeakVoiceFor(lang), "-s", String(WORDS_PER_MINUTE), "--stdout", text],
+    ["-v", espeakVoiceFor(lang), "-s", String(WORDS_PER_MINUTE[speed]), "--stdout", text],
     { timeoutMs: TIMEOUT_MS, binary: true },
   );
   return result.stdout;
@@ -140,6 +156,7 @@ export async function handleSpeak(req, res) {
   const text = String(body.text || "").trim().slice(0, MAX_CHARS);
   if (!text) throw new HttpError(400, "Nothing to say.");
   const lang = body.lang;
+  const speed = speedOf(body.rate);
 
   // "espeak" is a real choice, not only a fallback: it is tiny, instant, and
   // some readers prefer a flat voice for drilling. Asking for it must actually
@@ -152,12 +169,12 @@ export async function handleSpeak(req, res) {
   if (model) {
     // A missing model file, a broken install: fall through to espeak-ng rather
     // than leave the reader with silence and an error.
-    wav = await speakWithPiper(text, model).catch(() => null);
+    wav = await speakWithPiper(text, model, speed).catch(() => null);
   }
   if (!wav || !wav.length) {
     engine = "espeak";
     try {
-      wav = await speakWithEspeak(text, lang);
+      wav = await speakWithEspeak(text, lang, speed);
     } catch (error) {
       const missing = error.code === "ENOENT" || /ENOENT/.test(error.message);
       throw new HttpError(
@@ -174,6 +191,7 @@ export async function handleSpeak(req, res) {
     "Content-Type": "audio/wav",
     "Content-Length": wav.length,
     "X-Speech-Engine": engine,
+    "X-Speech-Speed": speed,
     // The same word sounds the same every time; let the browser keep it.
     "Cache-Control": "private, max-age=3600",
   });
