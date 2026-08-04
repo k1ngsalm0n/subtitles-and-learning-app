@@ -1,12 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { handleHealth } from "../server/health.mjs";
 
 // CI has no venv, so the Python probe fails and every module reports missing.
 // That is itself the case worth testing: the page has to render on a machine
 // where nothing is installed, which is exactly when someone needs to read it.
 async function health(url = "/api/health") {
+  // The page describes the reader's own choices, so read them from a scratch
+  // directory rather than from whoever ran the app on this machine last.
+  process.env.STELE_PREFS_DIR ||= await mkdtemp(join(tmpdir(), "stele-health-prefs-"));
   let body = null;
   const res = { writeHead() {}, end(text) { body = text; } };
   await handleHealth({ url }, res);
@@ -14,6 +21,12 @@ async function health(url = "/api/health") {
 }
 
 const STATES = new Set(["best", "fallback", "off"]);
+
+// A row is in this state because someone asked for it, not because anything is
+// missing. Both facts come from the toggle: it exists, and it isn't on default.
+const DEFAULTS = { speech: "auto", llm: "on" };
+const chosen = (check) =>
+  Boolean(check.toggle) && check.toggle.value !== DEFAULTS[check.toggle.name];
 
 test("every capability is reported, with a state the page can render", async () => {
   const { checks } = await health("/api/health?fresh=1");
@@ -40,7 +53,9 @@ test("a fallback offers a fix and a best one doesn't", async () => {
   for (const check of checks) {
     if (check.state === "best") {
       assert.equal(check.fix, null, `${check.id} is fine but suggests a fix`);
-    } else {
+    } else if (!chosen(check)) {
+      // A fallback the reader *picked* is not a problem, and the next test
+      // asserts it must not carry a command. Only an unwanted one needs a fix.
       assert.ok(check.fix, `${check.id} is degraded but offers no fix`);
     }
   }

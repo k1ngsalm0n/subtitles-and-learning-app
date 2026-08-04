@@ -799,6 +799,7 @@ rt {
    control it belongs to, and holds a tick briefly afterwards so the answer
    isn't just "the page looks the same". */
 .health-toggle-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.health-refresh { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .health-status {
   width: 16px;
   height: 16px;
@@ -2311,8 +2312,12 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <section class="panel settings-page" data-page="health">
             <div class="section-title">
               <h2>What's running</h2>
-              <button id="healthRefresh" type="button">Check again</button>
-              <span id="healthStatus" class="health-status" role="status" aria-live="polite"></span>
+              <!-- Paired, so space-between can't push the mark away from the
+                   button it belongs to and leave it stranded at the edge. -->
+              <div class="health-refresh">
+                <span id="healthStatus" class="health-status" role="status" aria-live="polite"></span>
+                <button id="healthRefresh" type="button">Check again</button>
+              </div>
             </div>
             <p class="muted data-note">Every part of this app keeps working when a piece is missing — it just quietly settles for a simpler one. This is where it says so, and what to type to fix it.</p>
             <div id="healthList" class="health-list"></div>

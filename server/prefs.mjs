@@ -13,10 +13,19 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const DATA_HOME =
-  process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
-const DIR = process.env.STELE_PREFS_DIR || path.join(DATA_HOME, "stele");
-const FILE = path.join(DIR, "settings.json");
+// Resolved per call rather than once at import. A path frozen at module load
+// can't be pointed anywhere afterwards, which makes this untestable without
+// reading whatever the person at this machine last chose — and silently makes
+// STELE_PREFS_DIR do nothing if it is set late.
+function dir() {
+  const home =
+    process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+  return process.env.STELE_PREFS_DIR || path.join(home, "stele");
+}
+
+function file() {
+  return path.join(dir(), "settings.json");
+}
 
 // name -> allowed values. Anything not in here is refused rather than stored,
 // so a typo can't quietly disable a feature until someone finds this file.
@@ -30,26 +39,29 @@ export const ALLOWED = {
 
 const DEFAULTS = { speech: "auto", llm: "on" };
 
-let cache = null;
+// Keyed by directory: a cache that ignored the path would hand back one
+// machine's answer for another's file.
+const cache = new Map();
 
 export function defaults() {
   return { ...DEFAULTS };
 }
 
 export async function readPrefs() {
-  if (cache) return { ...cache };
+  const at = dir();
+  if (cache.has(at)) return { ...cache.get(at) };
   try {
-    const raw = await fs.readFile(FILE, "utf8");
+    const raw = await fs.readFile(file(), "utf8");
     const stored = JSON.parse(raw);
     const clean = { ...DEFAULTS };
     for (const [key, values] of Object.entries(ALLOWED)) {
       if (values.includes(stored?.[key])) clean[key] = stored[key];
     }
-    cache = clean;
+    cache.set(at, clean);
   } catch {
-    cache = { ...DEFAULTS };
+    cache.set(at, { ...DEFAULTS });
   }
-  return { ...cache };
+  return { ...cache.get(at) };
 }
 
 // Returns the settings as they now stand, so a caller never has to guess
@@ -60,17 +72,18 @@ export async function writePrefs(changes) {
   for (const [key, value] of Object.entries(changes || {})) {
     if (ALLOWED[key]?.includes(value)) next[key] = value;
   }
-  await fs.mkdir(DIR, { recursive: true });
+  await fs.mkdir(dir(), { recursive: true });
   // Temp-then-rename, as the backups do: a half-written settings file read on
   // the next request would look like corruption and silently reset choices.
-  const temp = `${FILE}.${process.pid}.tmp`;
+  const target = file();
+  const temp = `${target}.${process.pid}.tmp`;
   await fs.writeFile(temp, JSON.stringify(next, null, 2));
-  await fs.rename(temp, FILE);
-  cache = next;
+  await fs.rename(temp, target);
+  cache.set(dir(), next);
   return { ...next };
 }
 
 // Tests and the settings file changing under us.
 export function forgetPrefs() {
-  cache = null;
+  cache.clear();
 }

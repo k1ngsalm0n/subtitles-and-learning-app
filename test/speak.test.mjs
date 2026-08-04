@@ -11,6 +11,10 @@ import { matchesLanguage, espeakVoiceFor } from "../server/speak.mjs";
 // so each case gets its own module instance pointed at its own directory.
 async function voicesWith(dir) {
   process.env.STELE_VOICE_DIR = dir;
+  // speak.mjs also reads the reader's engine choice, which lives outside the
+  // repo — a test that passes or fails on what someone last clicked in
+  // Settings is worse than no test.
+  process.env.STELE_PREFS_DIR = await mkdtemp(join(tmpdir(), "stele-speak-prefs-"));
   const mod = await import(`../server/speak.mjs?voices=${encodeURIComponent(dir)}`);
   let body = null;
   const res = { writeHead() {}, end(text) { body = text; } };
