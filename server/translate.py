@@ -159,6 +159,75 @@ def get_opus(model_name):
     return _opus_cache[model_name]
 
 
+# These models are trained on single sentences. Hand one a whole paragraph and
+# it does not truncate so much as give up partway: at 240 characters of ordinary
+# Chinese prose the tail of the line simply stopped appearing in the output,
+# while the result was still only ~120 tokens — nowhere near the 256-token cap
+# that looked like the culprit. Raising the caps therefore fixes nothing. What
+# works is giving the model what it was trained on, one sentence at a time, and
+# putting the line back together afterwards.
+
+# Sentence ends, CJK and Latin. Kept with the sentence they close.
+_SENTENCE_END = re.compile(r"(?<=[。！？!?…])|(?<=[.!?])(?=\s)")
+# Nothing to gain from splitting a line this short, and a lot of overhead.
+_SPLIT_OVER = 120
+# A clause with no sentence end in it still has to be broken somewhere; commas
+# are the least bad seam.
+_CLAUSE_END = re.compile(r"(?<=[，,;；])")
+
+
+def _split_for_model(text, limit=_SPLIT_OVER):
+    """One line -> the pieces to translate, in order. Rejoining them restores it."""
+    if len(text) <= limit:
+        return [text]
+
+    pieces = [p for p in _SENTENCE_END.split(text) if p]
+    out = []
+    for piece in pieces:
+        if len(piece) <= limit:
+            out.append(piece)
+            continue
+        # Still too long: try clause boundaries, then fall back to a hard cut so
+        # a run-on line can't sit here untranslated.
+        clauses = [c for c in _CLAUSE_END.split(piece) if c]
+        buf = ""
+        for clause in clauses:
+            while len(clause) > limit:
+                out.append((buf + clause[:limit]) if buf else clause[:limit])
+                clause = clause[limit:]
+                buf = ""
+            if len(buf) + len(clause) > limit:
+                out.append(buf)
+                buf = clause
+            else:
+                buf += clause
+        if buf:
+            out.append(buf)
+    return out or [text]
+
+
+def _translate_split(texts, translate_pieces):
+    """Translate `texts`, splitting the long ones and rejoining their pieces.
+
+    `translate_pieces` takes a flat list and returns one translation each, so
+    every piece of every line still goes through the model in a single batch —
+    splitting must not cost a round trip per sentence.
+    """
+    plan = [_split_for_model(text) for text in texts]
+    flat = [piece for pieces in plan for piece in pieces]
+    if not flat:
+        return []
+    done = translate_pieces(flat)
+    out = []
+    at = 0
+    for pieces in plan:
+        got = done[at:at + len(pieces)]
+        at += len(pieces)
+        # A space is right for English output whichever language went in.
+        out.append(" ".join(part.strip() for part in got if part.strip()))
+    return out
+
+
 def translate_batch_opus(texts, model_name):
     """Translate a list of strings with a bilingual Marian model.
 
@@ -169,20 +238,24 @@ def translate_batch_opus(texts, model_name):
     if not texts:
         return []
     tokenizer, model, device = get_opus(model_name)
-    inputs = tokenizer(
-        texts,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=512,
-    ).to(device)
-    translated = model.generate(
-        **inputs,
-        max_new_tokens=256,
-        num_beams=NUM_BEAMS,
-        no_repeat_ngram_size=NO_REPEAT_NGRAM,
-    )
-    return tokenizer.batch_decode(translated, skip_special_tokens=True)
+
+    def run_pieces(pieces):
+        inputs = tokenizer(
+            pieces,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512,
+        ).to(device)
+        translated = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            num_beams=NUM_BEAMS,
+            no_repeat_ngram_size=NO_REPEAT_NGRAM,
+        )
+        return tokenizer.batch_decode(translated, skip_special_tokens=True)
+
+    return _translate_split(texts, run_pieces)
 
 
 _cn_char_sets = None
@@ -414,7 +487,10 @@ def translate_batch(texts, src_lang, tgt_lang):
                 return run(batch)
             raise
 
-    return attempt(texts)
+    # Same reason as the Opus path: NLLB is a sentence model too, and a long
+    # line loses its tail rather than being cut off cleanly. attempt() keeps its
+    # OOM halving — it now just sees more, shorter items.
+    return _translate_split(texts, attempt)
 
 
 def translate_text(text, src_lang, tgt_lang):
