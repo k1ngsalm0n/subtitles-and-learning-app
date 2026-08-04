@@ -49,5 +49,38 @@ class SegmentationTests(unittest.TestCase):
         self.assertIn("。", chinese_words("他走了。"))
 
 
+class TraditionalTests(unittest.TestCase):
+    """jieba's dictionary is Simplified, so Traditional is cut via a round trip.
+
+    Without it 弗里斯蘭號 came apart as 弗里斯 | 蘭號 and 德意志帝國海軍 as
+    德意志帝 | 國海 | 軍.
+    """
+
+    SIMP = "东弗里斯兰号战列舰是德意志帝国海军的一艘无畏舰。"
+    TRAD = "東弗里斯蘭號戰列艦是德意志帝國海軍的一艘無畏艦。"
+
+    def test_same_boundaries_in_both_scripts(self):
+        # The reader can flip script at any time; where the words start must
+        # not depend on which one they are looking at.
+        simp = chinese_words(self.SIMP)
+        trad = chinese_words(self.TRAD)
+        self.assertEqual([len(w) for w in simp], [len(w) for w in trad])
+
+    def test_traditional_words_stay_whole(self):
+        words = chinese_words(self.TRAD)
+        for expected in ("弗里斯蘭", "戰列艦", "德意志", "帝國", "海軍"):
+            self.assertIn(expected, words)
+
+    def test_traditional_words_rebuild_the_line(self):
+        for text in (self.TRAD, "該艦參加了日德蘭海戰。", "繁體字與简体字混合"):
+            self.assertEqual("".join(chinese_words(text)), text, text)
+
+    def test_traditional_words_are_traditional(self):
+        # Cut on the Simplified form, but made of the glyphs on screen — a
+        # saved word has to match what was clicked.
+        self.assertIn("弗里斯蘭", chinese_words(self.TRAD))
+        self.assertNotIn("弗里斯兰", chinese_words(self.TRAD))
+
+
 if __name__ == "__main__":
     unittest.main()

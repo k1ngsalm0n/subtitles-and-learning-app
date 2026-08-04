@@ -137,6 +137,24 @@ def translit_tokens(text):
 #
 # Best-effort like everything else here: if it isn't installed, the frontend
 # still has Intl.Segmenter to fall back on.
+def _to_simplified(text):
+    """Traditional -> Simplified, or None if that can't be done safely here.
+
+    None also covers "already Simplified", since converting then would be a
+    no-op and the caller can skip the second pass.
+    """
+    try:
+        from opencc import OpenCC
+    except ImportError:
+        return None
+    simplified = OpenCC("t2s").convert(text)
+    # The cuts are mapped back by character count, so anything that changed the
+    # length has to be refused — a 1:1 table is the whole premise.
+    if simplified == text or len(simplified) != len(text):
+        return None
+    return simplified
+
+
 def chinese_words(text):
     try:
         import jieba
@@ -144,7 +162,22 @@ def chinese_words(text):
         return []
 
     jieba.setLogLevel(60)  # its "building prefix dict" chatter is not ours
-    words = [w for w in jieba.cut(text) if w]
+
+    # jieba's dictionary is Simplified, so Traditional text segments badly:
+    # 弗里斯蘭號 came apart as 弗里斯 | 蘭號 and 德意志帝國海軍 as
+    # 德意志帝 | 國海 | 軍. Cut the Simplified form instead and lay the same
+    # boundaries back over the original — OpenCC's t2s is character-for-
+    # character, so the two line up, and the words stay made of the glyphs
+    # actually on screen so a saved word matches what was clicked.
+    source = _to_simplified(text) or text
+    words = [w for w in jieba.cut(source) if w]
+    if source is not text and "".join(words) == source:
+        cut, at = [], 0
+        for word in words:
+            cut.append(text[at:at + len(word)])
+            at += len(word)
+        words = cut
+
     # The frontend rebuilds the line from these, so a segmenter that dropped or
     # altered a character would silently shift every word after it. Cheaper to
     # check than to debug.

@@ -48,6 +48,12 @@ lifting — speech-to-text and offline translation — runs through Python.
   sends `[]` and the renderer falls back to `Intl.Segmenter`. Both the frontend
   and `chinese_words()` drop a word list that doesn't reconstruct the line
   exactly, so a bad cut degrades instead of shifting every later word.
+  jieba's dictionary is **Simplified**, so Traditional is cut by converting
+  with OpenCC `t2s`, segmenting that, and laying the same boundaries back over
+  the original — the table is character-for-character, and a conversion that
+  changes the length is refused. The words stay made of the on-screen glyphs so
+  a saved word matches what was clicked, and the cuts don't move when the
+  reader flips script.
   `romanizeSubtitles()` attaches the result by **text**, not array identity:
   translating rebuilds `state.subtitles`, and a screenshot translates itself
   the moment it is read, so identity-matching lost the pinyin whenever
