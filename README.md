@@ -200,9 +200,39 @@ Stroke-order data comes from
 graphics derive from Arphic Technology fonts released under the
 [Arphic Public License](https://github.com/skishore/makemeahanzi/blob/master/APL.txt).
 
+## Your data, and where it sits
+
+Everything stays on this machine. Nothing is uploaded, with one exception you
+control: word lookups and line translation call an LLM only when you configure
+one in `.env`, and Settings → What's running lets you turn that off and shows
+which path is actually in use.
+
+Two things are worth knowing about:
+
+- **Cookies for URL import are stored unencrypted.** Pasting cookies in
+  Settings → Importing video writes them verbatim to `data/cookies.txt`
+  (Netscape format, the file yt-dlp reads), with the chosen mode in
+  `data/cookies.json`. There is no encryption and no OS keychain involved: any
+  process running as you can read them, and a backup or a copied folder takes
+  them along. These are live session cookies — whoever holds them can act as
+  you on that site until they expire, without your password and usually without
+  tripping two-factor. `data/` is gitignored, so they can't be committed by
+  accident, but that's the only protection there is.
+
+  The "Browser" mode is the safer option where it works: it points yt-dlp at
+  your browser's own profile instead, so no copy is made here. To get rid of a
+  pasted set, clear the box in Settings and save, or delete `data/cookies.txt`.
+
+- **Flashcards live in the browser's localStorage**, which a "clear site data",
+  a private window, or a changed port will wipe. That is what the backups in
+  `~/.local/share/stele/backups` are for — see Settings → Automatic backups.
+
 ## Notes
 
-- Card audio uses the browser's built-in `speechSynthesis` voices; when no
-  voice matches the learning language (common on Linux), audio fields are
-  hidden. Offline TTS through the Python side is a possible follow-up.
+- Audio is offered at two speeds wherever a word appears — the transcript
+  pop-up and both faces of a flashcard. Three engines, best first: **piper**
+  (a neural voice, `VOICES=1 npm run sync`), the browser's own
+  `speechSynthesis`, then **espeak-ng**. Audio is never hidden: the server can
+  always speak, which it could not when this app relied on browser voices
+  alone. Settings → What's running says which engine you are actually hearing.
 - The app does not bypass access controls. Keep URL ingestion limited to content you own, created, or are otherwise authorized to process.
