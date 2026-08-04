@@ -274,3 +274,47 @@ class CharBoxTests(unittest.TestCase):
         pieces = split_sentences([line])
         self.assertEqual([p["text"] for p in pieces], ["第一句。", "第二句。"])
         self.assertNotIn("chars", pieces[0])
+
+
+class WrapFillTests(unittest.TestCase):
+    """Text wraps because it ran out of width.
+
+    Height alone can't tell a heading from a wrapped line: a recogniser's box
+    is glyphs plus padding, so a real 34px heading over a 20px byline measured
+    36 vs 27 — a ratio of 1.33, inside WRAP_HEIGHT_RATIO — and the two were
+    joined into "东弗里斯兰号战列舰维基百科，自由的百科全书".
+    """
+
+    def test_a_short_heading_does_not_join_the_line_below(self):
+        lines = [
+            row("东弗里斯兰号战列舰", 0.08, height=0.086, width=0.34),
+            row("维基百科，自由的百科全书", 0.19, height=0.064, width=0.27),
+            row("正文填满了整整一行的宽度啊", 0.35, height=0.067, width=0.90),
+        ]
+        self.assertEqual(len(texts(lines)), 3)
+
+    def test_rows_that_fill_the_column_still_join(self):
+        # Both reach the margin, so the first plainly ran out of room.
+        lines = [
+            row("这条河从山里一直流啊", 0.30, height=0.06, width=0.90),
+            row("一直流到很远的海边", 0.37, height=0.06, width=0.80),
+        ]
+        self.assertEqual(len(texts(lines)), 1)
+
+    def test_a_short_last_row_still_joins_the_row_above(self):
+        # Only the *first* row of a pair has to have filled the column; the
+        # last line of a paragraph is short by definition.
+        lines = [
+            row("这条河从山里一直流啊", 0.30, height=0.06, width=0.90),
+            row("到海边", 0.37, height=0.06, width=0.20),
+        ]
+        self.assertEqual(len(texts(lines)), 1)
+
+    def test_the_margin_comes_from_the_widest_row(self):
+        # A page whose every row is narrow has no wide margin to fall short of,
+        # so wrapping is still detected.
+        lines = [
+            row("这条河从山里一直", 0.30, height=0.06, width=0.40),
+            row("流到很远的海边", 0.37, height=0.06, width=0.35),
+        ]
+        self.assertEqual(len(texts(lines)), 1)

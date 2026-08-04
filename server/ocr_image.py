@@ -38,10 +38,18 @@ TERMINATORS = "。！？．…!?" + '"”』」)）'
 # and paragraphs are pushed apart by padding.
 WRAP_GAP = 0.6
 # Rows of very different sizes belong to different things (a heading over a
-# paragraph), however close they sit.
+# paragraph), however close they sit. Weaker than it looks: a recogniser's box
+# is the glyphs plus padding, so a 34px heading over a 20px byline measured
+# 36 vs 27 — a ratio of 1.33, well inside this. Hence the fill test below.
 WRAP_HEIGHT_RATIO = 1.45
 # How much of the narrower row must sit within the wider one horizontally.
 WRAP_OVERLAP = 0.5
+# Text wraps because it ran out of width, so a row that continues onto the next
+# one has to reach the column's right margin. A row that stopped well short of
+# it ended because the writer ended it — a heading, a byline, a caption — and
+# nothing follows it down. Measured against the widest row on the page, which
+# is the best evidence available of where that margin is.
+WRAP_FILL = 0.85
 
 # Bands where a phone puts its own furniture, as fractions of image height.
 TOP_BAND = 0.08
@@ -151,8 +159,12 @@ def _joins_without_space(left, right):
     return _is_cjk(left[-1]) or _is_cjk(right[0])
 
 
-def _continues(first, second):
-    """Is `second` the rest of the sentence started in `first`?"""
+def _continues(first, second, margin=0):
+    """Is `second` the rest of the sentence started in `first`?
+
+    `margin` is the right edge of the widest row on the page — where the text
+    column ends. A row that stops well short of it didn't wrap.
+    """
     if first.get("chrome") != second.get("chrome"):
         return False
     if first["text"].rstrip().endswith(tuple(TERMINATORS)):
@@ -160,6 +172,9 @@ def _continues(first, second):
 
     ax, ay, aw, ah = first["box"]
     bx, by, bw, bh = second["box"]
+
+    if margin and (ax + aw) < margin * WRAP_FILL:
+        return False
 
     tall = max(ah, bh)
     if tall <= 0 or max(ah, bh) / min(ah, bh) > WRAP_HEIGHT_RATIO:
@@ -191,6 +206,8 @@ def merge_wrapped(lines):
     # block built so far: after two rows join, the block is twice as tall as a
     # line of text, and a third row would look like a different size entirely.
     tails = []
+    # Where the text column ends, taken from the widest row on the page.
+    margin = max((l["box"][0] + l["box"][2] for l in lines), default=0)
 
     for line in lines:
         previous = merged[-1] if merged else None
@@ -199,7 +216,7 @@ def merge_wrapped(lines):
             if previous
             else None
         )
-        if tail and _continues(tail, line):
+        if tail and _continues(tail, line, margin):
             joiner = "" if _joins_without_space(previous["text"], line["text"]) else " "
             # Characters follow the text exactly, joiner included, or the
             # offsets used to slice them later would drift by one per join.
