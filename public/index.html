@@ -12,6 +12,7 @@
     <link rel="modulepreload" href="./js/appearance.mjs" />
     <link rel="modulepreload" href="./js/backup.mjs" />
     <link rel="modulepreload" href="./js/carddata.mjs" />
+    <link rel="modulepreload" href="./js/health.mjs" />
     <link rel="modulepreload" href="./js/cardface.mjs" />
     <link rel="modulepreload" href="./js/cardmodal.mjs" />
     <link rel="modulepreload" href="./js/flashcards.mjs" />
@@ -264,7 +265,8 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
 :root[data-settings-page] .settings-page { display: none; }
 :root[data-settings-page="data"] .settings-page[data-page="data"],
 :root[data-settings-page="backups"] .settings-page[data-page="backups"],
-:root[data-settings-page="cookies"] .settings-page[data-page="cookies"] {
+:root[data-settings-page="cookies"] .settings-page[data-page="cookies"],
+:root[data-settings-page="health"] .settings-page[data-page="health"] {
   display: block;
 }
 /* Restored state must appear, not animate in. Dropped after the first frame. */
@@ -732,6 +734,60 @@ rt {
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .settings-layout .data-row { margin-top: 8px; }
 .settings-layout .modal-section-label { margin-top: 16px; }
+
+/* What's running. One row per capability, separated by the same hairlines the
+   rest of the app uses instead of boxes. */
+.health-list { margin-top: 12px; }
+.health-summary { margin-bottom: 4px; }
+.health-row { padding: 14px 0; border-top: 1px solid var(--border); }
+.health-head { display: flex; align-items: center; gap: 8px; }
+.health-head h3 { font-size: 15px; font-weight: 600; flex: 1 1 auto; min-width: 0; }
+.health-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--muted);
+}
+.health-best .health-dot { background: var(--accent); }
+/* Amber and red carry meaning the accent colour can't, so they're fixed —
+   every scheme has to leave "needs attention" legible. */
+.health-fallback .health-dot { background: #d99a2b; }
+.health-off .health-dot { background: #d9534f; }
+.health-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.health-fallback .health-tag { color: #d99a2b; }
+.health-off .health-tag { color: #d9534f; }
+.health-using { margin-top: 4px; font-size: 13px; }
+.health-detail, .health-note { margin-top: 4px; font-size: 13px; }
+.health-fix {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.health-fix-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.health-fix code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.health-copy { flex: 0 0 auto; font-size: 12px; }
 
 .settings-wheel {
   --wheel-item: 44px;
@@ -2212,6 +2268,15 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             </div>
             <button id="saveCookies" type="button" style="margin-top:10px;">Save Cookies</button>
             <p id="cookieStatus" class="muted" role="status" aria-live="polite"></p>
+          </section>
+
+          <section class="panel settings-page" data-page="health">
+            <div class="section-title">
+              <h2>What's running</h2>
+              <button id="healthRefresh" type="button">Check again</button>
+            </div>
+            <p class="muted data-note">Every part of this app keeps working when a piece is missing — it just quietly settles for a simpler one. This is where it says so, and what to type to fix it.</p>
+            <div id="healthList" class="health-list"></div>
           </section>
         </div>
       </section>

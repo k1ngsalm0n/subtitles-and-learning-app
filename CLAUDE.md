@@ -100,6 +100,20 @@ card panel menu lists them and merges one back in. Failed localStorage writes
 are no longer silent: `setStorageErrorHandler` (state.mjs) reports once per
 session and main.mjs turns that into a toast offering Export/Back up.
 
+**What's running.** Settings → the last wheel entry, backed by
+`GET /api/health` (`health.mjs` + `health.py`). Everything optional in this app
+degrades quietly by design — no voice model gives a robotic voice, no LLM key
+gives the offline translator, no jieba gives the browser's segmenter — which
+keeps it working everywhere but makes a deliberate fallback and a broken
+install look identical. This page is the only place that distinguishes them: per
+capability, what is actually running, what that costs, and the command to fix
+it. `health.py` *imports* each module rather than looking for it, because a
+package can be present and still fail to load (a torch wheel built for the
+wrong GPU is the usual way). Answers are cached 60s server-side and in
+`stele.health` client-side so reopening doesn't spawn Python; "Check again"
+sends `?fresh=1` past both. Add a capability here whenever you add a fallback —
+a silent one is a bug report waiting to happen.
+
 **Settings.** One page at a time, chosen from a picker wheel parked in the
 middle of the window — `wheel.mjs` is the reusable drum (hidden scrollbar,
 snap-to-centre, one row per wheel notch because a notch is ~100px and a row is

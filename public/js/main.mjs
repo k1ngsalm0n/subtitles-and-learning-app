@@ -50,6 +50,7 @@ import { createWheel } from "./wheel.mjs";
 import { paintHighlight, clearHighlight } from "./imagehighlight.mjs";
 import { chooseScript } from "./zhscript.mjs";
 import { romanizeSubtitles } from "./romanize.mjs";
+import { renderHealth } from "./health.mjs";
 import {
   createAccentDial,
   applyAccent,
@@ -208,6 +209,8 @@ const els = {
   imageBrowse: document.querySelector("#imageBrowse"),
   dropMessage: document.querySelector("#dropMessage"),
   settingsWheel: document.querySelector("#settingsWheel"),
+  healthList: document.querySelector("#healthList"),
+  healthRefresh: document.querySelector("#healthRefresh"),
   settingsLayout: document.querySelector("#settingsLayout"),
   themeDark: document.querySelector("#themeDark"),
   themeLight: document.querySelector("#themeLight"),
@@ -976,16 +979,25 @@ function setupSettings() {
       { id: "data", label: "Your data" },
       { id: "backups", label: "Automatic backups" },
       { id: "cookies", label: "Importing video" },
+      { id: "health", label: "What's running" },
     ],
     (entry) => {
       showSettingsPage(entry.id);
       setSettingsPage(entry.id);
+      // Asked for on arrival rather than at boot: it spawns a Python process
+      // to find out, and most visits to Settings are for something else.
+      if (entry.id === "health") renderHealth(els);
     },
     { startAt: state.settingsPage },
   );
   // createWheel deliberately doesn't fire onSelect for its starting row, so
   // the markup (which hard-codes Appearance) is brought into line here.
   showSettingsPage(state.settingsPage);
+  if (state.settingsPage === "health") renderHealth(els);
+
+  // The point of "Check again" is to see a fix take effect, so it must ignore
+  // the cached answer.
+  els.healthRefresh?.addEventListener("click", () => renderHealth(els, { force: true }));
 
   accentDial = createAccentDial({
     dial: els.accentDial,
