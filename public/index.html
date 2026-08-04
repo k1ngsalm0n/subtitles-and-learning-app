@@ -794,6 +794,38 @@ rt {
 .health-toggle .segmented { display: inline-flex; flex-wrap: wrap; }
 .health-toggle .segmented button:disabled { opacity: 0.4; cursor: not-allowed; }
 .health-toggle .health-note { margin-top: 6px; }
+/* Pressing one of these restarts a Python probe, so there is a real wait to
+   account for. Without a mark it reads as a dead button. Sits beside the
+   control it belongs to, and holds a tick briefly afterwards so the answer
+   isn't just "the page looks the same". */
+.health-toggle-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.health-status {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--accent);
+}
+.health-status.busy::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: health-spin 0.7s linear infinite;
+}
+.health-status.failed { color: #d9534f; }
+@keyframes health-spin { to { transform: rotate(360deg); } }
+/* A ring that doesn't turn says nothing, so say it in text instead. */
+@media (prefers-reduced-motion: reduce) {
+  .health-status.busy::before { display: none; }
+  .health-status.busy::after { content: "…"; }
+}
 
 .settings-wheel {
   --wheel-item: 44px;
@@ -2280,6 +2312,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             <div class="section-title">
               <h2>What's running</h2>
               <button id="healthRefresh" type="button">Check again</button>
+              <span id="healthStatus" class="health-status" role="status" aria-live="polite"></span>
             </div>
             <p class="muted data-note">Every part of this app keeps working when a piece is missing — it just quietly settles for a simpler one. This is where it says so, and what to type to fix it.</p>
             <div id="healthList" class="health-list"></div>

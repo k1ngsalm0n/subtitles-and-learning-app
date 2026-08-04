@@ -16,6 +16,10 @@ const LABELS = {
 let loaded = false;
 // Kept so a toggle can re-render without its caller passing els back in.
 let _els = null;
+// Which toggle is mid-change. Re-rendering builds fresh elements, so the
+// spinner has to be re-applied to the new one or it vanishes for the whole
+// wait — which is precisely the wait it exists to cover.
+let pending = null;
 
 // The last answer, kept so reopening the page shows it at once instead of
 // flashing "Checking…" while a Python process starts. It is only ever a
@@ -40,12 +44,48 @@ function remember(data) {
   }
 }
 
+// Both controls on this page take a couple of seconds — they restart a probe
+// that starts a Python process. Silence for that long reads as a broken button,
+// so every press says it is working and then says it is done.
+function setBusy(slot) {
+  if (!slot) return;
+  slot.className = "health-status busy";
+  slot.textContent = "";
+  slot.setAttribute("aria-label", "Working");
+}
+
+function setDone(slot, ok = true) {
+  if (!slot) return;
+  slot.className = ok ? "health-status" : "health-status failed";
+  slot.textContent = ok ? "✓" : "!";
+  slot.setAttribute("aria-label", ok ? "Done" : "Didn't work");
+  // Long enough to be seen, short enough not to look like a permanent badge.
+  clearTimeout(slot._clear);
+  slot._clear = setTimeout(() => {
+    slot.className = "health-status";
+    slot.textContent = "";
+    slot.removeAttribute("aria-label");
+  }, ok ? 1800 : 4000);
+}
+
 // Some rows are a *choice*, not a defect: which voice speaks, whether text is
 // sent to a chat model. Those get a segmented control. The rest are missing
 // software, where a switch would be a lie — they keep their command instead.
 function toggleRow(toggle) {
   const wrap = document.createElement("div");
   wrap.className = "health-toggle";
+
+  const line = document.createElement("div");
+  line.className = "health-toggle-row";
+
+  const slot = document.createElement("span");
+  slot.className = "health-status";
+  slot.setAttribute("role", "status");
+  slot.setAttribute("aria-live", "polite");
+  // Re-rendering replaces this element, so the tick is put back afterwards by
+  // name rather than being expected to survive.
+  slot.dataset.status = toggle.name;
+  if (pending === toggle.name) setBusy(slot);
 
   const group = document.createElement("div");
   group.className = "segmented";
@@ -67,23 +107,35 @@ function toggleRow(toggle) {
     button.addEventListener("click", async () => {
       if (option.value === toggle.value) return;
       for (const other of group.children) other.disabled = true;
+      pending = toggle.name;
+      setBusy(slot);
+      let ok = false;
       try {
-        await fetch("/api/prefs", {
+        const res = await fetch("/api/prefs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ [toggle.name]: option.value }),
         });
+        const saved = await res.json();
+        // The server replies with what it stored, so "did it take?" is a fact
+        // rather than a hope — asking for something it refuses leaves the old
+        // value, and that must not show a tick.
+        ok = res.ok && saved?.prefs?.[toggle.name] === option.value;
       } catch {
-        // Re-reading below shows whether it actually took.
+        ok = false;
       }
       // Re-ask rather than assume: the row's wording, its state dot and its
       // fix line all depend on the setting, and the server is what decides
       // whether the change was accepted at all.
       await renderHealth(_els, { force: true });
+      pending = null;
+      // That replaced this element, so find its successor to mark.
+      setDone(_els?.healthList?.querySelector(`[data-status="${toggle.name}"]`), ok);
     });
     group.append(button);
   }
-  wrap.append(group);
+  line.append(group, slot);
+  wrap.append(line);
 
   if (toggle.note) {
     const note = document.createElement("p");
@@ -173,7 +225,7 @@ function checkRow(check) {
   return row;
 }
 
-export async function renderHealth(els, { force = false } = {}) {
+export async function renderHealth(els, { force = false, status = null } = {}) {
   if (els) _els = els;
   const list = _els?.healthList;
   if (!list) return;
@@ -181,15 +233,17 @@ export async function renderHealth(els, { force = false } = {}) {
   // questions; the answers only change when something is installed.
   if (loaded && !force) return;
 
+  if (status) setBusy(status);
+
   const last = remembered();
   if (last?.checks?.length) {
     paint(list, last);
   } else {
     list.textContent = "";
-    const pending = document.createElement("p");
-    pending.className = "muted";
-    pending.textContent = "Checking…";
-    list.append(pending);
+    const checking = document.createElement("p");
+    checking.className = "muted";
+    checking.textContent = "Checking…";
+    list.append(checking);
   }
 
   let data = null;
@@ -201,6 +255,7 @@ export async function renderHealth(els, { force = false } = {}) {
   }
 
   if (!data?.checks?.length) {
+    setDone(status, false);
     // Keep whatever was on screen if we had something; stale beats blank.
     if (!last?.checks?.length) {
       list.textContent = "";
@@ -214,6 +269,7 @@ export async function renderHealth(els, { force = false } = {}) {
   loaded = true;
   remember(data);
   paint(list, data);
+  setDone(status, true);
 }
 
 function paint(list, data) {

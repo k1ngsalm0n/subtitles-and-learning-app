@@ -211,6 +211,7 @@ const els = {
   settingsWheel: document.querySelector("#settingsWheel"),
   healthList: document.querySelector("#healthList"),
   healthRefresh: document.querySelector("#healthRefresh"),
+  healthStatus: document.querySelector("#healthStatus"),
   settingsLayout: document.querySelector("#settingsLayout"),
   themeDark: document.querySelector("#themeDark"),
   themeLight: document.querySelector("#themeLight"),
@@ -996,8 +997,15 @@ function setupSettings() {
   if (state.settingsPage === "health") renderHealth(els);
 
   // The point of "Check again" is to see a fix take effect, so it must ignore
-  // the cached answer.
-  els.healthRefresh?.addEventListener("click", () => renderHealth(els, { force: true }));
+  // the cached answer — which means a real wait, which means saying so.
+  els.healthRefresh?.addEventListener("click", async () => {
+    els.healthRefresh.disabled = true;
+    try {
+      await renderHealth(els, { force: true, status: els.healthStatus });
+    } finally {
+      els.healthRefresh.disabled = false;
+    }
+  });
 
   accentDial = createAccentDial({
     dial: els.accentDial,
