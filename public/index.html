@@ -800,6 +800,21 @@ rt {
    isn't just "the page looks the same". */
 .health-toggle-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .health-refresh { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+/* What each option means, laid out so the three can be compared at a glance.
+   The selected one is marked in text as well as by the control above, so the
+   list still reads correctly on its own. */
+.health-options { margin-top: 10px; font-size: 12.5px; }
+.health-options dt {
+  color: var(--text);
+  font-weight: 600;
+  margin-top: 6px;
+}
+.health-options dt.current::after {
+  content: " · in use";
+  color: var(--accent);
+  font-weight: 500;
+}
+.health-options dd { color: var(--muted); margin: 2px 0 0; }
 .health-status {
   width: 16px;
   height: 16px;

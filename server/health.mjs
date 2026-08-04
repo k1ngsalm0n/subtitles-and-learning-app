@@ -142,13 +142,28 @@ export async function handleHealth(req, res) {
       name: "speech",
       value: speechChoice,
       options: [
-        { value: "auto", label: "Best available", enabled: true },
-        { value: "browser", label: "Browser voice", enabled: true },
-        { value: "espeak", label: "espeak-ng", enabled: true },
+        {
+          value: "auto",
+          label: "Best available",
+          enabled: true,
+          hint: piperReady
+            ? "piper, on this machine. Sounds like a person; takes a moment to generate the first time."
+            : "Falls to espeak-ng until a voice is installed.",
+        },
+        {
+          value: "browser",
+          label: "Browser voice",
+          enabled: true,
+          hint: "Whatever your browser offers. Instant, nothing sent to the app. Good on macOS and Windows; on Linux these are usually espeak-ng under other names.",
+        },
+        {
+          value: "espeak",
+          label: "espeak-ng",
+          enabled: true,
+          hint: "A tiny formant synthesiser. Robotic, but instant and always there — some people prefer it for drilling.",
+        },
       ],
-      note: piperReady
-        ? null
-        : "Best available and espeak-ng are the same here until a voice is installed.",
+      note: null,
     },
   });
 
@@ -165,8 +180,8 @@ export async function handleHealth(req, res) {
         ? "the offline translator only — chosen here"
         : "the offline translator only",
     detail: llmOn
-      ? "Names and places are recognised rather than spelled out syllable by syllable, and word lookups come with real explanations."
-      : "Works offline and costs nothing, but it transliterates names — 黑尔戈兰级 comes out as “Herle Golan class” rather than Helgoland — and word lookups give a bare meaning with no explanation.",
+      ? "Everyday phrases come out as what they mean rather than word by word, less common names are recognised, and word lookups come with real explanations."
+      : "Free, private and quick, but it translates literally. 你别给我戴高帽子了 — “stop flattering me” — comes back as “Don't put your hat on me”, and 她的中文说得很地道 as “Her Chinnese laguage says a lot”. Common names are fine; unusual ones get spelled out a syllable at a time. Word lookups give a bare meaning with no explanation.",
     fix: llmReady ? null : "Add LLM_BASE_URL, LLM_MODEL and LLM_API_KEY to .env",
     fixNote: llmReady
       ? null
@@ -177,11 +192,21 @@ export async function handleHealth(req, res) {
       options: [
         // Without a key there is nothing to turn on, so say so rather than
         // offering a switch that would do nothing.
-        { value: "on", label: "Use the chat model", enabled: llmReady },
-        { value: "off", label: "Offline only", enabled: true },
+        {
+          value: "on",
+          label: "Use the chat model",
+          enabled: llmReady,
+          hint: "Subtitle lines and looked-up words are sent to the provider you configured. Slower, and better at anything idiomatic.",
+        },
+        {
+          value: "off",
+          label: "Offline only",
+          enabled: true,
+          hint: "Nothing leaves this machine. Faster and free, and it takes phrases at face value.",
+        },
       ],
       note: llmReady
-        ? "Text is sent to the provider you configured. Offline keeps everything on this machine."
+        ? "Either way, a file over 400 lines uses the offline translator — it is faster in bulk."
         : "Needs a key before there is anything to choose.",
     },
   });

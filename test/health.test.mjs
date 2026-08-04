@@ -113,3 +113,15 @@ test("rows the reader controls don't also demand a command", async () => {
     assert.equal(speech.fix, null, "a chosen fallback isn't something to fix");
   }
 });
+
+// The labels alone say nothing about what you'd hear or send, so each option
+// explains itself. Three synthesisers can't be compared one tooltip at a time.
+test("every option explains what choosing it means", async () => {
+  const { checks } = await health();
+  for (const { id, toggle } of checks.filter((c) => c.toggle)) {
+    for (const option of toggle.options) {
+      assert.ok(option.hint, `${id}/${option.value} has no explanation`);
+      assert.notEqual(option.hint, option.label, `${id}/${option.value} just repeats itself`);
+    }
+  }
+});

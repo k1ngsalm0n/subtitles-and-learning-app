@@ -137,6 +137,25 @@ function toggleRow(toggle) {
   line.append(group, slot);
   wrap.append(line);
 
+  // What each option actually means, all of them at once. A reader choosing
+  // between three synthesisers can't compare them one tooltip at a time, and
+  // the labels alone ("Best available", "espeak-ng") say nothing about what
+  // they will hear.
+  const hints = toggle.options.filter((o) => o.hint);
+  if (hints.length) {
+    const list = document.createElement("dl");
+    list.className = "health-options";
+    for (const option of hints) {
+      const term = document.createElement("dt");
+      term.textContent = option.label;
+      term.classList.toggle("current", option.value === toggle.value);
+      const def = document.createElement("dd");
+      def.textContent = option.hint;
+      list.append(term, def);
+    }
+    wrap.append(list);
+  }
+
   if (toggle.note) {
     const note = document.createElement("p");
     note.className = "health-note muted";
