@@ -104,6 +104,46 @@ off disk; all three used to keep their own copy behind a "keep in sync" comment
 one too. `offered` is the subset the translate bar lists; deleting the key
 offers all 44 again, which is most of restoring multi-language support (#65).
 
+Detection (`detectLanguage`) covers all 44 — function words for the 30
+Latin-script ones plus diacritics for the short inputs, and script tests
+elsewhere. It returns `""` rather than guessing, and every caller has a path
+for that; it used to answer `"en"` for anything it couldn't place, which sent
+Polish through the English model and produced fluent, confident nonsense. The
+invariant the tests enforce is *never confidently wrong*, not a hit rate —
+abstaining costs a dropdown click, a wrong answer is invisible. Two sentences
+per language live in `test/languages.test.mjs`; a language added to the table
+without a sample fails the suite.
+
+**Before offering a language, three gates — not one.** Translation quality is
+the obvious one and the only one that needs measuring:
+
+- **Translation.** `scripts/flores_eval.py` scores the real pipeline (Opus/NLLB
+  routing, noun substitution, batching and all) against FLORES-200, which is
+  Meta's own NLLB eval set and is keyed by the same Flores codes the table
+  already carries. `--languages de,pl --sentences 100`, results cached per
+  language under `~/.local/share/stele/flores` so a 44-language sweep is
+  resumable. Reference points: fr→en 61.7, de→en 60.3, zh→en 46.8 (zh goes
+  through Opus, not NLLB). Budget ~9 min per language per 100 sentences even on
+  the GPU — beam search dominates. chrF++ is implemented in the script rather
+  than pulled from sacrebleu, because adding a dep means `uv add` and that
+  silently reverts torch to CPU; it agrees with sacrebleu 2.6.0 to 0.0000 and
+  `test/test_chrf.py` pins the golden values.
+- **Transcription.** Whisper covers 41 of the 44. Esperanto and Irish are
+  genuinely absent; Norwegian is only a code mismatch (Whisper says `no`, the
+  table says `nb`) and needs mapping, not a model. `transcribe.py` also has a
+  hard Chinese-only guard (`UnsupportedLanguage`) to remove.
+- **OCR — the narrowest gate, and the one that fails silently.** `RapidOCR()`
+  is constructed with no arguments, so it runs the default `ch` recognition
+  model. Verified by rendering text and reading it back: Chinese, Japanese and
+  Latin script (including ł, ř, ğ, ș, å, ñ) all read correctly; Vietnamese
+  loses stacked tone marks and Hungarian confuses ű/ú. Korean returns nothing.
+  Cyrillic, Greek, Arabic, Devanagari, Thai and Hebrew return **plausible
+  latin-ish garbage** — Russian "мы должны попробовать" comes back as "Mbl".
+  That is non-empty, so it flows downstream and gets translated as if it were
+  text. RapidOCR ships separate `cyrillic`/`arabic`/`korean`/`el`/`devanagari`/
+  `th`/`latin` recognition models; using them means passing a `lang_type`
+  instead of relying on the default. There is no Hebrew or Bengali model at all.
+
 **Backups.** Cards live only in the browser's localStorage, which a "clear
 site data", a private window, or a changed port can wipe. `backup.mjs` takes
 the same JSON `Export (JSON)` produces (`POST /api/backup`) and writes it to
