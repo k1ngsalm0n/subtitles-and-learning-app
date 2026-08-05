@@ -1259,6 +1259,7 @@ rt {
 .grade-hard:hover { border-color: var(--accent-2); }
 .grade-good:hover, .grade-easy:hover { border-color: var(--accent); }
 .review-keys { font-size: 11px; text-align: center; margin-top: 8px; }
+    .study-keys { font-size: 11px; text-align: center; margin-top: 8px; }
 /* Deck limits: two numbers and two buttons — sized to that, not to the wide
    default dialog. Label left, small input right, so no row is mostly padding. */
 #deckSettingsDialog { width: min(300px, calc(100vw - 32px)); padding: 14px 16px; }
@@ -2202,10 +2203,11 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                 <span id="zhSimp" class="zh-opt" lang="zh-Hans">简</span>
                 <span id="zhTrad" class="zh-opt" lang="zh-Hant">繁</span>
               </button>
-              <button id="loopLine" type="button" aria-pressed="false">Loop Line</button>
-              <button id="saveLine" type="button">Save Line</button>
+              <button id="loopLine" type="button" aria-pressed="false" title="Replay this line (R)">Loop Line</button>
+              <button id="saveLine" type="button" title="Save this line as a card (S)">Save Line</button>
             </div>
             <div id="transcript" class="transcript" aria-label="Transcript"></div>
+            <p class="study-keys muted">Space to play · ←/→ to step a line · R to replay · S to save</p>
           </section>
         </div>
       </section>

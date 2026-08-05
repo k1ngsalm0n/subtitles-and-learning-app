@@ -61,7 +61,14 @@ import {
 import { setupTemplateEditor, setupTemplateManager } from "./templates.mjs";
 import { setupCardModal, openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
-import { syncToVideo, loopActiveLine, saveActiveLine } from "./player.mjs";
+import {
+  syncToVideo,
+  loopActiveLine,
+  saveActiveLine,
+  stepLine,
+  togglePlayback,
+} from "./player.mjs";
+import { studyAction } from "./shortcuts.mjs";
 import {
   populateLanguageSelects,
   syncTranslateLangs,
@@ -326,6 +333,7 @@ function bindEvents() {
     button.addEventListener("click", () => gradeCard(button.dataset.grade));
   });
   document.addEventListener("keydown", handleReviewKeys);
+  document.addEventListener("keydown", handleStudyKeys);
   els.shuffleCards.addEventListener("click", shuffleCards);
   els.exportCards.addEventListener("click", exportCards);
   els.exportAnki.addEventListener("click", exportAnkiTsv);
@@ -464,6 +472,36 @@ async function renderBackupList() {
     });
     els.backupList.append(button);
   }
+}
+
+// Study shortcuts (reader view only): Space plays, ←/→ step a line, R replays
+// it, S saves it. The rules live in shortcuts.mjs so they can be tested; this
+// reads the DOM state they need and runs the action.
+const STUDY_ACTIONS = {
+  playPause: (els) => togglePlayback(els),
+  prevLine: (els) => stepLine(-1, els),
+  nextLine: (els) => stepLine(1, els),
+  replayLine: (els) => (loopActiveLine(els), true),
+  saveLine: (els) => (saveActiveLine(els), true),
+};
+
+function handleStudyKeys(event) {
+  const action = studyAction({
+    key: event.key,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    altKey: event.altKey,
+    tagName: event.target?.tagName,
+    defaultPrevented: event.defaultPrevented,
+    viewActive: document.querySelector("#studyView").classList.contains("active"),
+    dialogOpen: Boolean(document.querySelector("dialog[open]")),
+  });
+  if (!action) return;
+  // Always swallow the key, even when the action declines: <video controls>
+  // handles Space and the arrows natively, and letting that through as well
+  // would toggle playback twice or seek out from under a line step.
+  event.preventDefault();
+  STUDY_ACTIONS[action](els);
 }
 
 // Review shortcuts (Flashcards view only): Space flips, 1–4 grade

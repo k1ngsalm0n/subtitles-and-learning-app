@@ -3,6 +3,7 @@ import { paintHighlight } from "./imagehighlight.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { addCard } from "./flashcards.mjs";
 import { showToast } from "./toast.mjs";
+import { stepIndex } from "./shortcuts.mjs";
 import {
   renderTranscript,
   scrollActiveLineIntoView,
@@ -46,6 +47,27 @@ export function activateLine(index, seek, els) {
   // the equivalent is showing where on the page it was read from.
   paintHighlight(els, state.subtitles[index]);
   renderTranscript(els);
+}
+
+// Step to the neighbouring line and seek there. Keyboard-driven line changes
+// can land off-screen — a click can't, since you had to see the line to click
+// it — so this scrolls the transcript too.
+export function stepLine(delta, els) {
+  const next = stepIndex(state.activeIndex, delta, state.subtitles.length);
+  if (next === -1) return false;
+  activateLine(next, true, els);
+  scrollActiveLineIntoView(els);
+  return true;
+}
+
+// Play/pause the reader's video. A screenshot session has subtitles but no
+// video, and asking a source-less <video> to play throws, so say so instead.
+export function togglePlayback(els) {
+  const video = els.video;
+  if (!video || !(video.currentSrc || video.getAttribute("src"))) return false;
+  if (video.paused) video.play();
+  else video.pause();
+  return true;
 }
 
 export function loopActiveLine(els) {
