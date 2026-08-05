@@ -108,6 +108,11 @@ function withBuiltins(stored, builtins) {
 
 export const state = {
   subtitles: [],
+  // Whisper's per-word timings for the loaded video, flat and time-ordered
+  // (#26). Empty whenever the transcript didn't come from Whisper — an
+  // imported subtitle track, OCR'd captions — and the karaoke highlight falls
+  // back to estimating from character counts.
+  wordTimings: [],
   cards: [],
   decks: withBuiltins(loadJson(STORAGE_KEYS.decks, []), builtinDecks()),
   templates: withBuiltins(

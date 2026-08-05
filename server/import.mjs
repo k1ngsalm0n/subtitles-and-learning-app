@@ -291,6 +291,8 @@ export async function handleImportUrl(req, res) {
           language: "zh",
           subtitles,
           translation,
+          // Caption segments carry no timings; only the spoken ones do.
+          words: collectWords(segments),
         });
         return;
       }
@@ -312,6 +314,9 @@ export async function handleImportUrl(req, res) {
       language: whisperResult.language,
       subtitles: whisperResult.subtitles,
       translation: whisperResult.translation,
+      // Absent on the openai-whisper CLI fallback, which reports no word
+      // timings; the reader falls back to its own estimate then.
+      words: whisperResult.words || [],
     });
   } finally {
     await rm(workspace, { recursive: true, force: true });
@@ -681,6 +686,20 @@ async function transcribeFastSegments(audioPath) {
   return { language: data.language || "unknown", segments: data.segments || [] };
 }
 
+// Every word Whisper timed, flattened across segments and ordered by time, for
+// the karaoke highlight (#26). Flat rather than per-cue on purpose: refining
+// and merging re-cut the segments after this, and Traditional conversion
+// rewrites the glyphs, so anything keyed to a segment index would be stale by
+// the time it reached the browser. Times survive all of it, so the reader
+// matches words to a line by when they were said. Sources with no timings —
+// an existing subtitle track, OCR'd captions — simply send none.
+function collectWords(segments) {
+  return segments
+    .flatMap((segment) => segment.words || [])
+    .filter((word) => Number.isFinite(word.start) && Number.isFinite(word.end))
+    .sort((a, b) => a.start - b.start);
+}
+
 // Turn raw faster-whisper segments into the final result: SRT (normalised to
 // Traditional), plus an English translation.
 async function finishFastTranscription({ language, segments }) {
@@ -690,7 +709,7 @@ async function finishFastTranscription({ language, segments }) {
   const lowerLang = language.toLowerCase();
   const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
   const translation = await translateSrt(subtitles, langCode);
-  return { language, subtitles, translation };
+  return { language, subtitles, translation, words: collectWords(segments) };
 }
 
 async function transcribeWithWhisperCli(audioPath, workspace) {

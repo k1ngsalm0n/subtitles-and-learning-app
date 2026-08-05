@@ -982,6 +982,14 @@ function setupImagesMode() {
 // and clear of the card store.
 const MAX_REMEMBERED_IMAGE = 1_500_000;
 
+// The same bargain for Whisper's word timings (#26). Speech runs to roughly
+// four words a second and each costs ~45 bytes of JSON, so an hour of video is
+// ~680 KB — a real dent in the same ~5 MB the cards live in. Past this the
+// session keeps the transcript, which is the part you were reading, and the
+// karaoke highlight falls back to estimating from character counts exactly as
+// it does for an imported subtitle track. About 45 minutes' worth.
+const MAX_REMEMBERED_WORDS = 12_000;
+
 function fileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1166,6 +1174,8 @@ function restoreSession() {
     syncTranslateLangs(els);
   }
   loadSubtitles(session.original || "", session.translation || "");
+  // Sessions written before #26 have no words; the highlight estimates instead.
+  state.wordTimings = Array.isArray(session.words) ? session.words : [];
 }
 
 // Persist playback position so a reload resumes where you left off. Written on
@@ -1312,6 +1322,7 @@ async function importSourceUrl() {
     state.currentSourceId = source.id;
 
     loadSubtitles(result.subtitles || "", result.translation || "");
+    state.wordTimings = result.words || [];
     if (result.language) {
       // Drive word lookups off the imported video's language. Whisper may
       // report "chinese"; normalize it to the "zh" code the dictionary uses.
@@ -1326,6 +1337,10 @@ async function importSourceUrl() {
       original: result.subtitles || "",
       translation: result.translation || "",
       learningLang: state.learningLang,
+      // Kept with the session rather than the source list: it is one video's
+      // worth, and the sources list holds every video ever imported.
+      words:
+        state.wordTimings.length <= MAX_REMEMBERED_WORDS ? state.wordTimings : [],
     });
     source.status =
       result.source === "whisper"

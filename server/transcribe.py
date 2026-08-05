@@ -264,6 +264,19 @@ def _transcribe_on(device, audio):
         word_probs = [w.probability for w in words if w.probability is not None]
         if word_probs:
             seg["wordProb"] = sum(word_probs) / len(word_probs)
+        # The timings themselves, for the karaoke highlight (#26). They are
+        # already computed above for cue alignment and for wordProb; without
+        # them the reader has to assume every character takes equally long,
+        # which drifts badly on any line that isn't spoken at an even pace.
+        # Rounded because milliseconds are past what a highlight can show, and
+        # this rides along in the browser's storage with the transcript.
+        timed = [
+            {"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": w.word}
+            for w in words
+            if w.start is not None and w.end is not None and w.word.strip()
+        ]
+        if timed:
+            seg["words"] = timed
         segs.append(seg)
     return {"language": info.language, "segments": segs}
 
