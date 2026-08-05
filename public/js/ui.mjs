@@ -16,6 +16,7 @@ import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
 import { activateLine } from "./player.mjs";
+import { spokenProgress } from "./karaoke.mjs";
 import { paintHighlight } from "./imagehighlight.mjs";
 import { speak } from "./tts.mjs";
 import { speakButtonsHtml } from "./speakbuttons.mjs";
@@ -426,10 +427,10 @@ export function startHighlightLoop(els) {
     }
     const line = state.subtitles[state.activeIndex];
     if (!line) return;
-    const duration = line.end - line.start;
-    if (duration <= 0) return;
-    const elapsed = Math.max(0, Math.min(duration, video.currentTime - line.start));
-    const progress = elapsed / duration;
+    if (!(line.end - line.start > 0)) return;
+    // Real per-word timings when the transcript came from Whisper; otherwise
+    // this falls back to the old even-pace estimate (#26).
+    const progress = spokenProgress(video.currentTime, line, state.wordTimings);
     const activeLine = e.transcript.querySelector(".line.active");
     if (!activeLine) return;
     const wordEls = activeLine.querySelectorAll(".word");
