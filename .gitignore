@@ -2,8 +2,10 @@ node_modules/
 .venv/
 __pycache__/
 *.pyc
-data/
-!data/cedict-seed.u8
+# Downloaded corpora, models and imported videos. Anchored to the root: a bare
+# `data/` also matched public/data/, which is checked-in app data.
+/data/
+!/data/cedict-seed.u8
 .env
 .DS_Store
 Thumbs.db

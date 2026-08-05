@@ -65,20 +65,15 @@ DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
 CEDICT_FULL = os.path.join(DATA_DIR, "cedict.u8")
 CEDICT_SEED = os.path.join(DATA_DIR, "cedict-seed.u8")
 
-# Map common ISO 639-1 codes to NLLB's Flores-200 codes
-LANG_CODE_MAP = {
-    "af": "afr_Latn", "ar": "arb_Arab", "az": "azj_Latn", "bn": "ben_Beng",
-    "bg": "bul_Cyrl", "ca": "cat_Latn", "zh": "zho_Hant", "cs": "ces_Latn",
-    "da": "dan_Latn", "nl": "nld_Latn", "en": "eng_Latn", "eo": "epo_Latn",
-    "et": "est_Latn", "fi": "fin_Latn", "fr": "fra_Latn", "de": "deu_Latn",
-    "el": "ell_Grek", "he": "heb_Hebr", "hi": "hin_Deva", "hu": "hun_Latn",
-    "id": "ind_Latn", "ga": "gle_Latn", "it": "ita_Latn", "ja": "jpn_Jpan",
-    "ko": "kor_Hang", "lv": "lvs_Latn", "lt": "lit_Latn", "ms": "zsm_Latn",
-    "nb": "nob_Latn", "fa": "pes_Arab", "pl": "pol_Latn", "pt": "por_Latn",
-    "ro": "ron_Latn", "ru": "rus_Cyrl", "sk": "slk_Latn", "sl": "slv_Latn",
-    "es": "spa_Latn", "sv": "swe_Latn", "tl": "tgl_Latn", "th": "tha_Thai",
-    "tr": "tur_Latn", "uk": "ukr_Cyrl", "ur": "urd_Arab", "vi": "vie_Latn",
-}
+# Map common ISO 639-1 codes to NLLB's Flores-200 codes, from the one language
+# table the frontend reads too (#32) — the list used to be duplicated here and
+# in public/js/languages.mjs behind a "keep in sync" comment.
+LANGUAGES_JSON = os.path.join(SCRIPT_DIR, "..", "public", "data", "languages.json")
+
+with open(LANGUAGES_JSON, encoding="utf-8") as fh:
+    LANG_CODE_MAP = {
+        lang["code"]: lang["nllb"] for lang in json.load(fh)["languages"]
+    }
 
 _tokenizer = None
 _model = None

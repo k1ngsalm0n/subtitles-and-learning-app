@@ -12,6 +12,8 @@
 // dropped connection — all return null and the caller runs the offline path.
 // A worse translation beats no translation.
 
+import { readFileSync } from "node:fs";
+
 import { readPrefs } from "./prefs.mjs";
 
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
@@ -32,13 +34,15 @@ const BATCH = 20;
 const MAX_LINES = 400;
 const TIMEOUT_MS = 60_000;
 
-const LANGUAGE_NAMES = {
-  en: "English", zh: "Chinese", "zh-cn": "Chinese", "zh-tw": "Chinese",
-  ja: "Japanese", ko: "Korean", es: "Spanish", fr: "French", de: "German",
-  it: "Italian", pt: "Portuguese", ru: "Russian", ar: "Arabic", hi: "Hindi",
-  th: "Thai", vi: "Vietnamese", id: "Indonesian", nl: "Dutch", pl: "Polish",
-  tr: "Turkish", uk: "Ukrainian", sv: "Swedish", fa: "Persian", he: "Hebrew",
-};
+// Names for the prompt, from the one language table the frontend and
+// translate.py read too (#32). Regional tags (zh-TW, pt_BR) aren't listed:
+// languageName falls back to the primary subtag, which is the only part the
+// model needs.
+const LANGUAGE_NAMES = Object.fromEntries(
+  JSON.parse(
+    readFileSync(new URL("../public/data/languages.json", import.meta.url), "utf8"),
+  ).languages.map((l) => [l.code, l.name]),
+);
 
 export function languageName(code) {
   const key = String(code || "").trim().toLowerCase();

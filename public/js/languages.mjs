@@ -1,58 +1,23 @@
-// Languages offered in the translate bar. Codes mirror the keys of
-// LANG_CODE_MAP in server/translate.py — keep the two lists in sync.
+// The languages the translate bar offers, read from the one language table
+// (#32) so this list can't drift from the one server/translate.py translates
+// with. A JSON module keeps it synchronous — every importer here expects
+// LANGUAGES to exist the moment the module evaluates.
 //
-// CHINESE-ONLY (temporary): the app is scoped to Chinese for now, so only
-// Chinese (the study language) and English (the translation target) are
-// listed. The full set the NLLB translator supports is preserved below and
-// should be restored together — see issue #65.
-export const LANGUAGES = [
-  { code: "zh", name: "Chinese" },
-  { code: "en", name: "English" },
-  // { code: "af", name: "Afrikaans" },
-  // { code: "ar", name: "Arabic" },
-  // { code: "az", name: "Azerbaijani" },
-  // { code: "bn", name: "Bengali" },
-  // { code: "bg", name: "Bulgarian" },
-  // { code: "ca", name: "Catalan" },
-  // { code: "cs", name: "Czech" },
-  // { code: "da", name: "Danish" },
-  // { code: "nl", name: "Dutch" },
-  // { code: "eo", name: "Esperanto" },
-  // { code: "et", name: "Estonian" },
-  // { code: "fi", name: "Finnish" },
-  // { code: "fr", name: "French" },
-  // { code: "de", name: "German" },
-  // { code: "el", name: "Greek" },
-  // { code: "he", name: "Hebrew" },
-  // { code: "hi", name: "Hindi" },
-  // { code: "hu", name: "Hungarian" },
-  // { code: "id", name: "Indonesian" },
-  // { code: "ga", name: "Irish" },
-  // { code: "it", name: "Italian" },
-  // { code: "ja", name: "Japanese" },
-  // { code: "ko", name: "Korean" },
-  // { code: "lv", name: "Latvian" },
-  // { code: "lt", name: "Lithuanian" },
-  // { code: "ms", name: "Malay" },
-  // { code: "nb", name: "Norwegian" },
-  // { code: "fa", name: "Persian" },
-  // { code: "pl", name: "Polish" },
-  // { code: "pt", name: "Portuguese" },
-  // { code: "ro", name: "Romanian" },
-  // { code: "ru", name: "Russian" },
-  // { code: "sk", name: "Slovak" },
-  // { code: "sl", name: "Slovenian" },
-  // { code: "es", name: "Spanish" },
-  // { code: "sv", name: "Swedish" },
-  // { code: "tl", name: "Tagalog" },
-  // { code: "th", name: "Thai" },
-  // { code: "tr", name: "Turkish" },
-  // { code: "uk", name: "Ukrainian" },
-  // { code: "ur", name: "Urdu" },
-  // { code: "vi", name: "Vietnamese" },
-];
+// CHINESE-ONLY (temporary, #65): `offered` in that file trims the bar to
+// Chinese (the study language) and English (the translation target). Dropping
+// the key brings back every language NLLB supports.
+import table from "../data/languages.json" with { type: "json" };
 
-const NAME_BY_CODE = new Map(LANGUAGES.map((l) => [l.code, l.name]));
+const ALL = table.languages.map((l) => ({ code: l.code, name: l.name }));
+const offered = table.offered;
+export const LANGUAGES = offered?.length
+  ? offered.map((code) => ALL.find((l) => l.code === code)).filter(Boolean)
+  : ALL;
+
+// Names resolve across the whole table, not just the offered subset: a
+// subtitle file can be detected as a language the bar doesn't list, and
+// "Detected German" reads better than "Detected de".
+const NAME_BY_CODE = new Map(ALL.map((l) => [l.code, l.name]));
 export function languageName(code) {
   return NAME_BY_CODE.get(code) || code;
 }

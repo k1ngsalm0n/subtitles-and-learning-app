@@ -4,35 +4,61 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { LANGUAGES, detectLanguage } from "../public/js/languages.mjs";
+import { LANGUAGES, detectLanguage, languageName } from "../public/js/languages.mjs";
+import { languageName as llmLanguageName } from "../server/llmTranslate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, "..");
 
-// Pull the keys of LANG_CODE_MAP out of server/translate.py so we can assert the
-// client language list and the server's supported set never drift apart (#32).
-function pythonLangCodes() {
-  const src = readFileSync(
-    path.join(__dirname, "..", "server", "translate.py"),
-    "utf8",
+const table = JSON.parse(
+  readFileSync(path.join(ROOT, "public", "data", "languages.json"), "utf8"),
+);
+
+// The three consumers now read public/data/languages.json instead of keeping
+// their own copies (#32), so drift is structurally impossible. What is still
+// worth guarding is the table itself — a row missing its Flores code, or an
+// `offered` entry naming a language that isn't there, would take out the
+// translate bar — and that each consumer really is reading it.
+test("every language in the table has a name and a Flores-200 code (#32)", () => {
+  const bad = table.languages.filter(
+    (l) => !/^[a-z]{2,3}$/.test(l.code || "") || !l.name || !/^[a-z]{3}_[A-Z][a-z]{3}$/.test(l.nllb || ""),
   );
-  const block = src.match(/LANG_CODE_MAP\s*=\s*\{([\s\S]*?)\}/);
-  assert.ok(block, "LANG_CODE_MAP not found in translate.py");
-  return [...block[1].matchAll(/"([a-z]{2,3})"\s*:/g)].map((m) => m[1]);
-}
+  assert.deepEqual(bad, [], "malformed rows in public/data/languages.json");
 
-test("every client LANGUAGE is supported by the server LANG_CODE_MAP (#32)", () => {
-  // CHINESE-ONLY (temporary, #65): the client list is trimmed to a subset while
-  // the server keeps the full set, so the invariant is now "the UI never offers
-  // a language the server can't translate" rather than exact equality. Restore
-  // the deepEqual check when the full LANGUAGES list comes back.
-  const jsCodes = LANGUAGES.map((l) => l.code);
-  const pyCodes = new Set(pythonLangCodes());
-  const unsupported = jsCodes.filter((code) => !pyCodes.has(code));
+  const codes = table.languages.map((l) => l.code);
+  assert.equal(new Set(codes).size, codes.length, "duplicate language codes");
+});
+
+test("the translate bar only offers languages the table describes (#32)", () => {
+  const codes = new Set(table.languages.map((l) => l.code));
+  const unknown = (table.offered || []).filter((code) => !codes.has(code));
+  assert.deepEqual(unknown, [], "`offered` names languages missing from `languages`");
+
+  // CHINESE-ONLY (temporary, #65): `offered` trims the bar to a subset, so the
+  // invariant is "the UI never offers a language the server can't translate".
+  // Dropping the key offers them all, and this still holds.
   assert.deepEqual(
-    unsupported,
-    [],
-    "public/js/languages.mjs offers languages missing from server/translate.py",
+    LANGUAGES.map((l) => l.code),
+    table.offered || [...codes],
   );
+});
+
+test("server/translate.py builds its map from the table, not its own copy (#32)", () => {
+  const src = readFileSync(path.join(ROOT, "server", "translate.py"), "utf8");
+  assert.match(src, /languages\.json/);
+  assert.doesNotMatch(
+    src,
+    /"[a-z]{2}":\s*"[a-z]{3}_[A-Z][a-z]{3}"/,
+    "translate.py has hardcoded Flores codes again",
+  );
+});
+
+test("both languageName helpers answer from the whole table (#32)", () => {
+  // Not just the offered subset: a file can be detected as a language the bar
+  // doesn't list, and the chat model is asked about whatever it was given.
+  assert.equal(languageName("de"), "German");
+  assert.equal(llmLanguageName("de"), "German");
+  assert.equal(languageName("nope"), "nope");
 });
 
 test("detectLanguage identifies non-Latin scripts", () => {

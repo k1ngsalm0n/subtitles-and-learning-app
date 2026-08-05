@@ -95,6 +95,15 @@ explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
 `test/`, JS tests run via `node --test` (also in CI on every PR —
 `.github/workflows/test.yml`; `main` is protected and requires it).
 
+**Languages.** One table, `public/data/languages.json` — code, display name,
+NLLB Flores-200 code. `languages.mjs` imports it as a JSON module (so
+`LANGUAGES` stays synchronous), `translate.py` and `llmTranslate.mjs` read it
+off disk; all three used to keep their own copy behind a "keep in sync" comment
+(#32). It sits under `public/` because the browser fetches it, which is why
+`.gitignore` anchors the corpora rule to `/data/` — a bare `data/` matched this
+one too. `offered` is the subset the translate bar lists; deleting the key
+offers all 44 again, which is most of restoring multi-language support (#65).
+
 **Backups.** Cards live only in the browser's localStorage, which a "clear
 site data", a private window, or a changed port can wipe. `backup.mjs` takes
 the same JSON `Export (JSON)` produces (`POST /api/backup`) and writes it to
