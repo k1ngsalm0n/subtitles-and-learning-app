@@ -397,6 +397,28 @@ function renderRubyTranscript(tokens, text, savedWords, words) {
 // Center the active line inside the transcript's own scroll box (scrollTo on
 // the container, not scrollIntoView, so following playback never drags the
 // page or ancestor layouts around).
+// Move the active-line mark without rebuilding anything.
+//
+// Playback crosses a cue boundary every few seconds, and each crossing used to
+// call renderTranscript, which replaces the whole transcript's innerHTML:
+// measured at 1330 DOM mutations for a single line change on a 120-line file.
+// Nothing about the transcript changes when the line advances except which row
+// is marked, so that is all this touches — two class changes.
+//
+// The churn was also the likeliest reason the browser's own playback-speed
+// menu shut itself the moment the line moved: replacing that much of the page
+// under an open native popup is exactly the sort of thing that dismisses one.
+export function setActiveLine(els) {
+  const e = els || _els;
+  const previous = e.transcript.querySelector(".line.active");
+  // Search and the chrome toggle can filter a line out of the DOM entirely;
+  // then there is simply nothing to mark, which is what a full render did too.
+  const next = e.transcript.querySelector(`.line[data-index="${state.activeIndex}"]`);
+  if (previous === next) return;
+  previous?.classList.remove("active");
+  next?.classList.add("active");
+}
+
 export function scrollActiveLineIntoView(els) {
   const e = els || _els;
   const lineEl = e.transcript.querySelector(".line.active");
@@ -419,7 +441,12 @@ export function startHighlightLoop(els) {
   function tick() {
     _rafId = requestAnimationFrame(tick);
     const video = e.video;
-    if (!video || video.paused) {
+    // Pausing used to wipe the highlight. Pausing is how you stop on a word to
+    // say it back, which is the entire shadowing loop — losing your place is
+    // the opposite of what stopping is for. So the mark stays put, and because
+    // it is still computed from currentTime it also follows a scrub while
+    // paused rather than freezing at wherever play stopped.
+    if (!video) {
       e.transcript.querySelectorAll(".word.spoken").forEach(
         (el) => el.classList.remove("spoken"),
       );
