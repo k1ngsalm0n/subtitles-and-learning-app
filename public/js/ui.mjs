@@ -419,7 +419,12 @@ export function startHighlightLoop(els) {
   function tick() {
     _rafId = requestAnimationFrame(tick);
     const video = e.video;
-    if (!video || video.paused) {
+    // Pausing used to wipe the highlight. Pausing is how you stop on a word to
+    // say it back, which is the entire shadowing loop — losing your place is
+    // the opposite of what stopping is for. So the mark stays put, and because
+    // it is still computed from currentTime it also follows a scrub while
+    // paused rather than freezing at wherever play stopped.
+    if (!video) {
       e.transcript.querySelectorAll(".word.spoken").forEach(
         (el) => el.classList.remove("spoken"),
       );
