@@ -143,6 +143,8 @@ const els = {
   cardModal: document.querySelector("#cardModal"),
   cardModalTitle: document.querySelector("#cardModalTitle"),
   templateSelect: document.querySelector("#templateSelect"),
+  editTemplate: document.querySelector("#editTemplate"),
+  deleteTemplate: document.querySelector("#deleteTemplate"),
   templateDesc: document.querySelector("#templateDesc"),
   previewSide: document.querySelector("#previewSide"),
   previewFlip: document.querySelector("#previewFlip"),

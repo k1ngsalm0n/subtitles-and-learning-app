@@ -18,7 +18,7 @@ import {
 } from "./carddata.mjs";
 import { addCard, updateCard, addDeck, renameDeck } from "./flashcards.mjs";
 import { renderCardFace, cardShowsStrokes } from "./cardface.mjs";
-import { openTemplateEditor, openTemplateManager } from "./templates.mjs";
+import { openTemplateEditor, deleteTemplate } from "./templates.mjs";
 import { lookupWord } from "./lookup.mjs";
 import { parseSubtitle } from "./subtitle.mjs";
 import { detectLanguage } from "./languages.mjs";
@@ -110,11 +110,6 @@ export function setupCardModal(els) {
   // editor; picking a real option applies that template.
   els.templateSelect.addEventListener("change", () => {
     const value = els.templateSelect.value;
-    if (value === MANAGE_OPTION) {
-      renderTemplatePicker(); // put the select back on the real choice first
-      openTemplateManager();
-      return;
-    }
     if (value === CREATE_OPTION) {
       openTemplateEditor(null, (template) => {
         if (template) applyTemplate(template.id);
@@ -125,6 +120,31 @@ export function setupCardModal(els) {
     }
     applyTemplate(value);
     renderTemplatePicker();
+  });
+
+  els.editTemplate.addEventListener("click", () => {
+    const id = _draft?.templateId;
+    if (!id) return;
+    openTemplateEditor(id, (template) => {
+      if (template) applyTemplate(template.id);
+      renderTemplatePicker();
+      renderPreview();
+    });
+  });
+
+  els.deleteTemplate.addEventListener("click", () => {
+    const template = getTemplate(_draft?.templateId);
+    if (!template || template.builtIn) return;
+    // Same wording the template manager uses. Cards keep their own copies of
+    // the field lists, so deleting a type doesn't touch anything already made.
+    if (!confirm(`Delete template "${template.name}"? Existing cards keep their fields.`)) {
+      return;
+    }
+    deleteTemplate(template.id);
+    // The draft was pointing at it; renderTemplatePicker falls back to the
+    // first template still standing.
+    renderTemplatePicker();
+    renderPreview();
   });
 
   // The preview + editable fields live in their own window to keep the main
@@ -288,7 +308,6 @@ function applyTemplate(templateId) {
 }
 
 const CREATE_OPTION = "__create__";
-const MANAGE_OPTION = "__manage__";
 
 // A one-line "Front: … · Back: …" summary of a template's faces, shown under
 // the dropdown so the user sees what the card will look like without opening
@@ -316,17 +335,16 @@ function renderTemplatePicker() {
       `<option value="${template.id}">${escapeHtml(template.name)}</option>`,
   );
   options.push(`<option value="${CREATE_OPTION}">+ Create template…</option>`);
-  // Editing, deleting and setting a default all live in the manager. Reaching
-  // it only from the Flashcards deck menu meant a template made here could not
-  // be unmade here.
-  if (state.templates.some((template) => !template.builtIn)) {
-    options.push(`<option value="${MANAGE_OPTION}">⚙ Manage templates…</option>`);
-  }
   els.templateSelect.innerHTML = options.join("");
   els.templateSelect.value = _draft?.templateId || templates[0]?.id || "";
 
   const current = getTemplate(_draft?.templateId);
   els.templateDesc.textContent = current ? describeTemplate(current) : "";
+  // The three built-ins are re-seeded on every load and can be neither edited
+  // nor deleted, so the buttons would only ever refuse. Hide them instead.
+  const editable = Boolean(current) && !current.builtIn;
+  els.editTemplate.hidden = !editable;
+  els.deleteTemplate.hidden = !editable;
 }
 
 const DECK_ICON = `<svg class="deck-icon" viewBox="0 0 24 24" aria-hidden="true">

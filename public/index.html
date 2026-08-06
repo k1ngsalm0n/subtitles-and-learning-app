@@ -1799,6 +1799,23 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   letter-spacing: 0.02em;
   color: var(--muted);
 }
+.template-row { display: flex; align-items: center; gap: 6px; }
+.template-row .template-select { flex: 1 1 auto; min-width: 0; }
+.template-action {
+  flex: none;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.template-action:hover { color: var(--text); background: var(--surface-2); }
+.template-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.template-action.danger-action:hover { color: var(--danger, #e5484d); }
 .template-select {
   width: 100%;
   height: 36px;
@@ -2491,7 +2508,15 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <span class="info-dot" tabindex="0" role="img" aria-label="About card types"
             title="Each card type lays out different fields on the front and back. Pick the one you want to study with.">i</span>
         </p>
-        <select id="templateSelect" class="template-select" aria-label="Card type"></select>
+        <!-- Edit and delete sit beside the picker, acting on the template it is
+             showing. Hidden for the three built-ins, which can't be either. -->
+        <div class="template-row">
+          <select id="templateSelect" class="template-select" aria-label="Card type"></select>
+          <button type="button" id="editTemplate" class="template-action" hidden
+            title="Edit this card type" aria-label="Edit this card type">✎</button>
+          <button type="button" id="deleteTemplate" class="template-action danger-action" hidden
+            title="Delete this card type" aria-label="Delete this card type">🗑</button>
+        </div>
         <p id="templateDesc" class="template-desc"></p>
         <button type="button" id="openPreview" class="preview-button">Preview &amp; edit card</button>
         <p class="modal-section-label">Choose a deck</p>
