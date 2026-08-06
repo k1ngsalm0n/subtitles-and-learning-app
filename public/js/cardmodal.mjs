@@ -36,6 +36,11 @@ let _showingBack = false;
 let _dirty = new Set(); // fields the user has typed in — prefetch keeps out
 let _fetchToken = 0;
 let _opener = null; // element to restore focus to on close
+// Which deck is being renamed in place, if any. Module scope because
+// renderDeckList reads it and lives out here — not the draft's deck, because
+// the pencil renames the row it sits on, which needn't be the one the card is
+// being filed into.
+let _renaming = null;
 
 // A broad set of widely-supported emojis (older Unicode versions that render
 // on essentially every platform — no flags/skin-tones/brand-new additions that
@@ -140,11 +145,8 @@ export function setupCardModal(els) {
       // effect of fixing a typo.
       event.stopPropagation();
       _renaming = pencil.dataset.renameId;
-      els.modalRenameDeckRow.hidden = false;
       els.modalRenameError.textContent = "";
-      els.modalRenameDeckName.value = getDeck(_renaming)?.name || "";
-      els.modalRenameDeckName.focus();
-      els.modalRenameDeckName.select();
+      renderDeckList(); // swaps that row's name for an input and focuses it
       return;
     }
     const row = event.target.closest("[data-deck-id]");
@@ -213,29 +215,58 @@ export function setupCardModal(els) {
     }
   });
 
-  // Which deck the open rename row is editing. Held here rather than read from
-  // the draft, because the pencil renames the row it sits on — which is not
-  // necessarily the deck the card is being filed into.
-  let _renaming = null;
-
-  const commitRename = () => {
-    const result = renameDeck(_renaming, els.modalRenameDeckName.value);
-    if (result.error) {
-      els.modalRenameError.textContent = result.error;
-      return;
-    }
-    els.modalRenameError.textContent = "";
-    els.modalRenameDeckRow.hidden = true;
+  const stopRename = () => {
     _renaming = null;
+    els.modalRenameError.textContent = "";
     renderDeckList();
   };
-  els.modalRenameDeckSave.addEventListener("click", commitRename);
-  els.modalRenameDeckName.addEventListener("keydown", (event) => {
+
+  const commitRename = (input) => {
+    if (!_renaming) return;
+    const target = _renaming;
+    // Unchanged, or emptied back to nothing: treat it as "never mind" rather
+    // than an error. The placeholder still shows the old name, so an empty
+    // field reads as "leave it alone", not as a name you meant to save.
+    const next = input.value.trim();
+    if (!next || next === getDeck(target)?.name) {
+      stopRename();
+      return;
+    }
+    const result = renameDeck(target, next);
+    if (result.error) {
+      els.modalRenameError.textContent = result.error;
+      input.focus();
+      return;
+    }
+    stopRename();
+  };
+
+  els.modalDeckList.addEventListener("keydown", (event) => {
+    const input = event.target.closest("#deckNameInput");
+    if (!input) return;
     if (event.key === "Enter") {
       event.preventDefault();
-      commitRename();
+      commitRename(input);
+    } else if (event.key === "Escape") {
+      // Escape inside a <dialog> would close the whole modal; renaming is the
+      // thing being cancelled here, not the card.
+      event.preventDefault();
+      event.stopPropagation();
+      stopRename();
     }
   });
+
+  // Clicking away commits, the way an inline rename is expected to. A failed
+  // rename keeps the field open with the reason, so a clash can't be lost by
+  // looking somewhere else.
+  els.modalDeckList.addEventListener(
+    "focusout",
+    (event) => {
+      const input = event.target.closest("#deckNameInput");
+      if (input && _renaming) commitRename(input);
+    },
+    true,
+  );
 
   els.modalSave.addEventListener("click", save);
   els.cardModal.addEventListener("close", () => {
@@ -350,6 +381,21 @@ function renderDeckList() {
         : `<button type="button" class="deck-rename" data-rename-id="${deck.id}"
             title="Rename ${escapeHtml(deck.name)}"
             aria-label="Rename ${escapeHtml(deck.name)}">✎</button>`;
+      // While a deck is being renamed its name becomes an input, in place, so
+      // the row doesn't move and it stays obvious which deck is being edited.
+      // Note the value is the current name *and* so is the placeholder: clearing
+      // the field still shows what it used to be, which is what you want if you
+      // meant to trim a word off rather than retype the whole thing.
+      if (deck.id === _renaming) {
+        return `<div class="deck-row${active ? " active" : ""}">
+          <span class="deck-item deck-depth-${depth}">
+            ${icon}
+            <input type="text" class="deck-name-input" id="deckNameInput"
+              maxlength="40" aria-label="Rename ${escapeHtml(deck.name)}"
+              value="${escapeHtml(deck.name)}" placeholder="${escapeHtml(deck.name)}" />
+          </span>
+        </div>`;
+      }
       return `<div class="deck-row${active ? " active" : ""}">
         <button type="button" role="radio" aria-checked="${active}"
           data-deck-id="${deck.id}" class="deck-item deck-depth-${depth}${active ? " active" : ""}">
@@ -361,6 +407,15 @@ function renderDeckList() {
     })
     .join("");
 
+  const input = els.modalDeckList.querySelector("#deckNameInput");
+  if (input) {
+    input.focus();
+    // Caret at the end, not select-all: selecting the lot means the first
+    // keystroke wipes the name, which is wrong when the intent was to add a
+    // word or drop a character.
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+  }
 }
 
 function renderPreview() {

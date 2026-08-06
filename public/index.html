@@ -1903,6 +1903,21 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   cursor: pointer;
 }
 .deck-rename:hover { color: var(--text); background: var(--surface-2); }
+/* The input stands exactly where the name did, so the row doesn't jump when
+   editing starts. */
+.deck-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+#modalRenameError { margin: 4px 0 0; font-size: 12px; }
+#modalRenameError:empty { display: none; }
 .deck-rename:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .deck-create { border-top: 1px solid var(--border); border-radius: 0; margin-top: 2px; padding-top: 9px; }
 .deck-create .deck-item-name { font-weight: 600; }
@@ -2458,15 +2473,9 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <span class="deck-icon deck-icon-plus" aria-hidden="true">+</span>
           <span class="deck-item-name">Create a new deck</span>
         </button>
-        <!-- Renaming lived only in the Flashcards deck menu, a different screen
-             from the one where you pick a deck and notice the name is wrong.
-             The pencil sits on each row that can be renamed; this is where the
-             typing happens. -->
-        <div id="modalRenameDeckRow" class="new-deck-row" hidden>
-          <input id="modalRenameDeckName" type="text" placeholder="Deck name" maxlength="40" aria-label="Deck name" />
-          <button type="button" id="modalRenameDeckSave">Rename</button>
-          <span id="modalRenameError" class="danger"></span>
-        </div>
+        <!-- Renaming happens in place, on the row itself. Only the error needs
+             somewhere to live, since the input is inside the list. -->
+        <p id="modalRenameError" class="danger"></p>
         <div id="modalNewDeckRow" class="new-deck-row" hidden>
           <button type="button" id="deckEmojiTrigger" class="emoji-trigger" aria-label="Choose deck icon" title="Choose an icon" aria-haspopup="dialog"></button>
           <input id="modalNewDeckName" type="text" placeholder="New deck name" maxlength="40" aria-label="New deck name" />
