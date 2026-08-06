@@ -134,6 +134,19 @@ export function setupCardModal(els) {
   // Deck list: tap a row to pick that deck (highlighted); the picked deck is
   // stored on the draft and committed on save.
   els.modalDeckList.addEventListener("click", (event) => {
+    const pencil = event.target.closest("[data-rename-id]");
+    if (pencil) {
+      // Renaming a deck is not choosing it — don't move the card as a side
+      // effect of fixing a typo.
+      event.stopPropagation();
+      _renaming = pencil.dataset.renameId;
+      els.modalRenameDeckRow.hidden = false;
+      els.modalRenameError.textContent = "";
+      els.modalRenameDeckName.value = getDeck(_renaming)?.name || "";
+      els.modalRenameDeckName.focus();
+      els.modalRenameDeckName.select();
+      return;
+    }
     const row = event.target.closest("[data-deck-id]");
     if (!row || !_draft) return;
     _draft.deckId = row.dataset.deckId;
@@ -200,27 +213,20 @@ export function setupCardModal(els) {
     }
   });
 
-  // Renaming the deck you are about to file a card into, without leaving the
-  // modal to go and find the Flashcards deck menu.
-  els.modalRenameDeck.addEventListener("click", () => {
-    const hidden = els.modalRenameDeckRow.hidden;
-    els.modalRenameDeckRow.hidden = !hidden;
-    els.modalRenameError.textContent = "";
-    if (hidden) {
-      els.modalRenameDeckName.value = getDeck(_draft?.deckId)?.name || "";
-      els.modalRenameDeckName.focus();
-      els.modalRenameDeckName.select();
-    }
-  });
+  // Which deck the open rename row is editing. Held here rather than read from
+  // the draft, because the pencil renames the row it sits on — which is not
+  // necessarily the deck the card is being filed into.
+  let _renaming = null;
 
   const commitRename = () => {
-    const result = renameDeck(_draft?.deckId, els.modalRenameDeckName.value);
+    const result = renameDeck(_renaming, els.modalRenameDeckName.value);
     if (result.error) {
       els.modalRenameError.textContent = result.error;
       return;
     }
     els.modalRenameError.textContent = "";
     els.modalRenameDeckRow.hidden = true;
+    _renaming = null;
     renderDeckList();
   };
   els.modalRenameDeckSave.addEventListener("click", commitRename);
@@ -337,20 +343,24 @@ function renderDeckList() {
       const icon = deck.emoji
         ? `<span class="deck-emoji" aria-hidden="true">${escapeHtml(deck.emoji)}</span>`
         : DECK_ICON;
-      return `<button type="button" role="radio" aria-checked="${active}"
-        data-deck-id="${deck.id}" class="deck-item deck-depth-${depth}${active ? " active" : ""}">
-        ${icon}
-        <span class="deck-item-name">${escapeHtml(deck.name)}</span>
-        <span class="deck-chevron" aria-hidden="true">›</span>
-      </button>`;
+      // Built-in decks can't be renamed, so they keep the plain chevron —
+      // offering a pencil that only ever errors is worse than not offering one.
+      const tail = deck.builtIn
+        ? `<span class="deck-chevron" aria-hidden="true">›</span>`
+        : `<button type="button" class="deck-rename" data-rename-id="${deck.id}"
+            title="Rename ${escapeHtml(deck.name)}"
+            aria-label="Rename ${escapeHtml(deck.name)}">✎</button>`;
+      return `<div class="deck-row${active ? " active" : ""}">
+        <button type="button" role="radio" aria-checked="${active}"
+          data-deck-id="${deck.id}" class="deck-item deck-depth-${depth}${active ? " active" : ""}">
+          ${icon}
+          <span class="deck-item-name">${escapeHtml(deck.name)}</span>
+        </button>
+        ${tail}
+      </div>`;
     })
     .join("");
 
-  // renameDeck refuses built-in decks, so offering it there would only produce
-  // an error message. Hide it instead of letting someone find that out.
-  const deck = getDeck(selected);
-  els.modalRenameDeck.hidden = !deck || Boolean(deck.builtIn);
-  if (els.modalRenameDeck.hidden) els.modalRenameDeckRow.hidden = true;
 }
 
 function renderPreview() {

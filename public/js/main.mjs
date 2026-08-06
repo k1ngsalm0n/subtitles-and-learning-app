@@ -152,7 +152,6 @@ const els = {
   previewDialog: document.querySelector("#previewDialog"),
   modalDeckList: document.querySelector("#modalDeckList"),
   modalNewDeck: document.querySelector("#modalNewDeck"),
-  modalRenameDeck: document.querySelector("#modalRenameDeck"),
   modalRenameDeckRow: document.querySelector("#modalRenameDeckRow"),
   modalRenameDeckName: document.querySelector("#modalRenameDeckName"),
   modalRenameDeckSave: document.querySelector("#modalRenameDeckSave"),

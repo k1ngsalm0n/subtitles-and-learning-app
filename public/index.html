@@ -1776,8 +1776,9 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 .template-select {
   width: 100%;
   height: 36px;
-  /* Extra on the right so the dropdown arrow isn't against the border. */
-  padding: 0 14px 0 10px;
+  /* A little on the right so the arrow isn't against the border, but not so
+     much that it floats away from it. */
+  padding: 0 10px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
@@ -1873,6 +1874,36 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 }
 .deck-item-name { flex: 1; font-size: 14px; font-weight: 600; }
 .deck-chevron { flex: none; margin-right: 2px; color: var(--muted); font-size: 18px; line-height: 1; }
+.deck-row { display: flex; align-items: stretch; border-radius: var(--radius); }
+.deck-row .deck-item { flex: 1 1 auto; min-width: 0; }
+/* The selection ring belongs to the whole row, not to the part of it that
+   isn't the rename button — otherwise the highlight stops short and the pencil
+   sits outside the deck it belongs to. */
+.deck-row:hover { background: var(--surface-2); }
+.deck-row.active {
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+.deck-row .deck-item.active,
+.deck-row .deck-item:hover { border-color: transparent; background: transparent; }
+/* Sits where the chevron does, on the row it renames — the previous version
+   was a separate button under the list, which made you work out which deck it
+   meant. */
+.deck-rename {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.deck-rename:hover { color: var(--text); background: var(--surface-2); }
+.deck-rename:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .deck-create { border-top: 1px solid var(--border); border-radius: 0; margin-top: 2px; padding-top: 9px; }
 .deck-create .deck-item-name { font-weight: 600; }
 .deck-icon-plus {
@@ -2427,13 +2458,10 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <span class="deck-icon deck-icon-plus" aria-hidden="true">+</span>
           <span class="deck-item-name">Create a new deck</span>
         </button>
-        <!-- Renaming lived only in the Flashcards deck menu, which is a
-             different screen from the one where you pick a deck and realise the
-             name is wrong. Hidden for the built-in deck, which can't be renamed. -->
-        <button type="button" id="modalRenameDeck" class="deck-item deck-create" hidden>
-          <span class="deck-icon deck-icon-plus" aria-hidden="true">✎</span>
-          <span class="deck-item-name">Rename this deck</span>
-        </button>
+        <!-- Renaming lived only in the Flashcards deck menu, a different screen
+             from the one where you pick a deck and notice the name is wrong.
+             The pencil sits on each row that can be renamed; this is where the
+             typing happens. -->
         <div id="modalRenameDeckRow" class="new-deck-row" hidden>
           <input id="modalRenameDeckName" type="text" placeholder="Deck name" maxlength="40" aria-label="Deck name" />
           <button type="button" id="modalRenameDeckSave">Rename</button>
