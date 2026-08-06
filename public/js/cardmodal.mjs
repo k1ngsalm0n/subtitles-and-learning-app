@@ -9,14 +9,19 @@ import {
   getDeck,
   deckName,
 } from "./state.mjs";
-import { getField, isAudioField, deckRows, CARD_FIELDS } from "./carddata.mjs";
+import {
+  getField,
+  isAudioField,
+  deckRows,
+  templatesForWord,
+  CARD_FIELDS,
+} from "./carddata.mjs";
 import { addCard, updateCard, addDeck } from "./flashcards.mjs";
 import { renderCardFace, cardShowsStrokes } from "./cardface.mjs";
 import { openTemplateEditor } from "./templates.mjs";
 import { lookupWord } from "./lookup.mjs";
 import { parseSubtitle } from "./subtitle.mjs";
 import { detectLanguage } from "./languages.mjs";
-import { hasHan } from "./strokes.mjs";
 import { showToast } from "./toast.mjs";
 import { escapeHtml } from "./util.mjs";
 
@@ -225,12 +230,7 @@ function describeTemplate(template) {
 
 function renderTemplatePicker() {
   const els = _els;
-  const strokeless = !hasHan(_draft?.word || "");
-  // A stroke-order card for non-Han text would just be an empty chart — hide
-  // those templates.
-  const templates = state.templates.filter(
-    (template) => !(template.showStrokes && strokeless),
-  );
+  const templates = templatesForWord(state.templates, _draft?.word || "");
   // The current template can drop out of the list (e.g. word changed to a
   // non-Han script while a stroke template was selected) — fall back to the
   // first available one.

@@ -4,6 +4,7 @@
 // directly under Node.
 
 import { START_EASE } from "./scheduler.mjs";
+import { hasHan } from "./strokes.mjs";
 
 export const DEFAULT_DECK_ID = "default";
 
@@ -243,6 +244,21 @@ export function syncFlattened(card) {
 // Returns an error message, or null when the template is valid. `existing` is
 // the template list to check name uniqueness against (the template's own id is
 // exempt, so renames don't collide with themselves).
+// Which templates make sense for a word.
+//
+// A stroke-order card for non-Han text would be an empty chart, so those are
+// hidden — but only once there is a word to judge. An empty field is not Han,
+// and treating it as "not Han" hid every stroke template from a freshly opened
+// New Card, the built-in "Stroke order" included. Creating one there looked
+// like it had failed: it saved, vanished from the picker, and left "Default"
+// selected.
+export function templatesForWord(templates, word) {
+  const strokeless = Boolean(word) && !hasHan(word);
+  return (templates || []).filter(
+    (template) => !(template.showStrokes && strokeless),
+  );
+}
+
 export function validateTemplate(template, existing = []) {
   const name = (template.name || "").trim();
   if (!name) return "Template name can't be empty.";

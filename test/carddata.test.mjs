@@ -21,6 +21,7 @@ import {
   validateNesting,
   DEFAULT_DECK_ID,
   BUILTIN_TEMPLATE_IDS,
+  templatesForWord,
 } from "../public/js/carddata.mjs";
 
 const LEGACY_CARD = {
@@ -279,4 +280,57 @@ test("applyDeckTree refuses illegal parentage without losing the move", () => {
   );
   // An unchanged arrangement returns the same array, so callers skip the save.
   assert.equal(applyDeckTree(decks, decks.map((d) => ({ id: d.id, parentId: d.parentId || null }))), decks);
+});
+
+// --- Which templates a word can use ------------------------------------------
+
+test("stroke templates are hidden for a word that has no Han", () => {
+  const templates = [
+    { id: "a", name: "Default", showStrokes: false },
+    { id: "b", name: "Stroke order", showStrokes: true },
+  ];
+  assert.deepEqual(
+    templatesForWord(templates, "hello").map((t) => t.id),
+    ["a"],
+  );
+});
+
+test("stroke templates are offered for a Han word", () => {
+  const templates = [
+    { id: "a", name: "Default", showStrokes: false },
+    { id: "b", name: "Stroke order", showStrokes: true },
+  ];
+  assert.deepEqual(
+    templatesForWord(templates, "電影").map((t) => t.id),
+    ["a", "b"],
+  );
+});
+
+test("an empty word hides nothing — there is nothing to judge yet", () => {
+  // New Card opens with the word field empty. An empty string is not Han, so
+  // treating it as "not Han" hid every stroke template, the built-in one
+  // included: creating one there saved it and then vanished it, which read as
+  // the save having silently failed.
+  const templates = [
+    { id: "a", name: "Default", showStrokes: false },
+    { id: "b", name: "Stroke order", showStrokes: true },
+  ];
+  for (const empty of ["", null, undefined]) {
+    assert.deepEqual(
+      templatesForWord(templates, empty).map((t) => t.id),
+      ["a", "b"],
+      `an empty word (${JSON.stringify(empty)}) should hide nothing`,
+    );
+  }
+});
+
+test("templatesForWord copes with no templates at all", () => {
+  assert.deepEqual(templatesForWord([], "電影"), []);
+  assert.deepEqual(templatesForWord(null, "電影"), []);
+});
+
+test("a word mixing scripts still counts as Han", () => {
+  // "OK的" — a stroke chart for the 的 is still worth offering.
+  const templates = [{ id: "b", name: "Stroke order", showStrokes: true }];
+  assert.deepEqual(templatesForWord(templates, "OK的").map((t) => t.id), ["b"]);
 });
