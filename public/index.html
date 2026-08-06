@@ -530,7 +530,17 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
 /* An input's min-content width comes from its size attribute, not its flex
    basis, so without min-width it refuses to shrink and pushes its row wide. */
 .url-row input, .search-box { flex: 1 1 180px; min-width: 0; }
-.source-status { flex: 1 1 100%; color: var(--muted); min-height: 18px; font-size: 13px; }
+.source-status-row { flex: 1 1 100%; display: flex; align-items: baseline; gap: 8px; }
+.source-status { flex: 1 1 auto; color: var(--muted); min-height: 18px; font-size: 13px; }
+/* tabular-nums so the width doesn't twitch as the digits change — a clock that
+   jiggles the layout once a second is worse than no clock. */
+.source-elapsed {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .progress-wrap { flex: 1 1 100%; display: none; }
 .progress-wrap.visible { display: block; }
 .progress-bar {
@@ -2189,7 +2199,13 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <!-- Takes the URL box's place in Images mode: the row stays, so
                    the panel keeps its height and nothing shifts. -->
               <button id="imageBrowse" type="button" hidden>Choose a file…</button>
-              <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
+              <div class="source-status-row">
+                <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
+                <!-- Outside the live region on purpose: this ticks every
+                     second, and a screen reader reading the clock aloud each
+                     time would bury the stage name it is meant to accompany. -->
+                <span id="sourceElapsed" class="source-elapsed"></span>
+              </div>
               <div id="progressWrap" class="progress-wrap">
                 <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>
               </div>

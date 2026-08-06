@@ -107,6 +107,7 @@ const els = {
   sourceUrl: document.querySelector("#sourceUrl"),
   queueUrl: document.querySelector("#queueUrl"),
   sourceStatus: document.querySelector("#sourceStatus"),
+  sourceElapsed: document.querySelector("#sourceElapsed"),
   transcript: document.querySelector("#transcript"),
   subtitleCount: document.querySelector("#subtitleCount"),
   cardCount: document.querySelector("#cardCount"),
@@ -1262,6 +1263,7 @@ function showProgress(message, percent) {
 function hideProgress() {
   els.progressFill.classList.remove("indeterminate");
   els.progressWrap.classList.remove("visible");
+  els.sourceElapsed.textContent = "";
 }
 
 async function importSourceUrl() {
@@ -1293,7 +1295,10 @@ async function importSourceUrl() {
     const secs = Math.floor((Date.now() - startedAt) / 1000);
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   };
-  const paint = () => showProgress(`${stage} (${elapsed()})`);
+  const paint = () => {
+    showProgress(stage);
+    els.sourceElapsed.textContent = elapsed();
+  };
   paint();
   const ticker = setInterval(paint, 1000);
   const clearProgressTimers = () => clearInterval(ticker);
@@ -1318,6 +1323,7 @@ async function importSourceUrl() {
 
     clearProgressTimers();
     showProgress("Loading results\u2026");
+    els.sourceElapsed.textContent = elapsed();
 
     if (result.videoUrl) {
       els.video.src = result.videoUrl;
