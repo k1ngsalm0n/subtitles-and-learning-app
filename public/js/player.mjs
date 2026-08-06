@@ -6,6 +6,7 @@ import { showToast } from "./toast.mjs";
 import { stepIndex } from "./shortcuts.mjs";
 import {
   renderTranscript,
+  setActiveLine,
   scrollActiveLineIntoView,
 } from "./ui.mjs";
 
@@ -30,7 +31,7 @@ export function syncToVideo(els) {
   if (index !== -1 && index !== state.activeIndex) {
     if (activeLoop && activeLoop.index !== index) stopLoop(els);
     state.activeIndex = index;
-    renderTranscript(els);
+    setActiveLine(els);
     // Playback moved to a new line — keep it centered in the transcript so the
     // karaoke highlight stays on screen.
     scrollActiveLineIntoView(els);
@@ -46,7 +47,7 @@ export function activateLine(index, seek, els) {
   // A video seeks to the moment the line was said; an image has no time, so
   // the equivalent is showing where on the page it was read from.
   paintHighlight(els, state.subtitles[index]);
-  renderTranscript(els);
+  setActiveLine(els);
 }
 
 // Step to the neighbouring line and seek there. Keyboard-driven line changes
