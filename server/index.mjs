@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { handleImportUrl } from "./import.mjs";
+import { handleImportUrl, VIDEO_DIR, adoptLegacyVideoDir } from "./import.mjs";
 import { handleGetCookies, handleSaveCookies } from "./cookies.mjs";
 import { handleLookup } from "./lookup.mjs";
 import { handleTranslate } from "./translate.mjs";
@@ -21,7 +21,7 @@ import { sendJson } from "./util.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
-const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
+// Defined in import.mjs, which owns downloading and pruning them.
 const PORT = Number(process.env.PORT || 3000);
 
 // Keep the server up if a stray async error escapes a request handler. Node's
@@ -107,6 +107,10 @@ createServer(async (req, res) => {
     }
 
     if (req.url.startsWith("/videos/")) {
+      // Videos moved out of the checkout; a card made before that still asks
+      // for one by the same name, so bring the old folder across before
+      // looking. Memoised, so this is a resolved promise after the first call.
+      await adoptLegacyVideoDir();
       req.url = req.url.slice("/videos".length);
       await serveStatic(req, res, VIDEO_DIR);
       return;

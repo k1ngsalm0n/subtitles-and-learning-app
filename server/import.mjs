@@ -1,7 +1,7 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -69,7 +69,68 @@ async function toTraditional(srt) {
     return srt;
   }
 }
-const VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
+// Where imported videos are kept, so a card's "jump back" can reload the video
+// and return to the moment it was made from.
+//
+// Outside the checkout by default, like the backups and the piper voices, and
+// for the same reason: these are the largest files the app produces and they
+// have no business living inside a git working tree, gitignored or not. It used
+// to be data/videos, hardcoded, and hardcoded twice — here and in index.mjs,
+// with nothing tying the two together. STELE_VIDEO_DIR moves it, which is the
+// point: the disk is the reader's, not the app's, so a library of imports
+// should be able to live on whatever drive they choose.
+const DATA_HOME =
+  process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share");
+export const VIDEO_DIR =
+  process.env.STELE_VIDEO_DIR || path.join(DATA_HOME, "stele", "videos");
+
+// Videos used to live in data/videos, inside the checkout. Move them once, the
+// same way backup.mjs adopts its own legacy folder — without this every video
+// already imported becomes unreachable and the "jump back" control on every
+// card made from one stops working. Skipped when STELE_VIDEO_DIR is set: a
+// folder the reader chose is theirs, and moving things into it uninvited is
+// not our business.
+const LEGACY_VIDEO_DIR = path.join(__dirname, "..", "data", "videos");
+let _videosMoved = null;
+
+export function adoptLegacyVideoDir() {
+  if (VIDEO_DIR !== path.join(DATA_HOME, "stele", "videos")) {
+    return Promise.resolve();
+  }
+  _videosMoved ??= (async () => {
+    const exists = async (dir) => {
+      try {
+        await stat(dir);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (await exists(VIDEO_DIR)) return;
+    if (!(await exists(LEGACY_VIDEO_DIR))) return;
+
+    const { mkdir, rename } = await import("node:fs/promises");
+    await mkdir(path.dirname(VIDEO_DIR), { recursive: true });
+    try {
+      // The filenames are the UUIDs the stored sources already point at, so
+      // they come across untouched — only the folder changes.
+      await rename(LEGACY_VIDEO_DIR, VIDEO_DIR);
+    } catch (err) {
+      // Cross-filesystem (~/.local/share on a different mount from the repo) or
+      // permissions. Don't copy — a library can be gigabytes and doing that
+      // silently at startup would be worse than not moving it. But don't fail
+      // quietly either: the videos are now somewhere the app won't look, so
+      // every existing card's "jump back" is broken until someone moves them.
+      console.warn(
+        `Could not move ${LEGACY_VIDEO_DIR} to ${VIDEO_DIR} (${err.code || err.message}).\n` +
+          `Existing videos won't be found until you move them yourself:\n` +
+          `  mv ${LEGACY_VIDEO_DIR}/* ${VIDEO_DIR}/\n` +
+          `Or set STELE_VIDEO_DIR=${LEGACY_VIDEO_DIR} to keep using the old folder.`,
+      );
+    }
+  })();
+  return _videosMoved;
+}
 
 // Retention policy for the downloaded-video cache. Without this the directory
 // grows without bound (data/ is gitignored, so the growth is invisible).
@@ -473,6 +534,7 @@ function pickHumanTranslation(meta, sourceBase, target = "en") {
 
 async function downloadVideo(url) {
   const { mkdir } = await import("node:fs/promises");
+  await adoptLegacyVideoDir();
   await mkdir(VIDEO_DIR, { recursive: true });
   const id = crypto.randomUUID();
   const outTemplate = path.join(VIDEO_DIR, `${id}.%(ext)s`);
