@@ -621,14 +621,41 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   min-width: 0;
 }
 .translate-field span { white-space: nowrap; }
+/* Dropdown arrows.
+   The browser draws a native select's arrow hard against the right border and
+   will not move it: measured at padding-right 10px, 24px and 40px, the glyph
+   sat in the same pixels every time, 0px from the edge. Padding cannot fix
+   this. So the native arrow is switched off and drawn as a background image
+   instead, which can be positioned exactly.
+   Two colours because a data: URI can't read a custom property; these are
+   --muted for each theme. */
+select,
+#templateTrigger {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%20viewBox%3D%270%200%2012%208%27%3E%3Cpath%20d%3D%27M1%201.5%206%206.5%2011%201.5%27%20fill%3D%27none%27%20stroke%3D%27%238a8a94%27%20stroke-width%3D%271.8%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  /* Room for the arrow plus its inset, so a long option can't run under it. */
+  padding-right: 34px;
+}
+:root[data-theme="light"] select,
+:root[data-theme="light"] #templateTrigger {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%20viewBox%3D%270%200%2012%208%27%3E%3Cpath%20d%3D%27M1%201.5%206%206.5%2011%201.5%27%20fill%3D%27none%27%20stroke%3D%27%236b6b73%27%20stroke-width%3D%271.8%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
+}
+select::-ms-expand { display: none; }
 .translate-field select {
   width: 100%;
   height: 34px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface);
+  /* background-color, not the shorthand: `background` resets
+     background-image and would wipe the chevron. */
+  background-color: var(--surface);
   color: var(--text);
-  padding: 0 8px;
+  /* The arrow is drawn against the right padding edge, so this is what keeps
+     it off the border rather than crowding it. */
+  padding: 0 34px 0 8px;
   font-size: 13px;
   cursor: pointer;
 }
@@ -1105,7 +1132,7 @@ rt {
 .subdeck-error:empty { display: none; }
 .deck-item.deck-depth-1 { padding-left: 28px; }
 .nest-deck-row { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
-.nest-deck-row select { width: 100%; height: 34px; }
+.nest-deck-row select { width: 100%; height: 34px; padding: 0 34px 0 8px; }
 .nest-deck-note { font-size: 12px; }
 #nestDeckError:empty { display: none; }
 .data-note, .restore-dir { font-size: 12px; line-height: 1.5; }
@@ -1123,10 +1150,13 @@ rt {
   height: 30px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface);
+  /* background-color, not the shorthand: `background` resets
+     background-image and would wipe the chevron. */
+  background-color: var(--surface);
   color: var(--text);
   font-size: 12px;
-  padding: 0 6px;
+  padding: 0 30px 0 6px;
+  background-position: right 11px center;
 }
 .data-usage { display: grid; gap: 4px; }
 .data-usage-bar {
@@ -1749,8 +1779,35 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* The whole row has always toggled the box — a <label> wrapping its input
+     does that for free — but at 18px tall with no border it read as a line of
+     text with a checkbox stranded beside it. Giving it a box, a hover and a
+     checked state makes the target look like the target it already was. */
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
 }
 .tpl-field { font-size: 13px; }
+.word-form .tpl-field:hover,
+.word-form .tpl-strokes-row:hover { background: var(--surface-2); }
+.word-form .tpl-field:has(input:checked),
+.word-form .tpl-strokes-row:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.word-form .tpl-field:has(input:focus-visible),
+.word-form .tpl-strokes-row:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* An audio field with no voice installed is disabled; it shouldn't invite a
+   click it will ignore. */
+.word-form .tpl-field:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.word-form .tpl-field:has(input:disabled):hover { background: transparent; }
 .word-form .tpl-field input,
 .word-form .tpl-strokes-row input { order: 2; width: auto; flex: 0 0 auto; }
 .tpl-field.disabled { opacity: 0.45; }
@@ -1771,16 +1828,96 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   letter-spacing: 0.02em;
   color: var(--muted);
 }
+.template-picker { position: relative; }
+/* The trigger wears the select's own styling so the control doesn't change
+   shape, and keeps the same chevron the real dropdowns use. */
+#templateTrigger {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+#templateTrigger[aria-expanded="true"] { border-color: var(--accent); }
+#templateTriggerName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.template-option-row { display: flex; align-items: stretch; border-radius: var(--radius); }
+.template-option-row:hover { background: var(--surface-2); }
+.template-option-row.active { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.template-option {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 10px;
+  /* The app's buttons are centred flex boxes; a list row reads as a list only
+     if its label starts where every other label in the modal starts. */
+  justify-content: flex-start;
+  text-align: left;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.template-option.create { font-weight: 600; border-top: 1px solid var(--border); border-radius: 0; margin-top: 4px; }
+.template-action {
+  flex: none;
+  padding: 0 8px;
+  margin-right: 2px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.template-action:hover { color: var(--text); background: var(--surface-2); }
+.template-action:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.template-action.danger-action:hover { color: var(--danger, #e5484d); }
+.template-select { flex: 1 1 auto; min-width: 0; }
+.template-action {
+  flex: none;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.template-action:hover { color: var(--text); background: var(--surface-2); }
+.template-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.template-action.danger-action:hover { color: var(--danger, #e5484d); }
 .template-select {
   width: 100%;
   height: 36px;
-  padding: 0 10px;
+  padding: 0 34px 0 10px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
+  /* background-color, not the shorthand: `background` resets
+     background-image and would wipe the chevron. */
+  background-color: var(--surface);
 }
 .template-desc {
   margin: 2px 0 0;
@@ -1869,7 +2006,53 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   fill: var(--text);
 }
 .deck-item-name { flex: 1; font-size: 14px; font-weight: 600; }
-.deck-chevron { flex: none; color: var(--muted); font-size: 18px; line-height: 1; }
+.deck-chevron { flex: none; margin-right: 12px; color: var(--muted); font-size: 18px; line-height: 1; }
+.deck-row { display: flex; align-items: stretch; border-radius: var(--radius); }
+.deck-row .deck-item { flex: 1 1 auto; min-width: 0; }
+/* The selection ring belongs to the whole row, not to the part of it that
+   isn't the rename button — otherwise the highlight stops short and the pencil
+   sits outside the deck it belongs to. */
+.deck-row:hover { background: var(--surface-2); }
+.deck-row.active {
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+.deck-row .deck-item.active,
+.deck-row .deck-item:hover { border-color: transparent; background: transparent; }
+/* Sits where the chevron does, on the row it renames — the previous version
+   was a separate button under the list, which made you work out which deck it
+   meant. */
+.deck-rename {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  margin-right: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.deck-rename:hover { color: var(--text); background: var(--surface-2); }
+/* The input stands exactly where the name did, so the row doesn't jump when
+   editing starts. */
+.deck-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+#modalRenameError { margin: 4px 0 0; font-size: 12px; }
+#modalRenameError:empty { display: none; }
+.deck-rename:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .deck-create { border-top: 1px solid var(--border); border-radius: 0; margin-top: 2px; padding-top: 9px; }
 .deck-create .deck-item-name { font-weight: 600; }
 .deck-icon-plus {
@@ -2415,7 +2598,16 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <span class="info-dot" tabindex="0" role="img" aria-label="About card types"
             title="Each card type lays out different fields on the front and back. Pick the one you want to study with.">i</span>
         </p>
-        <select id="templateSelect" class="template-select" aria-label="Card type"></select>
+        <!-- Not a <select>: an <option> can only hold text, and each card type
+             the reader made needs edit and delete buttons on its own row. So
+             this is a button plus a list, same as the deck picker below. -->
+        <div class="template-picker">
+          <button type="button" id="templateTrigger" class="template-select"
+            aria-haspopup="listbox" aria-expanded="false" aria-label="Card type">
+            <span id="templateTriggerName"></span>
+          </button>
+          <div id="templateMenu" class="template-menu" role="listbox" aria-label="Card type" hidden></div>
+        </div>
         <p id="templateDesc" class="template-desc"></p>
         <button type="button" id="openPreview" class="preview-button">Preview &amp; edit card</button>
         <p class="modal-section-label">Choose a deck</p>
@@ -2424,6 +2616,9 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <span class="deck-icon deck-icon-plus" aria-hidden="true">+</span>
           <span class="deck-item-name">Create a new deck</span>
         </button>
+        <!-- Renaming happens in place, on the row itself. Only the error needs
+             somewhere to live, since the input is inside the list. -->
+        <p id="modalRenameError" class="danger"></p>
         <div id="modalNewDeckRow" class="new-deck-row" hidden>
           <button type="button" id="deckEmojiTrigger" class="emoji-trigger" aria-label="Choose deck icon" title="Choose an icon" aria-haspopup="dialog"></button>
           <input id="modalNewDeckName" type="text" placeholder="New deck name" maxlength="40" aria-label="New deck name" />

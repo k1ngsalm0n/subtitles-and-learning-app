@@ -16,9 +16,9 @@ import {
   templatesForWord,
   CARD_FIELDS,
 } from "./carddata.mjs";
-import { addCard, updateCard, addDeck } from "./flashcards.mjs";
+import { addCard, updateCard, addDeck, renameDeck } from "./flashcards.mjs";
 import { renderCardFace, cardShowsStrokes } from "./cardface.mjs";
-import { openTemplateEditor } from "./templates.mjs";
+import { openTemplateEditor, deleteTemplate } from "./templates.mjs";
 import { lookupWord } from "./lookup.mjs";
 import { parseSubtitle } from "./subtitle.mjs";
 import { detectLanguage } from "./languages.mjs";
@@ -36,6 +36,11 @@ let _showingBack = false;
 let _dirty = new Set(); // fields the user has typed in — prefetch keeps out
 let _fetchToken = 0;
 let _opener = null; // element to restore focus to on close
+// Which deck is being renamed in place, if any. Module scope because
+// renderDeckList reads it and lives out here — not the draft's deck, because
+// the pencil renames the row it sits on, which needn't be the one the card is
+// being filed into.
+let _renaming = null;
 
 // A broad set of widely-supported emojis (older Unicode versions that render
 // on essentially every platform — no flags/skin-tones/brand-new additions that
@@ -101,20 +106,72 @@ export function setupCardModal(els) {
     renderPreview();
   });
 
-  // Card type: a compact dropdown. The "+ Create template…" option opens the
-  // editor; picking a real option applies that template.
-  els.templateSelect.addEventListener("change", () => {
-    const value = els.templateSelect.value;
-    if (value === CREATE_OPTION) {
+  // Card type: a button that opens a list, not a <select>. Each card type the
+  // reader made needs edit and delete on its own row, and an <option> can only
+  // hold text.
+  els.templateTrigger.addEventListener("click", () => {
+    openTemplateMenu(els.templateMenu.hidden);
+  });
+
+  els.templateMenu.addEventListener("click", (event) => {
+    const edit = event.target.closest("[data-edit-id]");
+    if (edit) {
+      openTemplateMenu(false);
+      openTemplateEditor(edit.dataset.editId, (template) => {
+        if (template) applyTemplate(template.id);
+        renderTemplatePicker();
+        renderPreview();
+      });
+      return;
+    }
+
+    const del = event.target.closest("[data-delete-id]");
+    if (del) {
+      const template = getTemplate(del.dataset.deleteId);
+      if (!template || template.builtIn) return;
+      // Cards carry their own copies of the field lists, so deleting a type
+      // leaves everything already made with it untouched.
+      if (!confirm(`Delete template "${template.name}"? Existing cards keep their fields.`)) {
+        return;
+      }
+      deleteTemplate(template.id);
+      renderTemplatePicker(); // falls back to the first template still standing
+      renderPreview();
+      return;
+    }
+
+    if (event.target.closest("[data-create]")) {
+      openTemplateMenu(false);
       openTemplateEditor(null, (template) => {
         if (template) applyTemplate(template.id);
         renderTemplatePicker();
+        renderPreview();
       });
-      renderTemplatePicker(); // reset the select off the "create" option
       return;
     }
-    applyTemplate(value);
+
+    const pick = event.target.closest("[data-template-id]");
+    if (!pick) return;
+    applyTemplate(pick.dataset.templateId);
     renderTemplatePicker();
+    openTemplateMenu(false);
+    els.templateTrigger.focus();
+  });
+
+  // Clicking elsewhere closes it. Escape closes the list rather than the whole
+  // card modal, which is what a <dialog> would otherwise do.
+  els.cardModal.addEventListener("click", (event) => {
+    if (!els.templateMenu.hidden && !event.target.closest(".template-picker")) {
+      openTemplateMenu(false);
+    }
+  });
+  els.cardModal.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.templateMenu.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      openTemplateMenu(false);
+      els.templateTrigger.focus();
+    }
   });
 
   // The preview + editable fields live in their own window to keep the main
@@ -129,6 +186,16 @@ export function setupCardModal(els) {
   // Deck list: tap a row to pick that deck (highlighted); the picked deck is
   // stored on the draft and committed on save.
   els.modalDeckList.addEventListener("click", (event) => {
+    const pencil = event.target.closest("[data-rename-id]");
+    if (pencil) {
+      // Renaming a deck is not choosing it — don't move the card as a side
+      // effect of fixing a typo.
+      event.stopPropagation();
+      _renaming = pencil.dataset.renameId;
+      els.modalRenameError.textContent = "";
+      renderDeckList(); // swaps that row's name for an input and focuses it
+      return;
+    }
     const row = event.target.closest("[data-deck-id]");
     if (!row || !_draft) return;
     _draft.deckId = row.dataset.deckId;
@@ -195,6 +262,59 @@ export function setupCardModal(els) {
     }
   });
 
+  const stopRename = () => {
+    _renaming = null;
+    els.modalRenameError.textContent = "";
+    renderDeckList();
+  };
+
+  const commitRename = (input) => {
+    if (!_renaming) return;
+    const target = _renaming;
+    // Unchanged, or emptied back to nothing: treat it as "never mind" rather
+    // than an error. The placeholder still shows the old name, so an empty
+    // field reads as "leave it alone", not as a name you meant to save.
+    const next = input.value.trim();
+    if (!next || next === getDeck(target)?.name) {
+      stopRename();
+      return;
+    }
+    const result = renameDeck(target, next);
+    if (result.error) {
+      els.modalRenameError.textContent = result.error;
+      input.focus();
+      return;
+    }
+    stopRename();
+  };
+
+  els.modalDeckList.addEventListener("keydown", (event) => {
+    const input = event.target.closest("#deckNameInput");
+    if (!input) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitRename(input);
+    } else if (event.key === "Escape") {
+      // Escape inside a <dialog> would close the whole modal; renaming is the
+      // thing being cancelled here, not the card.
+      event.preventDefault();
+      event.stopPropagation();
+      stopRename();
+    }
+  });
+
+  // Clicking away commits, the way an inline rename is expected to. A failed
+  // rename keeps the field open with the reason, so a clash can't be lost by
+  // looking somewhere else.
+  els.modalDeckList.addEventListener(
+    "focusout",
+    (event) => {
+      const input = event.target.closest("#deckNameInput");
+      if (input && _renaming) commitRename(input);
+    },
+    true,
+  );
+
   els.modalSave.addEventListener("click", save);
   els.cardModal.addEventListener("close", () => {
     _fetchToken++;
@@ -214,7 +334,6 @@ function applyTemplate(templateId) {
   renderPreview();
 }
 
-const CREATE_OPTION = "__create__";
 
 // A one-line "Front: … · Back: …" summary of a template's faces, shown under
 // the dropdown so the user sees what the card will look like without opening
@@ -237,16 +356,46 @@ function renderTemplatePicker() {
   if (_draft && !templates.some((t) => t.id === _draft.templateId) && templates[0]) {
     applyTemplate(templates[0].id);
   }
-  const options = templates.map(
-    (template) =>
-      `<option value="${template.id}">${escapeHtml(template.name)}</option>`,
-  );
-  options.push(`<option value="${CREATE_OPTION}">+ Create template…</option>`);
-  els.templateSelect.innerHTML = options.join("");
-  els.templateSelect.value = _draft?.templateId || templates[0]?.id || "";
 
   const current = getTemplate(_draft?.templateId);
+  els.templateTriggerName.textContent = current ? current.name : "Card type";
+
+  // One row per card type, and the ones the reader made carry edit and delete
+  // on that row. This is why the control is a button and a list rather than a
+  // <select>: an <option> can only hold text, so per-row buttons are not
+  // something a native dropdown can express.
+  els.templateMenu.innerHTML =
+    templates
+      .map((template) => {
+        const active = template.id === _draft?.templateId;
+        // The built-ins are re-seeded canonically on every load and can be
+        // neither edited nor deleted, so they get no buttons.
+        const actions = template.builtIn
+          ? ""
+          : `<button type="button" class="template-action" data-edit-id="${template.id}"
+               title="Edit ${escapeHtml(template.name)}"
+               aria-label="Edit ${escapeHtml(template.name)}">✎</button>
+             <button type="button" class="template-action danger-action" data-delete-id="${template.id}"
+               title="Delete ${escapeHtml(template.name)}"
+               aria-label="Delete ${escapeHtml(template.name)}">🗑</button>`;
+        return `<div class="template-option-row${active ? " active" : ""}">
+          <button type="button" class="template-option" role="option"
+            aria-selected="${active}" data-template-id="${template.id}">${escapeHtml(template.name)}</button>
+          ${actions}
+        </div>`;
+      })
+      .join("") +
+    `<div class="template-option-row">
+       <button type="button" class="template-option create" data-create="1">+ Create template…</button>
+     </div>`;
+
   els.templateDesc.textContent = current ? describeTemplate(current) : "";
+}
+
+function openTemplateMenu(open) {
+  const els = _els;
+  els.templateMenu.hidden = !open;
+  els.templateTrigger.setAttribute("aria-expanded", String(Boolean(open)));
 }
 
 const DECK_ICON = `<svg class="deck-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -294,14 +443,48 @@ function renderDeckList() {
       const icon = deck.emoji
         ? `<span class="deck-emoji" aria-hidden="true">${escapeHtml(deck.emoji)}</span>`
         : DECK_ICON;
-      return `<button type="button" role="radio" aria-checked="${active}"
-        data-deck-id="${deck.id}" class="deck-item deck-depth-${depth}${active ? " active" : ""}">
-        ${icon}
-        <span class="deck-item-name">${escapeHtml(deck.name)}</span>
-        <span class="deck-chevron" aria-hidden="true">›</span>
-      </button>`;
+      // Built-in decks can't be renamed, so they keep the plain chevron —
+      // offering a pencil that only ever errors is worse than not offering one.
+      const tail = deck.builtIn
+        ? `<span class="deck-chevron" aria-hidden="true">›</span>`
+        : `<button type="button" class="deck-rename" data-rename-id="${deck.id}"
+            title="Rename ${escapeHtml(deck.name)}"
+            aria-label="Rename ${escapeHtml(deck.name)}">✎</button>`;
+      // While a deck is being renamed its name becomes an input, in place, so
+      // the row doesn't move and it stays obvious which deck is being edited.
+      // Note the value is the current name *and* so is the placeholder: clearing
+      // the field still shows what it used to be, which is what you want if you
+      // meant to trim a word off rather than retype the whole thing.
+      if (deck.id === _renaming) {
+        return `<div class="deck-row${active ? " active" : ""}">
+          <span class="deck-item deck-depth-${depth}">
+            ${icon}
+            <input type="text" class="deck-name-input" id="deckNameInput"
+              maxlength="40" aria-label="Rename ${escapeHtml(deck.name)}"
+              value="${escapeHtml(deck.name)}" placeholder="${escapeHtml(deck.name)}" />
+          </span>
+        </div>`;
+      }
+      return `<div class="deck-row${active ? " active" : ""}">
+        <button type="button" role="radio" aria-checked="${active}"
+          data-deck-id="${deck.id}" class="deck-item deck-depth-${depth}${active ? " active" : ""}">
+          ${icon}
+          <span class="deck-item-name">${escapeHtml(deck.name)}</span>
+        </button>
+        ${tail}
+      </div>`;
     })
     .join("");
+
+  const input = els.modalDeckList.querySelector("#deckNameInput");
+  if (input) {
+    input.focus();
+    // Caret at the end, not select-all: selecting the lot means the first
+    // keystroke wipes the name, which is wrong when the intent was to add a
+    // word or drop a character.
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+  }
 }
 
 function renderPreview() {
@@ -464,7 +647,7 @@ export function openCardModal(options = {}) {
   els.cardModal.showModal();
   // The preview/fields now live in a separate window, so land focus on the
   // card-type dropdown.
-  els.templateSelect.focus();
+  els.templateTrigger.focus();
 
   prefetch(_draft);
 }

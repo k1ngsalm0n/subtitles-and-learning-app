@@ -159,14 +159,21 @@ export function openTemplateEditor(templateId, onSaved) {
 let _managerEls = null;
 let _onChanged = null;
 
+// Opening it is not only the Flashcards menu's business: templates are created
+// from the card modal's picker, and a template you can make somewhere you can't
+// unmake it reads as a one-way door. Same dialog, reachable from both.
+export function openTemplateManager() {
+  const els = _managerEls;
+  if (!els) return;
+  renderManager(els);
+  els.templatesDialog.showModal();
+}
+
 export function setupTemplateManager(els, onChanged) {
   _managerEls = els;
   _onChanged = onChanged || null;
 
-  els.manageTemplates.addEventListener("click", () => {
-    renderManager(els);
-    els.templatesDialog.showModal();
-  });
+  els.manageTemplates.addEventListener("click", openTemplateManager);
   els.newTemplate.addEventListener("click", () => {
     openTemplateEditor(null, () => {
       renderManager(els);
