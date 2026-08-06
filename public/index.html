@@ -1779,8 +1779,35 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* The whole row has always toggled the box — a <label> wrapping its input
+     does that for free — but at 18px tall with no border it read as a line of
+     text with a checkbox stranded beside it. Giving it a box, a hover and a
+     checked state makes the target look like the target it already was. */
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
 }
 .tpl-field { font-size: 13px; }
+.word-form .tpl-field:hover,
+.word-form .tpl-strokes-row:hover { background: var(--surface-2); }
+.word-form .tpl-field:has(input:checked),
+.word-form .tpl-strokes-row:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.word-form .tpl-field:has(input:focus-visible),
+.word-form .tpl-strokes-row:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* An audio field with no voice installed is disabled; it shouldn't invite a
+   click it will ignore. */
+.word-form .tpl-field:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.word-form .tpl-field:has(input:disabled):hover { background: transparent; }
 .word-form .tpl-field input,
 .word-form .tpl-strokes-row input { order: 2; width: auto; flex: 0 0 auto; }
 .tpl-field.disabled { opacity: 0.45; }
