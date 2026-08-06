@@ -69,6 +69,7 @@ import {
   togglePlayback,
 } from "./player.mjs";
 import { studyAction } from "./shortcuts.mjs";
+import { readImportStream } from "./importstream.mjs";
 import {
   populateLanguageSelects,
   syncTranslateLangs,
@@ -1258,45 +1259,25 @@ async function importSourceUrl() {
   saveSources();
   els.queueUrl.disabled = true;
 
-  showProgress("Connecting and looking for captions...", 10);
-
-  // The early phases are quick and roughly predictable, so show staged
-  // percentages for them.
-  const steps = [
-    { message: "Downloading media info...", percent: 25, delay: 2000 },
-    { message: "Extracting subtitles...", percent: 50, delay: 4000 },
-    { message: "Downloading audio...", percent: 65, delay: 8000 },
-  ];
-  let stepTimer = 0;
-  const stepTimeouts = steps.map((step) => {
-    stepTimer += step.delay;
-    return setTimeout(() => showProgress(step.message, step.percent), stepTimer);
-  });
-
-  // After those, transcription + translation run for an unknown (often
-  // multi-minute) time with no way to report a real percentage. Switch to an
-  // indeterminate bar with a live elapsed timer so the import keeps showing
-  // motion instead of freezing at a fake percentage.
+  // The server streams its real stages as newline-delimited JSON (#15). This
+  // used to be a row of setTimeouts guessing at them — "Extracting
+  // subtitles..." after 4s, "Downloading audio..." after 8s — which on a slow
+  // import cheerfully said "Almost done" while Whisper still had minutes left.
+  //
+  // The percentages went with them. There is no honest one to show: the work
+  // is dominated by transcription, whose length isn't known until it finishes.
+  // So the bar is indeterminate throughout, and what changes is the stage name
+  // (which is real) and the elapsed clock (which is also real).
   const startedAt = Date.now();
-  let elapsedTimer = 0;
-  const beginIndeterminate = setTimeout(() => {
-    const tick = () => {
-      const secs = Math.floor((Date.now() - startedAt) / 1000);
-      const mm = Math.floor(secs / 60);
-      const ss = String(secs % 60).padStart(2, "0");
-      showProgress(
-        `Transcribing & translating — long videos can take a few minutes (${mm}:${ss})`,
-      );
-    };
-    tick();
-    elapsedTimer = setInterval(tick, 1000);
-  }, stepTimer + 4000);
-
-  const clearProgressTimers = () => {
-    stepTimeouts.forEach(clearTimeout);
-    clearTimeout(beginIndeterminate);
-    if (elapsedTimer) clearInterval(elapsedTimer);
+  let stage = "Starting\u2026";
+  const elapsed = () => {
+    const secs = Math.floor((Date.now() - startedAt) / 1000);
+    return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   };
+  const paint = () => showProgress(`${stage} (${elapsed()})`);
+  paint();
+  const ticker = setInterval(paint, 1000);
+  const clearProgressTimers = () => clearInterval(ticker);
 
   try {
     const response = await fetch("/api/import-url", {
@@ -1305,11 +1286,19 @@ async function importSourceUrl() {
       body: JSON.stringify({ url }),
     });
 
-    clearProgressTimers();
-    showProgress("Loading results...", 95);
+    // A failure before the stream opens is still a plain JSON error response.
+    if (!response.ok) {
+      const failed = await response.json().catch(() => ({}));
+      throw new Error(failed.error || "Import failed.");
+    }
 
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Import failed.");
+    const result = await readImportStream(response, (message) => {
+      stage = message;
+      paint();
+    });
+
+    clearProgressTimers();
+    showProgress("Loading results\u2026");
 
     if (result.videoUrl) {
       els.video.src = result.videoUrl;

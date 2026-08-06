@@ -115,6 +115,15 @@ createServer(async (req, res) => {
     await serveStatic(req, res, PUBLIC_DIR);
   } catch (error) {
     console.error(error);
+    // A status can only be sent before the first byte. /api/import-url streams
+    // its progress (#15), so by the time it can fail the headers are usually
+    // long gone — it reports its own failure on the stream and rethrows only
+    // what it hasn't answered yet. Writing a second set of headers here would
+    // throw inside the error handler and take the connection down instead.
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
     sendJson(res, error.status || 500, {
       error: error.message || "Unexpected server error",
     });

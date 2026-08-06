@@ -172,12 +172,60 @@ async function runYtdlp(args, opts, attempts = 3) {
   throw lastErr;
 }
 
+// Import is the one request in this app that routinely runs for minutes, and
+// the client used to narrate it from hardcoded setTimeouts — "Extracting
+// subtitles..." at 4s, "Downloading audio..." at 8s, whatever was actually
+// happening. On a slow import it claimed to be nearly finished while Whisper
+// still had minutes to run (#15).
+//
+// The server knows the real stages, so it says so. The response is
+// newline-delimited JSON: any number of {stage, message} lines while the work
+// runs, then exactly one terminal line — {stage:"done", ...result} or
+// {stage:"error", error}. That keeps it to the one POST the client already
+// makes, with no job registry, no polling and no second endpoint.
+//
+// The catch is that the HTTP status has to be sent with the first byte, long
+// before we know whether the import succeeds. So once streaming has begun a
+// failure can no longer be an HTTP status — it is the terminal error line, and
+// `started` is how the caller knows which of the two it still has available.
+function progressStream(res) {
+  let started = false;
+  const write = (event) => {
+    if (!started) {
+      started = true;
+      res.writeHead(200, {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache",
+        // Nothing sits in front of this server today, but a buffering proxy
+        // would hold the stage lines back and undo the whole point.
+        "X-Accel-Buffering": "no",
+      });
+    }
+    res.write(`${JSON.stringify(event)}\n`);
+  };
+  return {
+    stage: (message) => write({ stage: "working", message }),
+    done: (result) => {
+      write({ stage: "done", ...result });
+      res.end();
+    },
+    fail: (error) => {
+      write({ stage: "error", error });
+      res.end();
+    },
+    get started() {
+      return started;
+    },
+  };
+}
+
 export async function handleImportUrl(req, res) {
   const body = await readJsonBody(req);
   const url = normalizeExternalUrl(body.url);
   await rejectPrivateHost(url);
 
   const workspace = await mkdtemp(path.join(tmpdir(), "stele-import-"));
+  const report = progressStream(res);
   try {
     await ensureCommand(
       YTDLP_BIN,
@@ -187,13 +235,16 @@ export async function handleImportUrl(req, res) {
       ].join(" "),
     );
 
+    report.stage("Reading the link\u2026");
     const meta = await getMediaMeta(url.href);
     const origBase = baseLang(meta.language);
+    report.stage("Downloading the video\u2026");
     const videoPath = await downloadVideo(url.href);
     const videoUrl = videoPath ? `/videos/${path.basename(videoPath)}` : "";
 
     // A subtitle track from the platform is the best source when it exists —
     // human-made, correctly timed, and free. Everything below is fallback.
+    report.stage("Looking for existing subtitles\u2026");
     const subtitle = await getExistingSubtitle(url.href, workspace, meta, origBase);
 
     if (subtitle) {
@@ -203,9 +254,10 @@ export async function handleImportUrl(req, res) {
       // is. Otherwise fall back to machine translation on the clean source text.
       let translation = subtitle.translation || "";
       if (!translation && subtitle.lang && subtitle.lang !== "en") {
+        report.stage("Translating the subtitles\u2026");
         translation = await translateSrt(subtitles, subtitle.lang);
       }
-      sendJson(res, 200, {
+      report.done({
         title: meta.title,
         videoUrl,
         source: subtitle.source,
@@ -243,6 +295,14 @@ export async function handleImportUrl(req, res) {
         );
       }
 
+      // Both heavy passes are in flight from here: OCR on the CPU and, if the
+      // audio came out, Whisper on the GPU. Name them together rather than
+      // pretending they are sequential.
+      report.stage(
+        speechPromise
+          ? "Reading on-screen captions and transcribing the speech\u2026"
+          : "Reading on-screen captions\u2026",
+      );
       const ocr = await ocrCaptions(videoPath);
       if (ocr) {
         // Captions only cover what's written on screen; many news videos also
@@ -283,8 +343,9 @@ export async function handleImportUrl(req, res) {
         // were paced within their real display windows — a character-count
         // re-timing on top would fabricate different boundaries again.
         const subtitles = await toTraditional(segmentsToSrt(segments, { refine: false }));
+        report.stage("Translating\u2026");
         const translation = await translateSrt(subtitles, "zh");
-        sendJson(res, 200, {
+        report.done({
           title: meta.title,
           videoUrl,
           source,
@@ -302,12 +363,14 @@ export async function handleImportUrl(req, res) {
     // result. Without a local video (or if its audio extraction failed), fall
     // back to a direct audio download and transcribe that.
     if (!audioPath) audioPath = await downloadAudio(url.href, workspace);
+    report.stage("Transcribing the speech \u2014 this is the slow part\u2026");
     const whisperResult = await transcribeWithWhisper(
       audioPath,
       workspace,
       speechPromise,
+      report,
     );
-    sendJson(res, 200, {
+    report.done({
       title: meta.title,
       videoUrl,
       source: "whisper",
@@ -318,6 +381,15 @@ export async function handleImportUrl(req, res) {
       // timings; the reader falls back to its own estimate then.
       words: whisperResult.words || [],
     });
+  } catch (err) {
+    // Before the first stage line goes out, a failure is still an ordinary
+    // HTTP error and index.mjs should format it — rethrow. After that the
+    // status is long gone, so the only way to tell the client is the terminal
+    // error line. Without this the socket would just close mid-stream and the
+    // reader would see "import failed" with nothing to act on.
+    if (!report.started) throw err;
+    console.error(err);
+    report.fail(err.message || "Import failed.");
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -614,10 +686,10 @@ function unsupportedLanguageError(language) {
 // openai-whisper CLI only if faster-whisper isn't installed. When the caller
 // already started a transcription (the concurrent OCR+Whisper path), pass its
 // promise as `speechPromise` so the work isn't done twice.
-async function transcribeWithWhisper(audioPath, workspace, speechPromise = null) {
+async function transcribeWithWhisper(audioPath, workspace, speechPromise = null, report = null) {
   try {
     const speech = await (speechPromise || transcribeFastSegments(audioPath));
-    return await finishFastTranscription(speech);
+    return await finishFastTranscription(speech, report);
   } catch (err) {
     // Don't fall back to the CLI for a non-Chinese video — that would just
     // transcribe the language we're rejecting. Surface it as-is.
@@ -702,12 +774,13 @@ function collectWords(segments) {
 
 // Turn raw faster-whisper segments into the final result: SRT (normalised to
 // Traditional), plus an English translation.
-async function finishFastTranscription({ language, segments }) {
+async function finishFastTranscription({ language, segments }, report = null) {
   const subtitles = await toTraditional(
     segmentsToSrt(markUnintelligible(segments)),
   );
   const lowerLang = language.toLowerCase();
   const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
+  report?.stage("Translating\u2026");
   const translation = await translateSrt(subtitles, langCode);
   return { language, subtitles, translation, words: collectWords(segments) };
 }
