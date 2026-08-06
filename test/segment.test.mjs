@@ -80,3 +80,21 @@ test("refineSegments splits time proportionally and stays contiguous", () => {
 test("refineSegments drops empty segments", () => {
   assert.deepEqual(refineSegments([{ start: 0, end: 1, text: "   " }]), []);
 });
+
+test("refineSegments drops per-word timings (#26)", () => {
+  // Not a complaint — refine's job is to re-cut and re-time lines, and word
+  // timings can't survive that meaningfully. It is recorded here because
+  // collecting Whisper's words from refined segments silently yields none,
+  // which is how the karaoke highlight ended up estimating from character
+  // counts on every OCR import while appearing to be wired up.
+  const [out] = refineSegments([
+    {
+      start: 0,
+      end: 2,
+      text: "短句",
+      words: [{ start: 0, end: 1, word: "短" }, { start: 1, end: 2, word: "句" }],
+    },
+  ]);
+  assert.deepEqual(Object.keys(out).sort(), ["end", "start", "text"]);
+  assert.equal(out.words, undefined);
+});

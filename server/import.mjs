@@ -376,9 +376,16 @@ export async function handleImportUrl(req, res) {
         // the clipped window, or paced lines would collide with speech).
         let segments = (ocr.segments || []).map((s) => ({ ...s, caption: true }));
         let source = "ocr";
+        // Whisper's word timings, kept aside before the merge. refineSegments
+        // returns {start, end, text} and drops `words`, so collecting them off
+        // the merged result gives nothing at all — which is exactly what this
+        // path was sending until now, leaving the karaoke highlight estimating
+        // from character counts on every OCR import (#26).
+        let speechWords = [];
         try {
           if (!speechPromise) throw new Error("no audio track extracted");
           const speech = await speechPromise;
+          speechWords = collectWords(speech.segments);
           // Replace low-confidence transcription with the neutral
           // "(indistinct voice)" placeholder before refining — refine strips
           // the logprob field. Then refine (split) the speech utterances so
@@ -414,7 +421,7 @@ export async function handleImportUrl(req, res) {
           subtitles,
           translation,
           // Caption segments carry no timings; only the spoken ones do.
-          words: collectWords(segments),
+          words: speechWordsOutsideCaptions(speechWords, segments),
         });
         return;
       }
@@ -832,6 +839,24 @@ function collectWords(segments) {
     .flatMap((segment) => segment.words || [])
     .filter((word) => Number.isFinite(word.start) && Number.isFinite(word.end))
     .sort((a, b) => a.start - b.start);
+}
+
+// Words spoken in stretches the captions took over are dropped.
+//
+// A caption line's text was read off the screen, not spoken — the narration
+// underneath it is different words. Handing the reader speech timings for a
+// line of caption text would march the highlight through text those timings
+// don't describe. Without a word in range the reader falls back to estimating,
+// which is the honest answer for a line nobody said.
+function speechWordsOutsideCaptions(words, segments) {
+  const captions = segments
+    .filter((segment) => segment.caption)
+    .map((segment) => [Number(segment.start), Number(segment.end)]);
+  if (!captions.length) return words;
+  return words.filter((word) => {
+    const middle = (word.start + word.end) / 2;
+    return !captions.some(([from, to]) => middle >= from && middle < to);
+  });
 }
 
 // Turn raw faster-whisper segments into the final result: SRT (normalised to
