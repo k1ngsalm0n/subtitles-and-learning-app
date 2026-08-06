@@ -417,17 +417,37 @@ export function setActiveLine(els) {
   if (previous === next) return;
   previous?.classList.remove("active");
   next?.classList.add("active");
+  // The karaoke loop only ever marks words inside the active line, so a word
+  // left marked on the line we just left would stay marked forever. The full
+  // re-render used to wipe those as a side effect; now that it doesn't, the
+  // last word of every line played through kept its highlight.
+  for (const word of e.transcript.querySelectorAll(".word.spoken")) {
+    word.classList.remove("spoken");
+  }
 }
 
 export function scrollActiveLineIntoView(els) {
   const e = els || _els;
   const lineEl = e.transcript.querySelector(".line.active");
   if (!lineEl) return;
-  const top =
-    lineEl.offsetTop -
-    e.transcript.offsetTop -
-    (e.transcript.clientHeight - lineEl.offsetHeight) / 2;
-  e.transcript.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+
+  const view = e.transcript.clientHeight;
+  const top = lineEl.offsetTop - e.transcript.offsetTop;
+  const seen = top - e.transcript.scrollTop;
+  // Only scroll when the line is near an edge or off screen.
+  //
+  // It used to re-centre on every cue, and a smooth scroll fires a scroll
+  // event per animation frame — measured at 35 per line change. A scroll is
+  // one of the things that dismisses the browser's own video-controls menu, so
+  // opening the three-dot menu and waiting for the next line closed it. Most
+  // of those scrolls moved the line by a row and were not needed at all.
+  const margin = Math.min(80, view * 0.25);
+  if (seen >= margin && seen + lineEl.offsetHeight <= view - margin) return;
+
+  e.transcript.scrollTo({
+    top: Math.max(0, top - (view - lineEl.offsetHeight) / 2),
+    behavior: "smooth",
+  });
 }
 
 let _rafId = null;
