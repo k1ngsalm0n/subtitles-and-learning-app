@@ -756,7 +756,6 @@ function setTheme(next, { store = true } = {}) {
 function setupImagesMode() {
   // The player's own prompt is hidden with a class elsewhere in this file, so
   // this remembers its state rather than guessing it back on the way out.
-  let promptWasHidden = false;
 
   // Three things share the player box, and exactly one of them belongs on
   // screen: the video, a loaded image, or the drop zone. Everything that can
@@ -790,10 +789,17 @@ function setupImagesMode() {
     els.queueUrl.hidden = on;
     els.imageBrowse.hidden = !on;
     if (on) {
-      promptWasHidden = els.emptyPlayer.classList.contains("hidden");
       els.emptyPlayer.classList.add("hidden");
     } else {
-      els.emptyPlayer.classList.toggle("hidden", promptWasHidden);
+      // Ask the player whether it has anything loaded rather than restoring a
+      // remembered flag. The flag was only ever written on the way *into*
+      // Images mode, so it was still `false` for anyone who had never been
+      // there — and picking a video fires two change listeners: the first
+      // hides this prompt, the second called setImagesMode(false) and put it
+      // straight back. It then sat on top of the video swallowing every click,
+      // the play button included, which is a hard thing to diagnose because
+      // the video is plainly visible underneath it.
+      els.emptyPlayer.classList.toggle("hidden", hasVideo());
     }
   };
 
@@ -1096,11 +1102,24 @@ function paintAccentState() {
   }
 }
 
+// Whether the player has anything loaded. `src` is empty until something is
+// assigned; `currentSrc` covers a source set by the browser's own restore.
+function hasVideo() {
+  return Boolean(els.video.currentSrc || els.video.getAttribute("src"));
+}
+
 function handleVideoInput(event) {
   const file = event.target.files[0];
   if (!file) return;
   els.video.src = URL.createObjectURL(file);
   els.emptyPlayer.classList.add("hidden");
+  // Whisper's word timings describe the video they were transcribed from, and
+  // this is a different one (#26). Left in place they are applied to whatever
+  // transcript is still on screen, and the karaoke highlight jumps around a
+  // line to the rhythm of a video that is no longer playing. No timings means
+  // the highlight estimates, which is the right answer for a file the app has
+  // never transcribed.
+  state.wordTimings = [];
   // A local file isn't a library source; cards made from it carry no link.
   state.currentSourceId = null;
   // A blob video can't be brought back after a reload, so drop any saved
