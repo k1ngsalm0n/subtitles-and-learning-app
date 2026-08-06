@@ -894,8 +894,16 @@ function sourceLinkButton(card) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "card-source";
-  button.textContent = `▶ ${source.title || "clip"} · ${formatTime(card.sourceTime)}`;
-  button.title = "Jump to this moment in the video";
+  // The title is its own element so it alone can be truncated. A YouTube title
+  // runs to fifty characters and the chip never shrank to fit, so on a narrow
+  // window it ran past the card. Ellipsising the whole string instead would
+  // eat the timestamp off the end, which is the part worth reading.
+  button.append("▶ ");
+  const title = document.createElement("span");
+  title.className = "card-source-title";
+  title.textContent = source.title || "clip";
+  button.append(title, ` · ${formatTime(card.sourceTime)}`);
+  button.title = `Jump to ${formatTime(card.sourceTime)} in ${source.title || "this clip"}`;
   button.addEventListener("click", () =>
     _sourceJumper?.(card.sourceId, card.sourceTime),
   );
