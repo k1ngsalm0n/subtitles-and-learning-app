@@ -1325,6 +1325,12 @@ rt {
 .card-source {
   height: 26px;
   min-height: 26px;
+  /* The chip sized itself to its text and never shrank, so a long clip title
+     pushed it out past the card on a narrow window. */
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
   padding: 0 10px;
   font-size: 12px;
   color: var(--muted);
@@ -1334,6 +1340,9 @@ rt {
   justify-self: start;
 }
 .card-source:hover { color: var(--accent); }
+/* Only the title gives way. The timestamp after it is the point of the chip,
+   so it stays whole however little room there is. */
+.card-source-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* .card-source is left-aligned in the browse list, but the review card is a
    centered column — left-aligning these two chips broke that line. Spacing
    comes from the card's grid gap, so the old margin would double up. */
@@ -1405,7 +1414,16 @@ rt {
 /* Compact browse rows: this list is for finding a card, not reading it. */
 .card-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 7px 9px; }
 .card-item p { color: var(--muted); margin-top: 2px; }
-.card-item-body { display: grid; gap: 2px; min-width: 0; }
+.card-item-body {
+  display: grid;
+  /* minmax(0, 1fr), not the implicit auto: an auto track sizes to its widest
+     item, so the source chip's full title stretched the column past the row
+     rather than being asked to fit inside it. min-width on the body alone
+     doesn't reach the track. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  min-width: 0;
+}
 .card-item-back { border-top: 1px dashed var(--border); margin-top: 2px; padding-top: 5px; }
 .card-item-back .cf { color: var(--muted); }
 .card-item .card-source { height: 22px; min-height: 22px; padding: 0 8px; font-size: 11px; }
