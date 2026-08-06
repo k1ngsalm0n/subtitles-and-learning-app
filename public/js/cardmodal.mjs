@@ -16,9 +16,9 @@ import {
   templatesForWord,
   CARD_FIELDS,
 } from "./carddata.mjs";
-import { addCard, updateCard, addDeck } from "./flashcards.mjs";
+import { addCard, updateCard, addDeck, renameDeck } from "./flashcards.mjs";
 import { renderCardFace, cardShowsStrokes } from "./cardface.mjs";
-import { openTemplateEditor } from "./templates.mjs";
+import { openTemplateEditor, openTemplateManager } from "./templates.mjs";
 import { lookupWord } from "./lookup.mjs";
 import { parseSubtitle } from "./subtitle.mjs";
 import { detectLanguage } from "./languages.mjs";
@@ -105,6 +105,11 @@ export function setupCardModal(els) {
   // editor; picking a real option applies that template.
   els.templateSelect.addEventListener("change", () => {
     const value = els.templateSelect.value;
+    if (value === MANAGE_OPTION) {
+      renderTemplatePicker(); // put the select back on the real choice first
+      openTemplateManager();
+      return;
+    }
     if (value === CREATE_OPTION) {
       openTemplateEditor(null, (template) => {
         if (template) applyTemplate(template.id);
@@ -195,6 +200,37 @@ export function setupCardModal(els) {
     }
   });
 
+  // Renaming the deck you are about to file a card into, without leaving the
+  // modal to go and find the Flashcards deck menu.
+  els.modalRenameDeck.addEventListener("click", () => {
+    const hidden = els.modalRenameDeckRow.hidden;
+    els.modalRenameDeckRow.hidden = !hidden;
+    els.modalRenameError.textContent = "";
+    if (hidden) {
+      els.modalRenameDeckName.value = getDeck(_draft?.deckId)?.name || "";
+      els.modalRenameDeckName.focus();
+      els.modalRenameDeckName.select();
+    }
+  });
+
+  const commitRename = () => {
+    const result = renameDeck(_draft?.deckId, els.modalRenameDeckName.value);
+    if (result.error) {
+      els.modalRenameError.textContent = result.error;
+      return;
+    }
+    els.modalRenameError.textContent = "";
+    els.modalRenameDeckRow.hidden = true;
+    renderDeckList();
+  };
+  els.modalRenameDeckSave.addEventListener("click", commitRename);
+  els.modalRenameDeckName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitRename();
+    }
+  });
+
   els.modalSave.addEventListener("click", save);
   els.cardModal.addEventListener("close", () => {
     _fetchToken++;
@@ -215,6 +251,7 @@ function applyTemplate(templateId) {
 }
 
 const CREATE_OPTION = "__create__";
+const MANAGE_OPTION = "__manage__";
 
 // A one-line "Front: … · Back: …" summary of a template's faces, shown under
 // the dropdown so the user sees what the card will look like without opening
@@ -242,6 +279,12 @@ function renderTemplatePicker() {
       `<option value="${template.id}">${escapeHtml(template.name)}</option>`,
   );
   options.push(`<option value="${CREATE_OPTION}">+ Create template…</option>`);
+  // Editing, deleting and setting a default all live in the manager. Reaching
+  // it only from the Flashcards deck menu meant a template made here could not
+  // be unmade here.
+  if (state.templates.some((template) => !template.builtIn)) {
+    options.push(`<option value="${MANAGE_OPTION}">⚙ Manage templates…</option>`);
+  }
   els.templateSelect.innerHTML = options.join("");
   els.templateSelect.value = _draft?.templateId || templates[0]?.id || "";
 
@@ -302,6 +345,12 @@ function renderDeckList() {
       </button>`;
     })
     .join("");
+
+  // renameDeck refuses built-in decks, so offering it there would only produce
+  // an error message. Hide it instead of letting someone find that out.
+  const deck = getDeck(selected);
+  els.modalRenameDeck.hidden = !deck || Boolean(deck.builtIn);
+  if (els.modalRenameDeck.hidden) els.modalRenameDeckRow.hidden = true;
 }
 
 function renderPreview() {

@@ -628,7 +628,9 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   border-radius: 8px;
   background: var(--surface);
   color: var(--text);
-  padding: 0 8px;
+  /* The arrow is drawn against the right padding edge, so this is what keeps
+     it off the border rather than crowding it. */
+  padding: 0 12px 0 8px;
   font-size: 13px;
   cursor: pointer;
 }
@@ -1105,7 +1107,7 @@ rt {
 .subdeck-error:empty { display: none; }
 .deck-item.deck-depth-1 { padding-left: 28px; }
 .nest-deck-row { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
-.nest-deck-row select { width: 100%; height: 34px; }
+.nest-deck-row select { width: 100%; height: 34px; padding: 0 12px 0 8px; }
 .nest-deck-note { font-size: 12px; }
 #nestDeckError:empty { display: none; }
 .data-note, .restore-dir { font-size: 12px; line-height: 1.5; }
@@ -1126,7 +1128,7 @@ rt {
   background: var(--surface);
   color: var(--text);
   font-size: 12px;
-  padding: 0 6px;
+  padding: 0 10px 0 6px;
 }
 .data-usage { display: grid; gap: 4px; }
 .data-usage-bar {
@@ -1774,7 +1776,8 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 .template-select {
   width: 100%;
   height: 36px;
-  padding: 0 10px;
+  /* Extra on the right so the dropdown arrow isn't against the border. */
+  padding: 0 14px 0 10px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
@@ -1869,7 +1872,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   fill: var(--text);
 }
 .deck-item-name { flex: 1; font-size: 14px; font-weight: 600; }
-.deck-chevron { flex: none; color: var(--muted); font-size: 18px; line-height: 1; }
+.deck-chevron { flex: none; margin-right: 2px; color: var(--muted); font-size: 18px; line-height: 1; }
 .deck-create { border-top: 1px solid var(--border); border-radius: 0; margin-top: 2px; padding-top: 9px; }
 .deck-create .deck-item-name { font-weight: 600; }
 .deck-icon-plus {
@@ -2424,6 +2427,18 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <span class="deck-icon deck-icon-plus" aria-hidden="true">+</span>
           <span class="deck-item-name">Create a new deck</span>
         </button>
+        <!-- Renaming lived only in the Flashcards deck menu, which is a
+             different screen from the one where you pick a deck and realise the
+             name is wrong. Hidden for the built-in deck, which can't be renamed. -->
+        <button type="button" id="modalRenameDeck" class="deck-item deck-create" hidden>
+          <span class="deck-icon deck-icon-plus" aria-hidden="true">✎</span>
+          <span class="deck-item-name">Rename this deck</span>
+        </button>
+        <div id="modalRenameDeckRow" class="new-deck-row" hidden>
+          <input id="modalRenameDeckName" type="text" placeholder="Deck name" maxlength="40" aria-label="Deck name" />
+          <button type="button" id="modalRenameDeckSave">Rename</button>
+          <span id="modalRenameError" class="danger"></span>
+        </div>
         <div id="modalNewDeckRow" class="new-deck-row" hidden>
           <button type="button" id="deckEmojiTrigger" class="emoji-trigger" aria-label="Choose deck icon" title="Choose an icon" aria-haspopup="dialog"></button>
           <input id="modalNewDeckName" type="text" placeholder="New deck name" maxlength="40" aria-label="New deck name" />
