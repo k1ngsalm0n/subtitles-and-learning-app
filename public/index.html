@@ -621,16 +621,39 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
   min-width: 0;
 }
 .translate-field span { white-space: nowrap; }
+/* Dropdown arrows.
+   The browser draws a native select's arrow hard against the right border and
+   will not move it: measured at padding-right 10px, 24px and 40px, the glyph
+   sat in the same pixels every time, 0px from the edge. Padding cannot fix
+   this. So the native arrow is switched off and drawn as a background image
+   instead, which can be positioned exactly.
+   Two colours because a data: URI can't read a custom property; these are
+   --muted for each theme. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%20viewBox%3D%270%200%2012%208%27%3E%3Cpath%20d%3D%27M1%201.5%206%206.5%2011%201.5%27%20fill%3D%27none%27%20stroke%3D%27%238a8a94%27%20stroke-width%3D%271.8%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  /* Room for the arrow plus its inset, so a long option can't run under it. */
+  padding-right: 34px;
+}
+:root[data-theme="light"] select {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%20viewBox%3D%270%200%2012%208%27%3E%3Cpath%20d%3D%27M1%201.5%206%206.5%2011%201.5%27%20fill%3D%27none%27%20stroke%3D%27%236b6b73%27%20stroke-width%3D%271.8%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
+}
+select::-ms-expand { display: none; }
 .translate-field select {
   width: 100%;
   height: 34px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface);
+  /* background-color, not the shorthand: `background` resets
+     background-image and would wipe the chevron. */
+  background-color: var(--surface);
   color: var(--text);
   /* The arrow is drawn against the right padding edge, so this is what keeps
      it off the border rather than crowding it. */
-  padding: 0 12px 0 8px;
+  padding: 0 34px 0 8px;
   font-size: 13px;
   cursor: pointer;
 }
@@ -1107,7 +1130,7 @@ rt {
 .subdeck-error:empty { display: none; }
 .deck-item.deck-depth-1 { padding-left: 28px; }
 .nest-deck-row { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
-.nest-deck-row select { width: 100%; height: 34px; padding: 0 12px 0 8px; }
+.nest-deck-row select { width: 100%; height: 34px; padding: 0 34px 0 8px; }
 .nest-deck-note { font-size: 12px; }
 #nestDeckError:empty { display: none; }
 .data-note, .restore-dir { font-size: 12px; line-height: 1.5; }
@@ -1125,10 +1148,13 @@ rt {
   height: 30px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface);
+  /* background-color, not the shorthand: `background` resets
+     background-image and would wipe the chevron. */
+  background-color: var(--surface);
   color: var(--text);
   font-size: 12px;
-  padding: 0 10px 0 6px;
+  padding: 0 30px 0 6px;
+  background-position: right 11px center;
 }
 .data-usage { display: grid; gap: 4px; }
 .data-usage-bar {
@@ -1776,15 +1802,15 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 .template-select {
   width: 100%;
   height: 36px;
-  /* A little on the right so the arrow isn't against the border, but not so
-     much that it floats away from it. */
-  padding: 0 10px;
+  padding: 0 34px 0 10px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
+  /* background-color, not the shorthand: `background` resets
+     background-image and would wipe the chevron. */
+  background-color: var(--surface);
 }
 .template-desc {
   margin: 2px 0 0;
@@ -1873,7 +1899,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   fill: var(--text);
 }
 .deck-item-name { flex: 1; font-size: 14px; font-weight: 600; }
-.deck-chevron { flex: none; margin-right: 2px; color: var(--muted); font-size: 18px; line-height: 1; }
+.deck-chevron { flex: none; margin-right: 12px; color: var(--muted); font-size: 18px; line-height: 1; }
 .deck-row { display: flex; align-items: stretch; border-radius: var(--radius); }
 .deck-row .deck-item { flex: 1 1 auto; min-width: 0; }
 /* The selection ring belongs to the whole row, not to the part of it that
@@ -1893,7 +1919,8 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 6px;
+  margin-right: 8px;
   border: 1px solid transparent;
   border-radius: var(--radius);
   background: transparent;
