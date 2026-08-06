@@ -629,7 +629,8 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
    instead, which can be positioned exactly.
    Two colours because a data: URI can't read a custom property; these are
    --muted for each theme. */
-select {
+select,
+#templateTrigger {
   appearance: none;
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%20viewBox%3D%270%200%2012%208%27%3E%3Cpath%20d%3D%27M1%201.5%206%206.5%2011%201.5%27%20fill%3D%27none%27%20stroke%3D%27%238a8a94%27%20stroke-width%3D%271.8%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
@@ -638,7 +639,8 @@ select {
   /* Room for the arrow plus its inset, so a long option can't run under it. */
   padding-right: 34px;
 }
-:root[data-theme="light"] select {
+:root[data-theme="light"] select,
+:root[data-theme="light"] #templateTrigger {
   background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%20viewBox%3D%270%200%2012%208%27%3E%3Cpath%20d%3D%27M1%201.5%206%206.5%2011%201.5%27%20fill%3D%27none%27%20stroke%3D%27%236b6b73%27%20stroke-width%3D%271.8%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
 }
 select::-ms-expand { display: none; }
@@ -1799,8 +1801,69 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   letter-spacing: 0.02em;
   color: var(--muted);
 }
-.template-row { display: flex; align-items: center; gap: 6px; }
-.template-row .template-select { flex: 1 1 auto; min-width: 0; }
+.template-picker { position: relative; }
+/* The trigger wears the select's own styling so the control doesn't change
+   shape, and keeps the same chevron the real dropdowns use. */
+#templateTrigger {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+#templateTrigger[aria-expanded="true"] { border-color: var(--accent); }
+#templateTriggerName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.template-option-row { display: flex; align-items: stretch; border-radius: var(--radius); }
+.template-option-row:hover { background: var(--surface-2); }
+.template-option-row.active { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.template-option {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 10px;
+  /* The app's buttons are centred flex boxes; a list row reads as a list only
+     if its label starts where every other label in the modal starts. */
+  justify-content: flex-start;
+  text-align: left;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.template-option.create { font-weight: 600; border-top: 1px solid var(--border); border-radius: 0; margin-top: 4px; }
+.template-action {
+  flex: none;
+  padding: 0 8px;
+  margin-right: 2px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.template-action:hover { color: var(--text); background: var(--surface-2); }
+.template-action:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.template-action.danger-action:hover { color: var(--danger, #e5484d); }
+.template-select { flex: 1 1 auto; min-width: 0; }
 .template-action {
   flex: none;
   height: 36px;
@@ -2508,14 +2571,15 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <span class="info-dot" tabindex="0" role="img" aria-label="About card types"
             title="Each card type lays out different fields on the front and back. Pick the one you want to study with.">i</span>
         </p>
-        <!-- Edit and delete sit beside the picker, acting on the template it is
-             showing. Hidden for the three built-ins, which can't be either. -->
-        <div class="template-row">
-          <select id="templateSelect" class="template-select" aria-label="Card type"></select>
-          <button type="button" id="editTemplate" class="template-action" hidden
-            title="Edit this card type" aria-label="Edit this card type">✎</button>
-          <button type="button" id="deleteTemplate" class="template-action danger-action" hidden
-            title="Delete this card type" aria-label="Delete this card type">🗑</button>
+        <!-- Not a <select>: an <option> can only hold text, and each card type
+             the reader made needs edit and delete buttons on its own row. So
+             this is a button plus a list, same as the deck picker below. -->
+        <div class="template-picker">
+          <button type="button" id="templateTrigger" class="template-select"
+            aria-haspopup="listbox" aria-expanded="false" aria-label="Card type">
+            <span id="templateTriggerName"></span>
+          </button>
+          <div id="templateMenu" class="template-menu" role="listbox" aria-label="Card type" hidden></div>
         </div>
         <p id="templateDesc" class="template-desc"></p>
         <button type="button" id="openPreview" class="preview-button">Preview &amp; edit card</button>

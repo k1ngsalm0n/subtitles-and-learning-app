@@ -106,45 +106,72 @@ export function setupCardModal(els) {
     renderPreview();
   });
 
-  // Card type: a compact dropdown. The "+ Create template…" option opens the
-  // editor; picking a real option applies that template.
-  els.templateSelect.addEventListener("change", () => {
-    const value = els.templateSelect.value;
-    if (value === CREATE_OPTION) {
+  // Card type: a button that opens a list, not a <select>. Each card type the
+  // reader made needs edit and delete on its own row, and an <option> can only
+  // hold text.
+  els.templateTrigger.addEventListener("click", () => {
+    openTemplateMenu(els.templateMenu.hidden);
+  });
+
+  els.templateMenu.addEventListener("click", (event) => {
+    const edit = event.target.closest("[data-edit-id]");
+    if (edit) {
+      openTemplateMenu(false);
+      openTemplateEditor(edit.dataset.editId, (template) => {
+        if (template) applyTemplate(template.id);
+        renderTemplatePicker();
+        renderPreview();
+      });
+      return;
+    }
+
+    const del = event.target.closest("[data-delete-id]");
+    if (del) {
+      const template = getTemplate(del.dataset.deleteId);
+      if (!template || template.builtIn) return;
+      // Cards carry their own copies of the field lists, so deleting a type
+      // leaves everything already made with it untouched.
+      if (!confirm(`Delete template "${template.name}"? Existing cards keep their fields.`)) {
+        return;
+      }
+      deleteTemplate(template.id);
+      renderTemplatePicker(); // falls back to the first template still standing
+      renderPreview();
+      return;
+    }
+
+    if (event.target.closest("[data-create]")) {
+      openTemplateMenu(false);
       openTemplateEditor(null, (template) => {
         if (template) applyTemplate(template.id);
         renderTemplatePicker();
+        renderPreview();
       });
-      renderTemplatePicker(); // reset the select off the "create" option
       return;
     }
-    applyTemplate(value);
+
+    const pick = event.target.closest("[data-template-id]");
+    if (!pick) return;
+    applyTemplate(pick.dataset.templateId);
     renderTemplatePicker();
+    openTemplateMenu(false);
+    els.templateTrigger.focus();
   });
 
-  els.editTemplate.addEventListener("click", () => {
-    const id = _draft?.templateId;
-    if (!id) return;
-    openTemplateEditor(id, (template) => {
-      if (template) applyTemplate(template.id);
-      renderTemplatePicker();
-      renderPreview();
-    });
-  });
-
-  els.deleteTemplate.addEventListener("click", () => {
-    const template = getTemplate(_draft?.templateId);
-    if (!template || template.builtIn) return;
-    // Same wording the template manager uses. Cards keep their own copies of
-    // the field lists, so deleting a type doesn't touch anything already made.
-    if (!confirm(`Delete template "${template.name}"? Existing cards keep their fields.`)) {
-      return;
+  // Clicking elsewhere closes it. Escape closes the list rather than the whole
+  // card modal, which is what a <dialog> would otherwise do.
+  els.cardModal.addEventListener("click", (event) => {
+    if (!els.templateMenu.hidden && !event.target.closest(".template-picker")) {
+      openTemplateMenu(false);
     }
-    deleteTemplate(template.id);
-    // The draft was pointing at it; renderTemplatePicker falls back to the
-    // first template still standing.
-    renderTemplatePicker();
-    renderPreview();
+  });
+  els.cardModal.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.templateMenu.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      openTemplateMenu(false);
+      els.templateTrigger.focus();
+    }
   });
 
   // The preview + editable fields live in their own window to keep the main
@@ -307,7 +334,6 @@ function applyTemplate(templateId) {
   renderPreview();
 }
 
-const CREATE_OPTION = "__create__";
 
 // A one-line "Front: … · Back: …" summary of a template's faces, shown under
 // the dropdown so the user sees what the card will look like without opening
@@ -330,21 +356,46 @@ function renderTemplatePicker() {
   if (_draft && !templates.some((t) => t.id === _draft.templateId) && templates[0]) {
     applyTemplate(templates[0].id);
   }
-  const options = templates.map(
-    (template) =>
-      `<option value="${template.id}">${escapeHtml(template.name)}</option>`,
-  );
-  options.push(`<option value="${CREATE_OPTION}">+ Create template…</option>`);
-  els.templateSelect.innerHTML = options.join("");
-  els.templateSelect.value = _draft?.templateId || templates[0]?.id || "";
 
   const current = getTemplate(_draft?.templateId);
+  els.templateTriggerName.textContent = current ? current.name : "Card type";
+
+  // One row per card type, and the ones the reader made carry edit and delete
+  // on that row. This is why the control is a button and a list rather than a
+  // <select>: an <option> can only hold text, so per-row buttons are not
+  // something a native dropdown can express.
+  els.templateMenu.innerHTML =
+    templates
+      .map((template) => {
+        const active = template.id === _draft?.templateId;
+        // The built-ins are re-seeded canonically on every load and can be
+        // neither edited nor deleted, so they get no buttons.
+        const actions = template.builtIn
+          ? ""
+          : `<button type="button" class="template-action" data-edit-id="${template.id}"
+               title="Edit ${escapeHtml(template.name)}"
+               aria-label="Edit ${escapeHtml(template.name)}">✎</button>
+             <button type="button" class="template-action danger-action" data-delete-id="${template.id}"
+               title="Delete ${escapeHtml(template.name)}"
+               aria-label="Delete ${escapeHtml(template.name)}">🗑</button>`;
+        return `<div class="template-option-row${active ? " active" : ""}">
+          <button type="button" class="template-option" role="option"
+            aria-selected="${active}" data-template-id="${template.id}">${escapeHtml(template.name)}</button>
+          ${actions}
+        </div>`;
+      })
+      .join("") +
+    `<div class="template-option-row">
+       <button type="button" class="template-option create" data-create="1">+ Create template…</button>
+     </div>`;
+
   els.templateDesc.textContent = current ? describeTemplate(current) : "";
-  // The three built-ins are re-seeded on every load and can be neither edited
-  // nor deleted, so the buttons would only ever refuse. Hide them instead.
-  const editable = Boolean(current) && !current.builtIn;
-  els.editTemplate.hidden = !editable;
-  els.deleteTemplate.hidden = !editable;
+}
+
+function openTemplateMenu(open) {
+  const els = _els;
+  els.templateMenu.hidden = !open;
+  els.templateTrigger.setAttribute("aria-expanded", String(Boolean(open)));
 }
 
 const DECK_ICON = `<svg class="deck-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -596,7 +647,7 @@ export function openCardModal(options = {}) {
   els.cardModal.showModal();
   // The preview/fields now live in a separate window, so land focus on the
   // card-type dropdown.
-  els.templateSelect.focus();
+  els.templateTrigger.focus();
 
   prefetch(_draft);
 }
