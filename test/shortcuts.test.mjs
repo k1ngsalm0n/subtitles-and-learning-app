@@ -10,6 +10,8 @@ const live = (over = {}) => ({
   metaKey: false,
   altKey: false,
   tagName: "DIV",
+  repeat: false,
+  inWord: false,
   defaultPrevented: false,
   viewActive: true,
   dialogOpen: false,
@@ -51,10 +53,13 @@ test("shortcuts yield to the browser's own chords (#25)", () => {
 
 test("shortcuts yield to the transcript's own key handling (#25)", () => {
   // ui.mjs drives word-by-word focus with the arrows and opens the word bubble
-  // on Space, but only while a word has focus — and it marks those keys
-  // handled. Both listeners see every keypress, so this flag is the whole
-  // mechanism keeping them from fighting over Space and the arrows.
-  assert.equal(studyAction(live({ key: "ArrowRight", defaultPrevented: true })), "");
+  // on Space, but only while a word has focus. These keys are caught in the
+  // capture phase now — ahead of the video controls, and so also ahead of the
+  // transcript — so ownership is asked about directly rather than inferred
+  // from whoever ran first.
+  assert.equal(studyAction(live({ key: "ArrowRight", inWord: true })), "");
+  assert.equal(studyAction(live({ key: " ", inWord: true })), "");
+  // The old signal still counts, for anything else that handles a key first.
   assert.equal(studyAction(live({ key: " ", defaultPrevented: true })), "");
 });
 

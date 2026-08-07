@@ -16,14 +16,23 @@
 //   dialogOpen        a modal owns the keyboard while it is up
 //   tagName           the reader is typing into search, a deck name, a card
 //   ctrl/meta/alt     Cmd-S is Save Page; it is not ours to take
-//   defaultPrevented  the transcript handled it first — see below
+//   inWord            a transcript word has focus, so the transcript owns it
+//   defaultPrevented  something else already handled it
 //
-// `defaultPrevented` is the interesting one. The transcript's own key handler
-// (ui.mjs, #33) drives word-by-word focus with the arrows and opens the word
-// bubble on Space, but only while a word actually has focus. It listens on
-// #transcript and we listen on document, so it always runs first and calls
-// preventDefault on the keys it used. Reading that flag is how the two
-// handlers share Space and the arrows without either knowing about the other.
+// `inWord` is the interesting one, and it replaced a subtler arrangement that
+// broke. The transcript's own handler (ui.mjs, #33) drives word-by-word focus
+// with the arrows and opens the word bubble on Space, but only while a word
+// has focus. That used to be detected by reading `defaultPrevented`, which
+// relied on the transcript's listener running first — true only while these
+// keys were caught in the bubble phase.
+//
+// They aren't any more. The browser's own video controls act on Space at the
+// video element, which is upstream of a listener on document, so by the time a
+// bubbling handler saw the key the control had already paused — and toggling
+// again turned it straight back on. Pressing Space to stop started it playing.
+// The fix is to catch these in the capture phase, ahead of the video, which
+// also puts us ahead of the transcript. So ownership is asked about directly
+// rather than inferred from who ran first.
 const TEXT_ENTRY = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
 // Holding a key repeats keydown about thirty times a second. For these that is
@@ -53,6 +62,7 @@ export function studyAction(context = {}) {
     altKey,
     tagName = "",
     repeat = false,
+    inWord = false,
     defaultPrevented = false,
     viewActive = false,
     dialogOpen = false,
@@ -61,7 +71,7 @@ export function studyAction(context = {}) {
   if (!viewActive || dialogOpen) return "";
   if (ctrlKey || metaKey || altKey) return "";
   if (TEXT_ENTRY.has(String(tagName).toUpperCase())) return "";
-  if (defaultPrevented) return "";
+  if (inWord || defaultPrevented) return "";
   if (typeof key !== "string" || !key) return "";
 
   // Letters are matched case-insensitively so Shift or caps lock still works;

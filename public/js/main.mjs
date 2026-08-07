@@ -342,7 +342,12 @@ function bindEvents() {
     button.addEventListener("click", () => gradeCard(button.dataset.grade));
   });
   document.addEventListener("keydown", handleReviewKeys);
-  document.addEventListener("keydown", handleStudyKeys);
+  // Capture, not bubble. The browser's own video controls act on Space at the
+  // video element; a listener on document only hears about it afterwards, by
+  // which point the control had already paused and our toggle turned it back
+  // on. Capturing runs before the video gets it, so preventDefault means the
+  // native control never acts and only one thing decides.
+  document.addEventListener("keydown", handleStudyKeys, true);
   els.shuffleCards.addEventListener("click", shuffleCards);
   els.exportCards.addEventListener("click", exportCards);
   els.exportAnki.addEventListener("click", exportAnkiTsv);
@@ -502,6 +507,7 @@ function handleStudyKeys(event) {
     altKey: event.altKey,
     tagName: event.target?.tagName,
     repeat: event.repeat,
+    inWord: Boolean(event.target?.closest?.(".word")),
     defaultPrevented: event.defaultPrevented,
     viewActive: document.querySelector("#studyView").classList.contains("active"),
     dialogOpen: Boolean(document.querySelector("dialog[open]")),
