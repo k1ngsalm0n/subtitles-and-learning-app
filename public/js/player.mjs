@@ -33,8 +33,8 @@ export function syncToVideo(els) {
     if (activeLoop && activeLoop.index !== index) stopLoop(els);
     state.activeIndex = index;
     setActiveLine(els);
-    // Playback moved to a new line — keep it centered in the transcript so the
-    // karaoke highlight stays on screen.
+    // Playback moved to a new line — bring it to the top of the transcript so
+    // the karaoke highlight is the first thing on screen.
     scrollActiveLineIntoView(els);
   }
 }

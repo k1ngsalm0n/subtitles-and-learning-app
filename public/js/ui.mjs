@@ -516,16 +516,14 @@ export function scrollActiveLineIntoView(els, { force = false } = {}) {
     _followSuspended = false;
   }
 
-  // Sit the line high rather than centred. Centring puts the spoken line in
-  // the middle with as much behind it as ahead, which wastes the half you have
-  // already read — and on a short window, or a line made tall by pinyin ruby
-  // and a wrapped translation, it pushes the translation towards the bottom
-  // edge. High shows what is coming instead.
+  // The spoken line goes to the top: it is the first line you see, and
+  // everything below it is what is coming. Centring, and then sitting it at
+  // 30%, both spent the space above on text already read.
   //
-  // The offset shrinks for a line too tall to fit below it, so the bottom of
-  // the line stays inside the view rather than the top staying at 30%.
-  const room = Math.max(0, view - lineEl.offsetHeight - 8);
-  const lead = Math.min(view * 0.3, room);
+  // A hair of padding rather than flush, so it doesn't look clipped against
+  // the edge. A line taller than the view still starts at the top, which is
+  // the most of it you can be shown.
+  const lead = 8;
   const target = Math.max(0, top - lead);
 
   // Keep the line at that height on every cue, rather than letting it walk
