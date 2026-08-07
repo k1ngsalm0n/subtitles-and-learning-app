@@ -1,0 +1,351 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+// Characterization tests for the deck sidebar's drag-to-reorder. They describe
+// what it does today, not what it ought to do: it is the most tangled function
+// in the app and had no test at all, so the first job is a net under it.
+//
+// They drive the real listeners rather than a re-implementation, which needs a
+// DOM. Only the parts this code actually touches are here — classes, dataset,
+// sibling walks, insertBefore, and rectangles — because a fake that answers
+// more than the code asks is a fake that can lie about the rest.
+
+const ROW_H = 40;
+
+function matchesCompound(el, compound) {
+  const tokens = compound.trim().match(/\.[-\w]+|\[[^\]]+\]/g) || [];
+  if (!tokens.length) return false;
+  return tokens.every((token) => {
+    if (token.startsWith(".")) return el.classList.contains(token.slice(1));
+    const inner = token.slice(1, -1);
+    const eq = inner.indexOf("=");
+    if (eq === -1) return el.getAttribute(inner) !== null;
+    const name = inner.slice(0, eq);
+    const value = inner.slice(eq + 1).replace(/^['"]|['"]$/g, "");
+    return el.getAttribute(name) === value;
+  });
+}
+
+class El {
+  constructor(tag = "div") {
+    this.tagName = tag;
+    this.className = "";
+    this.dataset = {};
+    this.attributes = {};
+    this.childNodes = [];
+    this.parentNode = null;
+    this.listeners = {};
+    this.animations = 0;
+  }
+
+  get classList() {
+    const parts = () => new Set(this.className.split(/\s+/).filter(Boolean));
+    const write = (set) => {
+      this.className = [...set].join(" ");
+    };
+    return {
+      add: (...names) => {
+        const set = parts();
+        for (const n of names) set.add(n);
+        write(set);
+      },
+      remove: (...names) => {
+        const set = parts();
+        for (const n of names) set.delete(n);
+        write(set);
+      },
+      toggle: (name, on) => (on ? this.classList.add(name) : this.classList.remove(name)),
+      contains: (name) => parts().has(name),
+    };
+  }
+
+  getAttribute(name) {
+    if (name.startsWith("data-")) {
+      const key = name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      return key in this.dataset ? String(this.dataset[key]) : null;
+    }
+    return name in this.attributes ? String(this.attributes[name]) : null;
+  }
+
+  matches(selector) {
+    return selector.split(",").some((part) => matchesCompound(this, part));
+  }
+
+  closest(selector) {
+    let node = this;
+    while (node) {
+      if (node.matches?.(selector)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  get siblings() {
+    return this.parentNode ? this.parentNode.childNodes : [];
+  }
+
+  get previousElementSibling() {
+    const i = this.siblings.indexOf(this);
+    return i > 0 ? this.siblings[i - 1] : null;
+  }
+
+  get nextElementSibling() {
+    const i = this.siblings.indexOf(this);
+    return i >= 0 && i < this.siblings.length - 1 ? this.siblings[i + 1] : null;
+  }
+
+  get lastElementChild() {
+    return this.childNodes[this.childNodes.length - 1] || null;
+  }
+
+  querySelectorAll(selector) {
+    const out = [];
+    const walk = (node) => {
+      for (const child of node.childNodes) {
+        if (child.matches(selector)) out.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return out;
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+
+  insertBefore(node, reference) {
+    node.parentNode?.remove(node);
+    const at = reference ? this.childNodes.indexOf(reference) : this.childNodes.length;
+    this.childNodes.splice(at < 0 ? this.childNodes.length : at, 0, node);
+    node.parentNode = this;
+    return node;
+  }
+
+  append(node) {
+    this.insertBefore(node, null);
+  }
+
+  remove(node) {
+    const i = this.childNodes.indexOf(node);
+    if (i >= 0) this.childNodes.splice(i, 1);
+  }
+
+  addEventListener(type, fn) {
+    (this.listeners[type] ||= []).push(fn);
+  }
+
+  // Rows are laid out as a stack, so a row's rectangle follows its current
+  // position in the list — which is the point, since the code re-measures
+  // after every move.
+  getBoundingClientRect() {
+    const i = this.siblings.indexOf(this);
+    return { top: i * ROW_H, height: ROW_H, bottom: (i + 1) * ROW_H };
+  }
+
+  animate() {
+    this.animations++;
+    return { finished: Promise.resolve() };
+  }
+
+  focus() {}
+}
+
+// --- globals ui.mjs touches at import time ---------------------------------
+globalThis.window = { matchMedia: () => ({ matches: false }), addEventListener() {} };
+globalThis.document = {
+  createElement: (tag) => new El(tag),
+  addEventListener() {},
+  querySelector: () => null,
+  querySelectorAll: () => [],
+  body: new El("body"),
+};
+globalThis.localStorage = {
+  getItem: () => null,
+  setItem() {},
+  removeItem() {},
+  key: () => null,
+  length: 0,
+};
+globalThis.CSS = { escape: (s) => String(s).replace(/["\\]/g, "\\$&") };
+globalThis.matchMedia = () => ({ matches: false, addEventListener() {} });
+globalThis.requestAnimationFrame = (fn) => {
+  fn();
+  return 1;
+};
+Object.defineProperty(globalThis, "navigator", {
+  value: { language: "en" },
+  configurable: true,
+});
+
+// state.mjs is imported once and shared: a query string only busts the module
+// it names, so re-importing ui.mjs gives a fresh `_deckReorderDelegated` while
+// the decks stay where the test put them.
+const { state } = await import("../public/js/state.mjs");
+
+// A sidebar, described the short way: "a" is top level, "a/b" is b inside a.
+function build(spec) {
+  state.decks = spec.map((entry) => {
+    const [id, parentId = ""] = entry.split("/").reverse();
+    return { id, name: id.toUpperCase(), parentId: parentId || null, collapsed: false };
+  });
+
+  const nav = new El("nav");
+  for (const deck of state.decks) {
+    const row = new El("button");
+    row.className = `deck-nav-item deck-depth-${deck.parentId ? 1 : 0}`;
+    row.dataset.deck = deck.id;
+    row.dataset.parent = deck.parentId || "";
+    row.attributes.draggable = "true";
+    nav.append(row);
+  }
+  return nav;
+}
+
+async function sidebar(spec) {
+  const nav = build(spec);
+  const { setupDeckReorder } = await import(`../public/js/ui.mjs?${Math.random()}`);
+  setupDeckReorder(nav);
+  return nav;
+}
+
+const fire = (nav, type, event) => {
+  for (const fn of nav.listeners[type] || []) fn(event);
+};
+
+const rowFor = (nav, id) => nav.querySelector(`.deck-nav-item[data-deck="${id}"]`);
+
+// The gesture, in the order a browser sends it: press, then start, then move.
+function grab(nav, id) {
+  const row = rowFor(nav, id);
+  fire(nav, "pointerdown", { target: row });
+  fire(nav, "dragstart", {
+    target: row,
+    preventDefault() {},
+    dataTransfer: { setData() {} },
+  });
+  return row;
+}
+
+// `at` is a fraction of the target row's height: 0.1 is its top edge, 0.5 its
+// middle, 0.9 its bottom edge.
+function dragOver(nav, id, at) {
+  const row = rowFor(nav, id);
+  const rect = row.getBoundingClientRect();
+  fire(nav, "dragover", {
+    target: row,
+    clientY: rect.top + rect.height * at,
+    preventDefault() {},
+    dataTransfer: {},
+  });
+}
+
+// What the list looks like now: "b>a" is b sitting inside a.
+const shape = (nav) =>
+  nav.querySelectorAll(".deck-nav-item").map((row) =>
+    row.dataset.parent ? `${row.dataset.deck}>${row.dataset.parent}` : row.dataset.deck,
+  );
+
+test("the middle of a top-level row files the dragged deck inside it", async () => {
+  const nav = await sidebar(["a", "b"]);
+  grab(nav, "b");
+  dragOver(nav, "a", 0.5);
+  assert.deepEqual(shape(nav), ["a", "b>a"]);
+  assert.ok(rowFor(nav, "a").classList.contains("nest-target"), "the target is marked");
+});
+
+test("a deck that has sub-decks of its own cannot be filed inside another", async () => {
+  const nav = await sidebar(["a", "b", "b/c"]);
+  grab(nav, "b");
+  dragOver(nav, "a", 0.5);
+  assert.deepEqual(shape(nav), ["a", "b", "c>b"], "the group stays where it was");
+  assert.ok(
+    !rowFor(nav, "a").classList.contains("nest-target"),
+    "and is never offered as a target",
+  );
+});
+
+test("dragging a group takes its sub-decks with it", async () => {
+  const nav = await sidebar(["a", "b", "b/c", "b/d"]);
+  grab(nav, "b");
+  dragOver(nav, "a", 0.1); // above a
+  assert.deepEqual(shape(nav), ["b", "c>b", "d>b", "a"]);
+});
+
+test("an insertion between two sub-decks joins that group", async () => {
+  const nav = await sidebar(["a", "a/x", "a/y", "b"]);
+  grab(nav, "b");
+  dragOver(nav, "y", 0.1); // the slot between x and y
+  assert.deepEqual(shape(nav), ["a", "x>a", "b>a", "y>a"]);
+});
+
+test("the top edge inserts above and the bottom edge below", async () => {
+  const above = await sidebar(["a", "b", "c"]);
+  grab(above, "c");
+  dragOver(above, "a", 0.1);
+  assert.deepEqual(shape(above), ["c", "a", "b"]);
+
+  const below = await sidebar(["a", "b", "c"]);
+  grab(below, "a");
+  dragOver(below, "b", 0.9);
+  assert.deepEqual(shape(below), ["b", "a", "c"]);
+});
+
+test("a row already in the slot is left alone rather than re-inserted", async () => {
+  const nav = await sidebar(["a", "b", "c"]);
+  const row = grab(nav, "b");
+  const settled = () => nav.querySelectorAll(".deck-nav-item").reduce((n, r) => n + r.animations, 0);
+
+  dragOver(nav, "a", 0.9); // the slot b already occupies
+  assert.deepEqual(shape(nav), ["a", "b", "c"]);
+  assert.equal(settled(), 0, "nothing moved, so nothing animated");
+  assert.equal(row.parentNode, nav);
+});
+
+test("leaving a group drops the sub-deck back to the top level", async () => {
+  const nav = await sidebar(["a", "a/x", "b"]);
+  grab(nav, "x");
+  dragOver(nav, "b", 0.9); // past the last row, which is top level
+  assert.deepEqual(shape(nav), ["a", "b", "x"]);
+});
+
+test("a drag that never starts from a control moves nothing", async () => {
+  const nav = await sidebar(["a", "b"]);
+  // A press on the twisty is not a grab, so dragstart is refused.
+  const twisty = new El("span");
+  twisty.className = "deck-twisty";
+  twisty.attributes.role = "button";
+  rowFor(nav, "b").append(twisty);
+
+  fire(nav, "pointerdown", { target: twisty });
+  let prevented = false;
+  fire(nav, "dragstart", {
+    target: rowFor(nav, "b"),
+    preventDefault() {
+      prevented = true;
+    },
+    dataTransfer: { setData() {} },
+  });
+  assert.ok(prevented, "the drag is refused before it starts");
+
+  dragOver(nav, "a", 0.1);
+  assert.deepEqual(shape(nav), ["a", "b"], "and dragover does nothing without a source");
+});
+
+// A deck that has sub-decks can be reordered but not filed, so a slot that
+// would change its parent is refused outright rather than quietly dropping it
+// somewhere else. Nothing covered this until a mutation walked straight
+// through it.
+test("a group can only be reordered among its own level", async () => {
+  const nav = await sidebar(["a", "a/x", "a/y", "b", "b/c"]);
+  grab(nav, "b");
+  dragOver(nav, "y", 0.1); // a slot inside a's group
+  assert.deepEqual(shape(nav), ["a", "x>a", "y>a", "b", "c>b"]);
+});
+
+test("a sub-deck being dragged moves on its own", async () => {
+  const nav = await sidebar(["a", "a/x", "a/y", "b"]);
+  grab(nav, "x");
+  dragOver(nav, "b", 0.9);
+  assert.deepEqual(shape(nav), ["a", "y>a", "b", "x"], "y stays behind");
+});

@@ -758,7 +758,11 @@ function wireSubdeckForm(e) {
 // neighbour, and every row that shifts is animated from its old position to its
 // new one (FLIP). Committing to state only happens on drop.
 let _deckReorderDelegated = false;
-function setupDeckReorder(nav) {
+// Exported for the tests. The rules here — which rows may nest, what an
+// insertion slot implies about parentage, when a move is already settled — are
+// the kind that are easy to break and hard to notice, because a wrong answer
+// looks like an ordinary drag that went somewhere else.
+export function setupDeckReorder(nav) {
   if (_deckReorderDelegated) return;
   _deckReorderDelegated = true;
   const DECK = ".deck-nav-item[draggable]";
