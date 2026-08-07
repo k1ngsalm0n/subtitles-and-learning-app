@@ -446,16 +446,30 @@ const PLAYER_QUIET_MS = 8000;
 let _followSuspended = false;
 
 export function watchTranscriptScroll(els) {
-  const transcript = (els || _els)?.transcript;
+  const e = els || _els;
+  const transcript = e?.transcript;
   if (!transcript) return;
   // wheel and touchmove only: these are unambiguously the reader moving. A
   // plain scroll event can't be trusted, because our own smooth scrolling
   // fires those too and would immediately suspend itself.
   const suspend = () => {
     _followSuspended = true;
+    // Scrolling the transcript is reading, not listening. Letting the audio
+    // run on while you look somewhere else means coming back to a different
+    // place than you left, so the video waits for you.
+    if (e.video && !e.video.paused) e.video.pause();
   };
   transcript.addEventListener("wheel", suspend, { passive: true });
   transcript.addEventListener("touchmove", suspend, { passive: true });
+
+  // Pressing play is saying "carry on from the audio", so the transcript goes
+  // back to it there and then rather than waiting for the next cue. Forced,
+  // because starting playback usually means clicking the player, and the
+  // quiet window that protects the controls menu would otherwise swallow it.
+  e.video?.addEventListener("play", () => {
+    _followSuspended = false;
+    scrollActiveLineIntoView(e, { force: true });
+  });
 }
 
 // Choosing a line — clicking it, or stepping with the keyboard — is a
@@ -472,10 +486,12 @@ export function watchPlayerPointer(els) {
   });
 }
 
-export function scrollActiveLineIntoView(els) {
+export function scrollActiveLineIntoView(els, { force = false } = {}) {
   // Deliberately before anything else: the cheapest way not to disturb an open
-  // controls menu is not to move anything while it could be open.
-  if (Date.now() - _playerClickedAt < PLAYER_QUIET_MS) return;
+  // controls menu is not to move anything while it could be open. `force` is
+  // for the one case that outranks it — playback starting, where going back to
+  // the audio is the whole point.
+  if (!force && Date.now() - _playerClickedAt < PLAYER_QUIET_MS) return;
 
   const e = els || _els;
   const lineEl = e.transcript.querySelector(".line.active");
@@ -494,19 +510,33 @@ export function scrollActiveLineIntoView(els) {
   // Scrolled away on purpose: stay away. Scrolled back far enough that the
   // spoken line is on screen again, and following picks up where it left off —
   // no button to press, you just return to it.
-  if (_followSuspended) {
+  if (!force && _followSuspended) {
     const visible = seen >= 0 && seen + lineEl.offsetHeight <= view;
     if (!visible) return;
     _followSuspended = false;
   }
 
-  const margin = Math.min(80, view * 0.25);
-  if (seen >= margin && seen + lineEl.offsetHeight <= view - margin) return;
+  // The spoken line goes to the top: it is the first line you see, and
+  // everything below it is what is coming. Centring, and then sitting it at
+  // 30%, both spent the space above on text already read.
+  //
+  // A hair of padding rather than flush, so it doesn't look clipped against
+  // the edge. A line taller than the view still starts at the top, which is
+  // the most of it you can be shown.
+  const lead = 8;
+  const target = Math.max(0, top - lead);
 
-  e.transcript.scrollTo({
-    top: Math.max(0, top - (view - lineEl.offsetHeight) / 2),
-    behavior: "smooth",
-  });
+  // Keep the line at that height on every cue, rather than letting it walk
+  // down the view and snap back when it nears the bottom. That drift is what
+  // made the line "lower than expected" a few seconds after it had just been
+  // placed correctly: it starts at 30% and slides from there.
+  //
+  // Scrolling more often was the thing being avoided when this only fired near
+  // the edges, because a scroll dismisses the browser's controls menu. That is
+  // handled properly now by the quiet window after a click on the player, so
+  // the line can simply stay where it belongs.
+  if (!force && Math.abs(e.transcript.scrollTop - target) < 24) return;
+  e.transcript.scrollTo({ top: target, behavior: "smooth" });
 }
 
 let _rafId = null;

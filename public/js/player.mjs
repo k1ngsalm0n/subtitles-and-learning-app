@@ -33,8 +33,8 @@ export function syncToVideo(els) {
     if (activeLoop && activeLoop.index !== index) stopLoop(els);
     state.activeIndex = index;
     setActiveLine(els);
-    // Playback moved to a new line — keep it centered in the transcript so the
-    // karaoke highlight stays on screen.
+    // Playback moved to a new line — bring it to the top of the transcript so
+    // the karaoke highlight is the first thing on screen.
     scrollActiveLineIntoView(els);
   }
 }
@@ -50,8 +50,13 @@ export function activateLine(index, seek, els) {
   paintHighlight(els, state.subtitles[index]);
   setActiveLine(els);
   // Picking a line says where you want to be, so stop holding the transcript
-  // wherever you had scrolled to.
+  // wherever you had scrolled to...
   resumeFollow();
+  // ...and bring it to the top, like every other way of reaching a line.
+  // Without this, choosing a line didn't move the transcript at all: it just
+  // marked whichever row you clicked, so clicking the line below the current
+  // one left it sitting second while the one before it had been first.
+  scrollActiveLineIntoView(els);
 }
 
 // Step to the neighbouring line and seek there. Keyboard-driven line changes
@@ -61,7 +66,6 @@ export function stepLine(delta, els) {
   const next = stepIndex(state.activeIndex, delta, state.subtitles.length);
   if (next === -1) return false;
   activateLine(next, true, els);
-  scrollActiveLineIntoView(els);
   return true;
 }
 
