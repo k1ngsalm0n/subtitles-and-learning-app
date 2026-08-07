@@ -519,10 +519,17 @@ export function scrollActiveLineIntoView(els, { force = false } = {}) {
   const margin = Math.min(80, view * 0.25);
   if (!force && seen >= margin && seen + lineEl.offsetHeight <= view - margin) return;
 
-  e.transcript.scrollTo({
-    top: Math.max(0, top - (view - lineEl.offsetHeight) / 2),
-    behavior: "smooth",
-  });
+  // Sit the line high rather than centred. Centring puts the spoken line in
+  // the middle with as much behind it as ahead, which wastes the half you have
+  // already read — and on a short window, or a line made tall by pinyin ruby
+  // and a wrapped translation, it pushes the translation towards the bottom
+  // edge. High shows what is coming instead.
+  //
+  // The offset shrinks for a line too tall to fit below it, so the bottom of
+  // the line stays inside the view rather than the top staying at 30%.
+  const room = Math.max(0, view - lineEl.offsetHeight - 8);
+  const lead = Math.min(view * 0.3, room);
+  e.transcript.scrollTo({ top: Math.max(0, top - lead), behavior: "smooth" });
 }
 
 let _rafId = null;
