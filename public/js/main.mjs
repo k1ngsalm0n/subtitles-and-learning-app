@@ -81,6 +81,7 @@ import {
   renderTranscript,
   startHighlightLoop,
   watchPlayerPointer,
+  watchTranscriptScroll,
   setupTranscriptDelegation,
   renderCardList,
   renderReviewCard,
@@ -320,6 +321,7 @@ function bindEvents() {
   });
   startHighlightLoop(els);
   watchPlayerPointer(els);
+  watchTranscriptScroll(els);
   els.searchInput.addEventListener("input", () => {
     setTranscriptSearch(els.searchInput.value);
     renderTranscript(els);
