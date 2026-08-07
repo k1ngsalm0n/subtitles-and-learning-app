@@ -26,6 +26,16 @@
 // handlers share Space and the arrows without either knowing about the other.
 const TEXT_ENTRY = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
+// Holding a key repeats keydown about thirty times a second. For these that is
+// never what was meant: play/pause toggles on every repeat, so a press held a
+// moment too long lands on whichever state the count happens to end on — which
+// reads as "I paused it and it started again by itself". Replay would re-arm
+// the loop over and over, and save would file the same line dozens of times.
+//
+// Stepping a line is left alone deliberately: holding an arrow to run back
+// several lines is a reasonable thing to want, and repeating it is the point.
+const ONCE_PER_PRESS = new Set(["playPause", "replayLine", "saveLine"]);
+
 export const STUDY_KEYS = {
   " ": "playPause",
   ArrowLeft: "prevLine",
@@ -42,6 +52,7 @@ export function studyAction(context = {}) {
     metaKey,
     altKey,
     tagName = "",
+    repeat = false,
     defaultPrevented = false,
     viewActive = false,
     dialogOpen = false,
@@ -55,7 +66,9 @@ export function studyAction(context = {}) {
 
   // Letters are matched case-insensitively so Shift or caps lock still works;
   // Space and the arrows have no case to fold.
-  return STUDY_KEYS[key] || STUDY_KEYS[key.toLowerCase()] || "";
+  const action = STUDY_KEYS[key] || STUDY_KEYS[key.toLowerCase()] || "";
+  if (!action) return "";
+  return repeat && ONCE_PER_PRESS.has(action) ? "" : action;
 }
 
 // Clamp a line step to the transcript. Returns the index to move to, or -1

@@ -99,3 +99,26 @@ test("every mapped key resolves to a real action (#25)", () => {
     ["nextLine", "playPause", "prevLine", "replayLine", "saveLine"],
   );
 });
+
+test("a held key doesn't toggle playback over and over (#25)", () => {
+  // Holding a key repeats keydown ~30 times a second. Toggling on each repeat
+  // means a press held a moment too long ends on whichever state the count
+  // lands on, which reads as "I paused it and it started playing by itself".
+  assert.equal(studyAction(live({ key: " ", repeat: false })), "playPause");
+  assert.equal(studyAction(live({ key: " ", repeat: true })), "");
+});
+
+test("a held key doesn't re-loop or save the same line repeatedly (#25)", () => {
+  assert.equal(studyAction(live({ key: "r", repeat: true })), "");
+  assert.equal(studyAction(live({ key: "s", repeat: true })), "");
+  // ...and one press still works.
+  assert.equal(studyAction(live({ key: "r", repeat: false })), "replayLine");
+  assert.equal(studyAction(live({ key: "s", repeat: false })), "saveLine");
+});
+
+test("holding an arrow still steps line after line (#25)", () => {
+  // Deliberately not suppressed: running back several lines by holding the key
+  // is a reasonable thing to want, and repeating is how you do it.
+  assert.equal(studyAction(live({ key: "ArrowLeft", repeat: true })), "prevLine");
+  assert.equal(studyAction(live({ key: "ArrowRight", repeat: true })), "nextLine");
+});

@@ -501,6 +501,7 @@ function handleStudyKeys(event) {
     metaKey: event.metaKey,
     altKey: event.altKey,
     tagName: event.target?.tagName,
+    repeat: event.repeat,
     defaultPrevented: event.defaultPrevented,
     viewActive: document.querySelector("#studyView").classList.contains("active"),
     dialogOpen: Boolean(document.querySelector("dialog[open]")),
