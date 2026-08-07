@@ -173,3 +173,42 @@ test("import can't create a deck nested two levels deep", () => {
   assert.equal(byId.b.parentId, "a");
   assert.equal(byId.c.parentId, null, "C's parent is itself a sub-deck");
 });
+
+// The two name comparisons in mergeImport are deliberately not the same, and
+// nothing pinned that until now — collapsing them into one shared helper is
+// exactly the tidy-up a reader would reach for, and it changes behaviour in
+// both directions. These are here so that change fails a test instead of
+// shipping.
+
+test("two unnamed templates merge onto each other rather than piling up", () => {
+  const current = { ...baseState(), templates: [{ id: "nameless-a" }] };
+  const incoming = {
+    version: EXPORT_VERSION,
+    decks: [],
+    templates: [{ id: "nameless-b" }],
+    cards: [],
+  };
+  const merged = mergeImport(current, incoming);
+  assert.equal(merged.report.templates.added, 0, "no name is a name they share");
+  assert.equal(merged.report.templates.skipped, 1);
+  assert.ok(
+    !merged.templates.some((t) => t.id === "nameless-b"),
+    "the second unnamed template merged onto the first",
+  );
+});
+
+test("an incoming deck with no name is ignored, not imported half-formed", () => {
+  const incoming = {
+    version: EXPORT_VERSION,
+    decks: [{ id: "no-name" }, { id: "fine", name: "Fine" }],
+    templates: [],
+    cards: [],
+  };
+  const merged = mergeImport(baseState(), incoming);
+  assert.ok(!merged.decks.some((d) => d.id === "no-name"));
+  assert.ok(merged.decks.some((d) => d.id === "fine"));
+  // Skipped for being malformed isn't the same as skipped for already existing,
+  // so it isn't counted as either.
+  assert.equal(merged.report.decks.added, 1);
+  assert.equal(merged.report.decks.skipped, 0);
+});

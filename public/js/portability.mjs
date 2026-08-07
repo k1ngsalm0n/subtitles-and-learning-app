@@ -41,97 +41,108 @@ function normalizeImport(incoming) {
   return null;
 }
 
-export function mergeImport(current, incoming) {
-  const data = normalizeImport(incoming);
-  if (!data || (!data.cards.length && !data.decks.length && !data.templates.length)) {
-    return { error: "This file doesn't look like a flashcard export." };
-  }
+// Two things are the "same" if a reader would say so, which is not the same
+// question as whether the ids match.
+//
+// Templates compare with `?.` and decks don't, and that asymmetry is load-
+// bearing rather than sloppy: two *unnamed* templates compare equal here
+// (undefined === undefined) and merge onto each other, which is the behaviour
+// the template phase relies on. Decks are guaranteed a string name by the
+// typeof guard on the way in, so the strict form matches what has always run —
+// including that it throws if a deck already in the store somehow has no name.
+// That is out-of-contract input, and quietly making it survive is a behaviour
+// change, not a tidy-up.
+const sameDeckName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const sameTemplateName = (a, b) => a?.trim().toLowerCase() === b?.trim().toLowerCase();
 
-  const report = {
-    decks: { added: 0, skipped: 0 },
-    templates: { added: 0, skipped: 0 },
-    cards: { added: 0, skipped: 0 },
-  };
-
-  const decks = [...current.decks];
-  const templates = [...current.templates];
-  const cards = [...current.cards];
-
-  // Decks: merge by id; a same-named deck under a different id is treated as
-  // the same deck (its cards are remapped onto the existing one).
-  const deckRemap = new Map();
-  const added = [];
-  for (const deck of data.decks) {
-    if (!deck || typeof deck.id !== "string" || typeof deck.name !== "string") continue;
-    const byId = decks.find((d) => d.id === deck.id);
-    if (byId) {
-      report.decks.skipped++;
-      continue;
-    }
-    const byName = decks.find(
-      (d) => d.name.trim().toLowerCase() === deck.name.trim().toLowerCase(),
-    );
-    if (byName) {
-      deckRemap.set(deck.id, byName.id);
-      report.decks.skipped++;
-      continue;
-    }
-    decks.push({ ...deck, builtIn: false });
-    added.push(decks[decks.length - 1]);
-    report.decks.added++;
-  }
-
-  // Parent links travel with the decks, so they need the same remap. Anything
-  // still dangling — or pointing at a deck that is itself a sub-deck, which
-  // would break the one-level rule — becomes a top-level deck rather than
-  // disappearing from the sidebar.
+// Parent links travel with the decks, so they need the same remap. Anything
+// still dangling — or pointing at a deck that is itself a sub-deck, which would
+// break the one-level rule — becomes a top-level deck rather than disappearing
+// from the sidebar.
+function relinkParents(decks, added, remap) {
   for (const deck of added) {
     if (!deck.parentId) continue;
-    const parentId = deckRemap.get(deck.parentId) || deck.parentId;
+    const parentId = remap.get(deck.parentId) || deck.parentId;
     const parent = decks.find((other) => other.id === parentId);
     const usable = parent && parent.id !== deck.id && !parent.parentId;
     deck.parentId = usable ? parent.id : null;
   }
+}
 
-  // Templates: same by-id/by-name merge. Cards carry their own field lists,
-  // so a remapped template id is cosmetic.
-  const templateRemap = new Map();
+// Decks: merge by id; a same-named deck under a different id is treated as the
+// same deck, and the remap is how its cards find their way onto the existing
+// one. Each phase returns its remap because the cards phase needs both.
+function mergeDecks(existing, incoming, tally) {
+  const decks = [...existing];
+  const remap = new Map();
+  const added = [];
+  for (const deck of incoming) {
+    if (!deck || typeof deck.id !== "string" || typeof deck.name !== "string") continue;
+    if (decks.some((d) => d.id === deck.id)) {
+      tally.skipped++;
+      continue;
+    }
+    const byName = decks.find((d) => sameDeckName(d.name, deck.name));
+    if (byName) {
+      remap.set(deck.id, byName.id);
+      tally.skipped++;
+      continue;
+    }
+    const copy = { ...deck, builtIn: false };
+    decks.push(copy);
+    added.push(copy);
+    tally.added++;
+  }
+  relinkParents(decks, added, remap);
+  return { decks, remap };
+}
+
+// Templates: the same by-id/by-name merge. Cards carry their own field lists,
+// so a remapped template id is cosmetic.
+function mergeTemplates(existing, incoming, tally) {
+  const templates = [...existing];
+  const remap = new Map();
   const builtinIds = new Set(builtinTemplates().map((tpl) => tpl.id));
-  for (const template of data.templates) {
+  for (const template of incoming) {
     if (!template || typeof template.id !== "string") continue;
     if (builtinIds.has(template.id) || templates.some((t) => t.id === template.id)) {
-      report.templates.skipped++;
+      tally.skipped++;
       continue;
     }
-    const byName = templates.find(
-      (t) => t.name?.trim().toLowerCase() === template.name?.trim().toLowerCase(),
-    );
+    const byName = templates.find((t) => sameTemplateName(t.name, template.name));
     if (byName) {
-      templateRemap.set(template.id, byName.id);
-      report.templates.skipped++;
+      remap.set(template.id, byName.id);
+      tally.skipped++;
       continue;
     }
+    // A template without both field lists can't render a card, so it is
+    // dropped rather than imported as something that would fail later.
     if (
       !Array.isArray(template.frontFields) ||
       !Array.isArray(template.backFields) ||
       !template.name
     ) {
-      report.templates.skipped++;
+      tally.skipped++;
       continue;
     }
     templates.push({ ...template, builtIn: false });
-    report.templates.added++;
+    tally.added++;
   }
+  return { templates, remap };
+}
 
-  // Cards: migrate legacy shapes, skip ids that already exist, remap dangling
-  // deck/template references onto the defaults.
+// Cards: migrate legacy shapes, skip ids that already exist, remap dangling
+// deck/template references onto the defaults. Takes the *merged* decks and
+// templates, because a card may point at something this same import added.
+function mergeCards(existing, incoming, { decks, templates, deckRemap, templateRemap }, tally) {
+  const cards = [...existing];
   const existingIds = new Set(cards.map((card) => card.id));
   const deckIds = new Set(decks.map((deck) => deck.id));
   const templateIds = new Set(templates.map((tpl) => tpl.id));
-  const { cards: migrated } = migrateSchedules(migrateCards(data.cards).cards);
+  const { cards: migrated } = migrateSchedules(migrateCards(incoming).cards);
   for (const card of migrated) {
     if (!card.id || existingIds.has(card.id)) {
-      report.cards.skipped++;
+      tally.skipped++;
       continue;
     }
     const deckId = deckRemap.get(card.deckId) || card.deckId;
@@ -144,8 +155,37 @@ export function mergeImport(current, incoming) {
         : BUILTIN_TEMPLATE_IDS.default,
     });
     existingIds.add(card.id);
-    report.cards.added++;
+    tally.added++;
   }
+  return cards;
+}
+
+export function mergeImport(current, incoming) {
+  const data = normalizeImport(incoming);
+  if (!data || (!data.cards.length && !data.decks.length && !data.templates.length)) {
+    return { error: "This file doesn't look like a flashcard export." };
+  }
+
+  const report = {
+    decks: { added: 0, skipped: 0 },
+    templates: { added: 0, skipped: 0 },
+    cards: { added: 0, skipped: 0 },
+  };
+
+  // Order matters: cards are placed against the decks and templates this
+  // import has already merged, not the ones it started with.
+  const { decks, remap: deckRemap } = mergeDecks(current.decks, data.decks, report.decks);
+  const { templates, remap: templateRemap } = mergeTemplates(
+    current.templates,
+    data.templates,
+    report.templates,
+  );
+  const cards = mergeCards(
+    current.cards,
+    data.cards,
+    { decks, templates, deckRemap, templateRemap },
+    report.cards,
+  );
 
   return { decks, templates, cards, report };
 }
