@@ -516,9 +516,6 @@ export function scrollActiveLineIntoView(els, { force = false } = {}) {
     _followSuspended = false;
   }
 
-  const margin = Math.min(80, view * 0.25);
-  if (!force && seen >= margin && seen + lineEl.offsetHeight <= view - margin) return;
-
   // Sit the line high rather than centred. Centring puts the spoken line in
   // the middle with as much behind it as ahead, which wastes the half you have
   // already read — and on a short window, or a line made tall by pinyin ruby
@@ -529,7 +526,19 @@ export function scrollActiveLineIntoView(els, { force = false } = {}) {
   // the line stays inside the view rather than the top staying at 30%.
   const room = Math.max(0, view - lineEl.offsetHeight - 8);
   const lead = Math.min(view * 0.3, room);
-  e.transcript.scrollTo({ top: Math.max(0, top - lead), behavior: "smooth" });
+  const target = Math.max(0, top - lead);
+
+  // Keep the line at that height on every cue, rather than letting it walk
+  // down the view and snap back when it nears the bottom. That drift is what
+  // made the line "lower than expected" a few seconds after it had just been
+  // placed correctly: it starts at 30% and slides from there.
+  //
+  // Scrolling more often was the thing being avoided when this only fired near
+  // the edges, because a scroll dismisses the browser's controls menu. That is
+  // handled properly now by the quiet window after a click on the player, so
+  // the line can simply stay where it belongs.
+  if (!force && Math.abs(e.transcript.scrollTop - target) < 24) return;
+  e.transcript.scrollTo({ top: target, behavior: "smooth" });
 }
 
 let _rafId = null;
