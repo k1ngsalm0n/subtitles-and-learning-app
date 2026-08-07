@@ -8,6 +8,7 @@ import {
   renderTranscript,
   setActiveLine,
   scrollActiveLineIntoView,
+  resumeFollow,
 } from "./ui.mjs";
 
 // Tracks the active A–B loop, if any: { index, listener }. Only ever one.
@@ -48,6 +49,9 @@ export function activateLine(index, seek, els) {
   // the equivalent is showing where on the page it was read from.
   paintHighlight(els, state.subtitles[index]);
   setActiveLine(els);
+  // Picking a line says where you want to be, so stop holding the transcript
+  // wherever you had scrolled to.
+  resumeFollow();
 }
 
 // Step to the neighbouring line and seek there. Keyboard-driven line changes

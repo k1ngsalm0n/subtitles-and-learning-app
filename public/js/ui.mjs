@@ -426,28 +426,56 @@ export function setActiveLine(els) {
   }
 }
 
-// True while the pointer is inside the player, i.e. while someone is plausibly
-// using the video's own controls.
-//
 // Auto-scrolling the transcript dismisses the browser's native controls menu —
-// verified by elimination: the same video served on its own, with none of this
-// app around it, keeps its menu open indefinitely. Reducing how often we
-// scrolled made it happen less; it still happened. So while the pointer is on
-// the player, the transcript holds still. Once it leaves, the next line change
-// catches the transcript up.
-let _pointerOnPlayer = false;
+// established by elimination, and confirmed by the same video served on its
+// own, with none of this app around it, keeping its menu open indefinitely.
+// When the player was last clicked.
+//
+// Hovering is not enough to go on: the pointer rests on the video for the whole
+// of a normal watch, so keying off hover meant the transcript never followed at
+// all — the mark walked off the bottom and stayed there. A click is what opens
+// the controls menu, so a short window after one is what actually needs
+// protecting.
+let _playerClickedAt = 0;
+const PLAYER_QUIET_MS = 8000;
+
+// Set when the reader scrolls the transcript themselves. Auto-follow then
+// stops until they come back to the line being spoken — otherwise scrolling up
+// to re-read something gets you dragged forward again a second or two later,
+// which is the transcript arguing with you about what you are reading.
+let _followSuspended = false;
+
+export function watchTranscriptScroll(els) {
+  const transcript = (els || _els)?.transcript;
+  if (!transcript) return;
+  // wheel and touchmove only: these are unambiguously the reader moving. A
+  // plain scroll event can't be trusted, because our own smooth scrolling
+  // fires those too and would immediately suspend itself.
+  const suspend = () => {
+    _followSuspended = true;
+  };
+  transcript.addEventListener("wheel", suspend, { passive: true });
+  transcript.addEventListener("touchmove", suspend, { passive: true });
+}
+
+// Choosing a line — clicking it, or stepping with the keyboard — is a
+// statement about where you want to be, so following starts again.
+export function resumeFollow() {
+  _followSuspended = false;
+}
 
 export function watchPlayerPointer(els) {
   const wrap = (els || _els)?.playerWrap;
   if (!wrap) return;
-  wrap.addEventListener("pointerenter", () => { _pointerOnPlayer = true; });
-  wrap.addEventListener("pointerleave", () => { _pointerOnPlayer = false; });
+  wrap.addEventListener("pointerdown", () => {
+    _playerClickedAt = Date.now();
+  });
 }
 
 export function scrollActiveLineIntoView(els) {
-  // Deliberately before anything else: the cheapest way not to disturb a menu
-  // is not to move anything while it could be open.
-  if (_pointerOnPlayer) return;
+  // Deliberately before anything else: the cheapest way not to disturb an open
+  // controls menu is not to move anything while it could be open.
+  if (Date.now() - _playerClickedAt < PLAYER_QUIET_MS) return;
 
   const e = els || _els;
   const lineEl = e.transcript.querySelector(".line.active");
@@ -463,6 +491,15 @@ export function scrollActiveLineIntoView(els) {
   // one of the things that dismisses the browser's own video-controls menu, so
   // opening the three-dot menu and waiting for the next line closed it. Most
   // of those scrolls moved the line by a row and were not needed at all.
+  // Scrolled away on purpose: stay away. Scrolled back far enough that the
+  // spoken line is on screen again, and following picks up where it left off —
+  // no button to press, you just return to it.
+  if (_followSuspended) {
+    const visible = seen >= 0 && seen + lineEl.offsetHeight <= view;
+    if (!visible) return;
+    _followSuspended = false;
+  }
+
   const margin = Math.min(80, view * 0.25);
   if (seen >= margin && seen + lineEl.offsetHeight <= view - margin) return;
 

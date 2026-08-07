@@ -81,6 +81,7 @@ import {
   renderTranscript,
   startHighlightLoop,
   watchPlayerPointer,
+  watchTranscriptScroll,
   setupTranscriptDelegation,
   renderCardList,
   renderReviewCard,
@@ -320,6 +321,7 @@ function bindEvents() {
   });
   startHighlightLoop(els);
   watchPlayerPointer(els);
+  watchTranscriptScroll(els);
   els.searchInput.addEventListener("input", () => {
     setTranscriptSearch(els.searchInput.value);
     renderTranscript(els);
@@ -499,6 +501,7 @@ function handleStudyKeys(event) {
     metaKey: event.metaKey,
     altKey: event.altKey,
     tagName: event.target?.tagName,
+    repeat: event.repeat,
     defaultPrevented: event.defaultPrevented,
     viewActive: document.querySelector("#studyView").classList.contains("active"),
     dialogOpen: Boolean(document.querySelector("dialog[open]")),
