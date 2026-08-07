@@ -1,5 +1,6 @@
-import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -112,8 +113,10 @@ export function adoptLegacyVideoDir() {
     const { mkdir, rename } = await import("node:fs/promises");
     await mkdir(path.dirname(VIDEO_DIR), { recursive: true });
     try {
-      // The filenames are the UUIDs the stored sources already point at, so
-      // they come across untouched — only the folder changes.
+      // The filenames are the ones the stored sources already point at, so
+      // they come across untouched — only the folder changes. (Anything from
+      // before #101 is named with a random UUID rather than a URL digest; it
+      // stays reachable, it just can't be recognised as a cache hit.)
       await rename(LEGACY_VIDEO_DIR, VIDEO_DIR);
     } catch (err) {
       // Cross-filesystem (~/.local/share on a different mount from the repo) or
@@ -147,6 +150,31 @@ const VIDEO_CACHE_MAX_AGE_MS =
   60 *
   60 *
   1000;
+
+// How old a stored video may be and still be *re-used* — a separate, shorter
+// limit than the retention one above, and deliberately so. Retention answers
+// "is this worth the disk"; this answers "does the URL still serve this". A
+// link can change what it points at (a re-upload, a better format appearing),
+// and a hit that skips the download can't notice. Past this age the file is
+// deleted and fetched again. Set to 0 to re-use a cached video regardless of
+// age.
+const VIDEO_CACHE_HIT_MAX_AGE_MS =
+  (process.env.VIDEO_CACHE_HIT_MAX_AGE_DAYS !== undefined
+    ? Number(process.env.VIDEO_CACHE_HIT_MAX_AGE_DAYS)
+    : 7) *
+  24 *
+  60 *
+  60 *
+  1000;
+
+// The format selection every import downloads with. Named rather than inlined
+// because the cache key includes it: a cached file was fetched under whatever
+// selection was in force at the time, so changing this has to miss rather than
+// silently serve the old quality.
+const VIDEO_FORMAT_ARGS = [
+  "-f", "best[ext=mp4]/best",
+  "--merge-output-format", "mp4",
+];
 
 // Prefer the venv's yt-dlp (kept on the nightly channel, which gets YouTube
 // fixes ahead of distro packages); fall back to whatever is on PATH.
@@ -300,7 +328,12 @@ export async function handleImportUrl(req, res) {
     const meta = await getMediaMeta(url.href);
     const origBase = baseLang(meta.language);
     report.stage("Downloading the video\u2026");
-    const videoPath = await downloadVideo(url.href);
+    const videoPath = await downloadVideo(url.href, {
+      // Says so rather than narrating a download that isn't happening \u2014 the
+      // step goes from seconds to instant, and an unexplained jump reads as a
+      // skipped stage.
+      onCacheHit: () => report.stage("Reusing the video already downloaded\u2026"),
+    });
     const videoUrl = videoPath ? `/videos/${path.basename(videoPath)}` : "";
 
     // A subtitle track from the platform is the best source when it exists —
@@ -539,27 +572,115 @@ function pickHumanTranslation(meta, sourceBase, target = "en") {
   return meta.manual.find((k) => baseLang(k) === target) || null;
 }
 
-async function downloadVideo(url) {
+// The stored filename for a URL. Downloads used to be named with a fresh
+// crypto.randomUUID(), which left nothing tying a file to the link it came
+// from: the directory bounded itself but could never produce a hit, so
+// re-importing something already on disk was indistinguishable from importing
+// it for the first time and paid for the whole download again (#101).
+//
+// The format arguments go into the digest with the URL, so a change to what we
+// ask yt-dlp for can't be answered from a file fetched under the old one. The
+// digest is truncated to 32 hex characters — this names a file in one local
+// directory, not a security boundary, and a collision would only serve the
+// wrong video to the one reader who caused it.
+export function videoCacheId(url) {
+  return createHash("sha256")
+    .update(`${VIDEO_FORMAT_ARGS.join(" ")}\n${url}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+// Completed downloads for a key, newest first.
+//
+// "Completed" is the whole job here. yt-dlp leaves debris behind when a run is
+// interrupted — "<id>.f399.mp4" is a single stream awaiting its merge,
+// "<id>.mp4.part" a download that stopped partway — and under a random UUID
+// that debris was harmless because nothing ever looked for it again. Keyed by
+// URL it sits exactly where the next import of that URL goes looking, so
+// serving one as a hit would hand the reader half a video. Both carry a second
+// extension segment; the finished file is "<id>.<ext>" and nothing else, which
+// is the test applied here. Empty files are refused for the same reason.
+async function cachedVideoFiles(id) {
+  let files;
+  try {
+    files = await listFiles(VIDEO_DIR);
+  } catch {
+    return []; // no directory yet — the first import of this install
+  }
+  const entries = [];
+  for (const file of files) {
+    const base = path.basename(file);
+    if (!base.startsWith(`${id}.`)) continue;
+    const ext = base.slice(id.length + 1);
+    if (!ext || ext.includes(".")) continue;
+    try {
+      const info = await stat(file);
+      if (info.size > 0) entries.push({ file, mtime: info.mtimeMs });
+    } catch {
+      // Pruned between the listing and the stat; treat it as absent.
+    }
+  }
+  return entries.sort((a, b) => b.mtime - a.mtime);
+}
+
+// What the cache can offer for a URL: the file, and whether it is too old to
+// re-use. Exported for the tests, which is why it takes `now`.
+export async function lookupCachedVideo(url, now = Date.now()) {
+  const [newest] = await cachedVideoFiles(videoCacheId(url));
+  if (!newest) return null;
+  const stale =
+    VIDEO_CACHE_HIT_MAX_AGE_MS > 0 &&
+    now - newest.mtime > VIDEO_CACHE_HIT_MAX_AGE_MS;
+  return { file: newest.file, stale };
+}
+
+async function downloadVideo(url, { onCacheHit = () => {} } = {}) {
   const { mkdir } = await import("node:fs/promises");
   await adoptLegacyVideoDir();
   await mkdir(VIDEO_DIR, { recursive: true });
-  const id = crypto.randomUUID();
+  const id = videoCacheId(url);
+
+  const cached = await lookupCachedVideo(url);
+  if (cached && !cached.stale) {
+    onCacheHit();
+    // Mark it used, without disturbing when it was fetched. Two clocks live on
+    // this file and they answer different questions: mtime is when it was
+    // downloaded, which is what staleness measures, and atime is when it was
+    // last wanted, which is what pruning keeps alive. Touching mtime — the
+    // obvious move, and what a plain `touch` does — would restart the
+    // staleness clock on every re-import, so a video opened once a week would
+    // never expire and the limit above would mean nothing.
+    try {
+      const { mtime } = await stat(cached.file);
+      await utimes(cached.file, new Date(), mtime);
+    } catch {
+      // Only costs this file some of its remaining life in the cache.
+    }
+    await pruneVideoCache(id);
+    return cached.file;
+  }
+  if (cached) {
+    // Stale, so re-fetch — but delete it first. yt-dlp skips a download whose
+    // output file already exists ("has already been downloaded"), so leaving it
+    // in place would refresh the mtime and keep serving the same stale copy
+    // forever, which is worse than never having expired it.
+    await rm(cached.file, { force: true });
+  }
+
   const outTemplate = path.join(VIDEO_DIR, `${id}.%(ext)s`);
   await runYtdlp(
     [
       ...(await ytdlpBase()),
-      "-f", "best[ext=mp4]/best",
-      "--merge-output-format", "mp4",
+      ...VIDEO_FORMAT_ARGS,
       "-o", outTemplate,
       url,
     ],
     { timeoutMs: 10 * 60_000 },
   );
-  const files = await listFiles(VIDEO_DIR);
-  const video = files.find((f) => f.includes(id));
-  if (!video) return "";
+  const [downloaded] = await cachedVideoFiles(id);
+  if (!downloaded) return "";
   await pruneVideoCache(id);
-  return video;
+  return downloaded.file;
 }
 
 // Pull a Whisper-ready audio track (mono 16 kHz) out of a local video file.
@@ -578,18 +699,27 @@ async function extractAudio(videoPath, workspace) {
   return audioPath;
 }
 
-// Enforce the cache retention policy: drop files older than the age limit,
-// then prune the oldest until at most VIDEO_CACHE_MAX remain. The file just
-// downloaded (keepId) is always preserved. Best-effort: never throws, so a
-// pruning hiccup can't fail an otherwise-successful import.
-async function pruneVideoCache(keepId) {
+// Enforce the cache retention policy: drop files unused for longer than the age
+// limit, then prune the least recently used until at most VIDEO_CACHE_MAX
+// remain. The file just downloaded or re-used (keepId) is always preserved.
+// Best-effort: never throws, so a pruning hiccup can't fail an
+// otherwise-successful import.
+//
+// "Used" is the later of the two timestamps, not mtime alone. A re-import
+// stamps atime and deliberately leaves mtime where it was (see downloadVideo),
+// so mtime on its own would age a video the reader returns to every week at
+// exactly the rate of one they downloaded once and forgot — and evict it just
+// the same. Taking the max also means files that predate any of this, which
+// have only ever been written, keep behaving exactly as they did.
+export async function pruneVideoCache(keepId) {
   try {
     const files = await listFiles(VIDEO_DIR);
     const entries = (
       await Promise.all(
         files.map(async (file) => {
           try {
-            return { file, mtime: (await stat(file)).mtimeMs };
+            const info = await stat(file);
+            return { file, used: Math.max(info.atimeMs, info.mtimeMs) };
           } catch {
             return null;
           }
@@ -601,14 +731,15 @@ async function pruneVideoCache(keepId) {
     const survivors = [];
     let keptCount = 0;
     for (const entry of entries) {
-      // The freshly downloaded file is never pruned, by age or by count.
+      // The file this import just downloaded or re-used is never pruned, by age
+      // or by count.
       if (keepId && path.basename(entry.file).includes(keepId)) {
         keptCount += 1;
         continue;
       }
       if (
         VIDEO_CACHE_MAX_AGE_MS > 0 &&
-        now - entry.mtime > VIDEO_CACHE_MAX_AGE_MS
+        now - entry.used > VIDEO_CACHE_MAX_AGE_MS
       ) {
         await rm(entry.file, { force: true });
       } else {
@@ -619,7 +750,7 @@ async function pruneVideoCache(keepId) {
     // The kept file counts toward the cap but is never itself removed.
     const budget = Math.max(VIDEO_CACHE_MAX - keptCount, 0);
     if (VIDEO_CACHE_MAX > 0 && survivors.length > budget) {
-      survivors.sort((a, b) => b.mtime - a.mtime); // newest first
+      survivors.sort((a, b) => b.used - a.used); // most recently used first
       for (const entry of survivors.slice(budget)) {
         await rm(entry.file, { force: true });
       }
