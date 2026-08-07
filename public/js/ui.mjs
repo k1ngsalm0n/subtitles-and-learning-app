@@ -426,7 +426,29 @@ export function setActiveLine(els) {
   }
 }
 
+// True while the pointer is inside the player, i.e. while someone is plausibly
+// using the video's own controls.
+//
+// Auto-scrolling the transcript dismisses the browser's native controls menu —
+// verified by elimination: the same video served on its own, with none of this
+// app around it, keeps its menu open indefinitely. Reducing how often we
+// scrolled made it happen less; it still happened. So while the pointer is on
+// the player, the transcript holds still. Once it leaves, the next line change
+// catches the transcript up.
+let _pointerOnPlayer = false;
+
+export function watchPlayerPointer(els) {
+  const wrap = (els || _els)?.playerWrap;
+  if (!wrap) return;
+  wrap.addEventListener("pointerenter", () => { _pointerOnPlayer = true; });
+  wrap.addEventListener("pointerleave", () => { _pointerOnPlayer = false; });
+}
+
 export function scrollActiveLineIntoView(els) {
+  // Deliberately before anything else: the cheapest way not to disturb a menu
+  // is not to move anything while it could be open.
+  if (_pointerOnPlayer) return;
+
   const e = els || _els;
   const lineEl = e.transcript.querySelector(".line.active");
   if (!lineEl) return;
