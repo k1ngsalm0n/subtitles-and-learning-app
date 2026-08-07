@@ -5,7 +5,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { handleHealth } from "../server/health.mjs";
+import { handleHealth, buildChecks } from "../server/health.mjs";
 
 // CI has no venv, so the Python probe fails and every module reports missing.
 // That is itself the case worth testing: the page has to render on a machine
@@ -124,4 +124,127 @@ test("every option explains what choosing it means", async () => {
       assert.notEqual(option.hint, option.label, `${id}/${option.value} just repeats itself`);
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// The tests above run against whatever this machine happens to have installed,
+// which on CI is nothing — so they only ever saw one column of the table. The
+// rows are a pure function of the probe results, so the rest can be reached by
+// handing over made-up facts instead of installing multi-gigabyte packages.
+// These are the states a reader in trouble actually sees.
+
+const NOTHING = {
+  has: () => false,
+  cuda: false,
+  llm: false,
+  voices: 0,
+  strokes: false,
+  ytdlp: false,
+  deno: false,
+  prefs: { speech: "auto", llm: "on" },
+};
+
+const EVERYTHING = {
+  ...NOTHING,
+  has: () => true,
+  cuda: true,
+  llm: true,
+  voices: 2,
+  strokes: true,
+  ytdlp: true,
+  deno: true,
+};
+
+// Only the named modules are installed; anything else is missing.
+const only = (...names) => (name) => names.includes(name);
+const row = (facts, id) => buildChecks(facts).checks.find((c) => c.id === id);
+
+test("a bare machine reports every row as degraded, with something to type", () => {
+  const { checks, summary } = buildChecks(NOTHING);
+  assert.equal(summary.best, 0, "nothing is installed, so nothing is best");
+  for (const check of checks) {
+    assert.ok(check.fix, `${check.id} is degraded but offers no fix`);
+  }
+});
+
+test("a fully equipped machine reports every row as best, and nags about nothing", () => {
+  const { checks, summary } = buildChecks(EVERYTHING);
+  assert.equal(summary.best, checks.length);
+  assert.equal(summary.fallback + summary.off, 0);
+  for (const check of checks) {
+    assert.equal(check.fix, null, `${check.id} is fine but suggests a fix`);
+    assert.equal(check.fixNote, null, `${check.id} is fine but explains a fix`);
+  }
+});
+
+// The half-installed cases: the ones where the app still works, so nothing
+// looks wrong from the outside, and the reader is quietly getting less.
+
+test("piper with no voice to speak with falls back and says why", () => {
+  const speech = row({ ...EVERYTHING, has: only("piper"), voices: 0 }, "speech");
+  assert.equal(speech.state, "fallback");
+  assert.match(speech.using, /piper is installed but has no voice/);
+  assert.equal(speech.fix, "VOICES=1 npm run sync");
+});
+
+test("choosing a voice is not a defect, so it offers the way back rather than a command", () => {
+  for (const choice of ["browser", "espeak"]) {
+    const speech = row(
+      { ...EVERYTHING, prefs: { speech: choice, llm: "on" } },
+      "speech",
+    );
+    assert.equal(speech.state, "fallback", `${choice} is not the best available`);
+    assert.equal(speech.fix, null, `${choice} was chosen; there is nothing to fix`);
+    assert.match(speech.using, /chosen here/);
+    assert.match(speech.detail, /Set back to Best available/);
+  }
+});
+
+test("a key that exists but is switched off reads differently from no key at all", () => {
+  const off = row({ ...EVERYTHING, prefs: { speech: "auto", llm: "off" } }, "llm");
+  const absent = row({ ...EVERYTHING, llm: false }, "llm");
+  assert.match(off.using, /chosen here/);
+  assert.equal(off.fix, null, "the key is there; it was turned off on purpose");
+  assert.doesNotMatch(absent.using, /chosen here/);
+  assert.ok(absent.fix, "no key is something to fix");
+  assert.equal(
+    absent.toggle.options.find((o) => o.value === "on").enabled,
+    false,
+    "there is nothing to switch on without a key",
+  );
+});
+
+test("some romanizers installed is worse than all, and better than none", () => {
+  assert.equal(row({ ...NOTHING, has: only("pypinyin") }, "romanize").state, "fallback");
+  assert.equal(row(NOTHING, "romanize").state, "off");
+  assert.equal(row(EVERYTHING, "romanize").state, "best");
+  // Which ones are missing is the actionable part of the row.
+  assert.match(
+    row({ ...NOTHING, has: only("pypinyin") }, "romanize").using,
+    /missing: pykakasi, unidecode/,
+  );
+});
+
+test("Whisper on the CPU works, so it is a fallback and not off", () => {
+  const cpu = row({ ...EVERYTHING, cuda: false }, "whisper");
+  assert.equal(cpu.state, "fallback");
+  assert.match(cpu.using, /on the CPU/);
+  assert.match(cpu.fix, /GPU section/);
+  assert.equal(row(NOTHING, "whisper").state, "off");
+});
+
+test("the transcriber names the engine that is actually installed", () => {
+  assert.match(row({ ...EVERYTHING, has: only("whisper") }, "whisper").using, /openai-whisper/);
+  assert.match(
+    row({ ...EVERYTHING, has: only("faster_whisper", "whisper") }, "whisper").using,
+    /faster-whisper/,
+  );
+});
+
+test("yt-dlp without a JavaScript runtime still imports, badly", () => {
+  const degraded = row({ ...EVERYTHING, deno: false }, "import");
+  assert.equal(degraded.state, "fallback");
+  assert.match(degraded.detail, /144p/);
+  assert.equal(degraded.fixNote, "Installs deno into the venv.");
+  assert.equal(row({ ...EVERYTHING, ytdlp: false }, "import").state, "off");
 });
