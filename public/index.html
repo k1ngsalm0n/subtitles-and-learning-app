@@ -1302,6 +1302,61 @@ rt {
     .study-keys { font-size: 11px; text-align: center; margin-top: 8px; }
 /* Deck limits: two numbers and two buttons — sized to that, not to the wide
    default dialog. Label left, small input right, so no row is mostly padding. */
+#llmSetupDialog { width: min(480px, calc(100vw - 32px)); padding: 14px 16px; }
+#llmSetupDialog .word-form { gap: 12px; }
+.llm-intro { font-size: 13px; line-height: 1.5; }
+.llm-current { font-size: 12px; }
+.llm-options { display: grid; gap: 4px; }
+.word-form label.llm-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+}
+.llm-option:has(input:checked) { border-color: var(--accent); }
+.llm-option input { margin-top: 3px; }
+.llm-option > span { display: grid; gap: 1px; font-size: 13px; }
+.llm-option .muted { font-size: 12px; line-height: 1.4; }
+.llm-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  vertical-align: middle;
+}
+.llm-fields { display: grid; gap: 8px; }
+.llm-fields[hidden] { display: none; }
+.llm-model-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: end; }
+.llm-model-row[hidden] { display: none; }
+.llm-model-row select {
+  width: 100%;
+  height: 34px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* background-color, not the shorthand, which would wipe the chevron. */
+  background-color: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+.llm-model-row select:focus { border-color: var(--accent); outline: none; }
+.llm-refresh { height: 34px; padding: 0 10px; font-size: 12px; }
+.llm-model-note { grid-column: 1 / -1; font-size: 12px; }
+.llm-model-note:empty { display: none; }
+.llm-key-link { font-size: 12px; color: var(--accent); justify-self: start; }
+.llm-advanced { font-size: 12px; color: var(--muted); }
+.llm-advanced[open] { display: grid; gap: 8px; }
+.llm-advanced summary { cursor: pointer; }
+.llm-privacy { font-size: 11px; line-height: 1.4; }
+#llmError:empty { display: none; }
+.health-action { justify-self: start; }
 #deckSettingsDialog { width: min(300px, calc(100vw - 32px)); padding: 14px 16px; }
 #emptyCardsDialog { width: min(360px, calc(100vw - 32px)); padding: 14px 16px; }
 #emptyCardsDialog .word-form { gap: 10px; }
@@ -2818,6 +2873,42 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         <menu>
           <button value="cancel" type="submit">Cancel</button>
           <button id="tplSave" type="button">Save template</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="llmSetupDialog" aria-labelledby="llmSetupTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="llmSetupTitle">Get clear word meanings</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <p class="llm-intro">When you click a word, a chat model picks the meaning that fits <em>this</em> sentence and explains it, and translates names and idioms properly. Without one you get the dictionary's whole list and a word-for-word translation.</p>
+        <p id="llmCurrent" class="muted llm-current" hidden></p>
+        <div id="llmOptions" class="llm-options" role="radiogroup" aria-label="How to get meanings"></div>
+        <div id="llmFields" class="llm-fields">
+          <label id="llmKeyRow">API key
+            <input id="llmKey" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+          <div id="llmModelRow" class="llm-model-row" hidden>
+            <label>Model
+              <select id="llmModelPick" aria-describedby="llmModelNote"></select>
+            </label>
+            <button id="llmModelRefresh" type="button" class="llm-refresh">Refresh</button>
+            <p id="llmModelNote" class="muted llm-model-note" aria-live="polite"></p>
+          </div>
+          <a id="llmKeyLink" class="llm-key-link" target="_blank" rel="noopener noreferrer"></a>
+          <details id="llmAdvanced" class="llm-advanced">
+            <summary>Address and model</summary>
+            <label>API address<input id="llmBaseUrl" type="url" spellcheck="false" /></label>
+            <label>Model<input id="llmModel" type="text" spellcheck="false" /></label>
+          </details>
+          <p class="muted llm-privacy">The key stays on this computer and goes only to that provider, along with the words you look up and the subtitle lines.</p>
+        </div>
+        <p id="llmError" class="danger" role="alert" aria-live="polite"></p>
+        <menu>
+          <button value="later" type="submit">Not now</button>
+          <button id="llmSave" type="button">Check and save</button>
         </menu>
       </form>
     </dialog>

@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { readPrefs } from "./prefs.mjs";
+import { getLlmConfig } from "./llmConfig.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sendJson, runCommand } from "./util.mjs";
@@ -125,16 +126,14 @@ async function saveCache() {
   await writeFile(CACHE_FILE, JSON.stringify(llmCache, null, 2));
 }
 
-// OpenAI-compatible LLM config. Works with OpenAI, Groq, Gemini's OpenAI shim,
-// a local Ollama (`http://localhost:11434/v1`), or anything that speaks the same
-// /chat/completions API. LLM_* vars win; OPENAI_API_KEY stays as a fallback so
-// existing setups keep working.
-const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-const LLM_BASE_URL = (process.env.LLM_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
-
+// Any OpenAI-compatible chat API — Groq, Gemini's OpenAI shim, OpenAI, a local
+// Ollama. Which one, and the key, come from llmConfig.mjs: chosen in the app's
+// setup dialog, or from the LLM_* vars in .env. Asked per call so a key pasted
+// into the dialog works on the next click.
 async function lookupWithLlm(word, lang, context, dictDefs) {
-  if (!LLM_API_KEY) return null;
+  const config = await getLlmConfig();
+  if (!config) return null;
+  const { apiKey: LLM_API_KEY, baseUrl: LLM_BASE_URL, model: LLM_MODEL } = config;
   // The reader can turn the chat model off in Settings → What's running;
   // meanings then come from the dictionary and the offline model alone.
   const { llm } = await readPrefs();

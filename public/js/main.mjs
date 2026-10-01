@@ -51,6 +51,7 @@ import { paintHighlight, clearHighlight } from "./imagehighlight.mjs";
 import { chooseScript } from "./zhscript.mjs";
 import { romanizeSubtitles } from "./romanize.mjs";
 import { renderHealth } from "./health.mjs";
+import { setupLlmDialog, promptLlmSetupIfNeeded } from "./llmsetup.mjs";
 import {
   createAccentDial,
   applyAccent,
@@ -297,6 +298,18 @@ function init() {
   renderAll(els);
   setupTranscriptDelegation(els);
   setupMiniPlayer(els);
+  setupLlmDialog({
+    onSaved: (status) => {
+      showToast(
+        status.configured
+          ? "Saved. Clicked words now get meanings that fit the sentence."
+          : "Offline only. You can set up a chat model later in Settings → What's running.",
+      );
+      // The "What's running" row describes this choice.
+      if (state.settingsPage === "health") renderHealth(els, { force: true });
+    },
+  });
+  promptLlmSetupIfNeeded();
   setupTemplateEditor(els);
   setupTemplateManager(els, () => renderAll(els));
   setupCardModal(els);

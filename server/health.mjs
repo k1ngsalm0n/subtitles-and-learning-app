@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { runCommand, sendJson, readJsonBody } from "./util.mjs";
 import { readPrefs, writePrefs, ALLOWED } from "./prefs.mjs";
 import { llmTranslationConfigured } from "./llmTranslate.mjs";
+import { llmStatus } from "./llmConfig.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -78,6 +79,11 @@ export async function handlePrefs(req, res) {
   // The health answer describes the prefs, so it is stale the moment they move.
   cached = null;
   sendJson(res, 200, { prefs, allowed: ALLOWED });
+}
+
+// The LLM row describes llmConfig.mjs's state, so a new key makes it stale.
+export function forgetHealth() {
+  cached = null;
 }
 
 // Answering means spawning Python and importing a dozen packages, and the
@@ -168,24 +174,30 @@ export async function handleHealth(req, res) {
   });
 
   // --- Translation and word lookups ---------------------------------------
-  const llmReady = llmTranslationConfigured();
+  const llmReady = await llmTranslationConfigured();
+  const llm = await llmStatus();
+  const providerName =
+    llm.origin === "env" ? "set in .env" : llm.providers[llm.provider]?.label;
   const llmOn = llmReady && prefs.llm !== "off";
   checks.push({
     id: "llm",
     label: "Translation and word meanings",
     state: llmOn ? BEST : FALLBACK,
     using: llmOn
-      ? "a chat model, with the offline translator as backup"
+      ? `a chat model (${providerName}, ${llm.model}), with the offline translator as backup`
       : llmReady
         ? "the offline translator only — chosen here"
         : "the offline translator only",
     detail: llmOn
       ? "Everyday phrases come out as what they mean rather than word by word, less common names are recognised, and word lookups come with real explanations."
       : "Free, private and quick, but it translates literally. 你别给我戴高帽子了 — “stop flattering me” — comes back as “Don't put your hat on me”, and 她的中文说得很地道 as “Her Chinnese laguage says a lot”. Common names are fine; unusual ones get spelled out a syllable at a time. Word lookups give a bare meaning with no explanation.",
-    fix: llmReady ? null : "Add LLM_BASE_URL, LLM_MODEL and LLM_API_KEY to .env",
-    fixNote: llmReady
-      ? null
-      : "A free Groq key works: console.groq.com/keys. See .env.example. Anything over 400 lines uses the offline translator regardless, because it is faster in bulk.",
+    fix: null,
+    // Not a terminal command any more: the key is pasted into a dialog, which
+    // checks it before keeping it. The page opens that dialog for this id.
+    action: {
+      id: "llm-setup",
+      label: llmReady ? "Change provider or key" : "Set up a chat model",
+    },
     toggle: {
       name: "llm",
       value: prefs.llm,
