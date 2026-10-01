@@ -55,8 +55,9 @@ test("a fallback offers a fix and a best one doesn't", async () => {
       assert.equal(check.fix, null, `${check.id} is fine but suggests a fix`);
     } else if (!chosen(check)) {
       // A fallback the reader *picked* is not a problem, and the next test
-      // asserts it must not carry a command. Only an unwanted one needs a fix.
-      assert.ok(check.fix, `${check.id} is degraded but offers no fix`);
+      // asserts it must not carry a command. Only an unwanted one needs a fix:
+      // a command to type, or a dialog to open (the chat model's key).
+      assert.ok(check.fix || check.action, `${check.id} is degraded but offers no fix`);
     }
   }
 });

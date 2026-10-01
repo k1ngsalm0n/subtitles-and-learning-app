@@ -9,7 +9,8 @@ import { handleRomanize } from "./romanize.mjs";
 import { handleOcrImage } from "./ocr.mjs";
 import { handleZhConvert } from "./zh.mjs";
 import { handleSpeak, handleVoices } from "./speak.mjs";
-import { handleHealth, handlePrefs } from "./health.mjs";
+import { handleHealth, handlePrefs, forgetHealth } from "./health.mjs";
+import { handleLlm } from "./llmConfig.mjs";
 import { handleStrokes } from "./strokes.mjs";
 import {
   handleSaveBackup,
@@ -82,6 +83,14 @@ createServer(async (req, res) => {
     }
     if (req.method === "POST" && req.url === "/api/prefs") {
       await handlePrefs(req, res);
+      return;
+    }
+    if (req.method === "GET" && req.url.startsWith("/api/llm/models")) {
+      await handleLlm(req, res);
+      return;
+    }
+    if (req.url === "/api/llm" && ["GET", "POST", "DELETE"].includes(req.method)) {
+      await handleLlm(req, res, { onChange: forgetHealth });
       return;
     }
     if (req.method === "GET" && req.url.startsWith("/api/strokes")) {

@@ -17,7 +17,7 @@ import path from "node:path";
 // can't be pointed anywhere afterwards, which makes this untestable without
 // reading whatever the person at this machine last chose — and silently makes
 // STELE_PREFS_DIR do nothing if it is set late.
-function dir() {
+export function dir() {
   const home =
     process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
   return process.env.STELE_PREFS_DIR || path.join(home, "stele");

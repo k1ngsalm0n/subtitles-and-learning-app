@@ -21,7 +21,22 @@ lifting — speech-to-text and offline translation — runs through Python.
   (`Helsinki-NLP/opus-mt-zh-en` / `opus-mt-en-zh`, ~310 MB each, fast on CPU)
   for the app's zh↔en pairs, NLLB-200 (`facebook/nllb-200-distilled-600M`) as
   the fallback for other languages. All via `transformers`/`torch`.
-- **Word lookups:** any OpenAI-compatible chat API (currently free Groq), falls back to NLLB.
+- **Word lookups:** any OpenAI-compatible chat API (currently free Groq,
+  `openai/gpt-oss-120b` — Groq retired `llama-3.3-70b-versatile`, and a dead
+  model fails *silently* into the NLLB fallback), falls back to NLLB.
+  **Which provider and key** come from `llmConfig.mjs`: chosen in the app's
+  "Get clear word meanings" dialog (`public/js/llmsetup.mjs`, opens on first
+  visit when nothing is configured, and from Settings → What's running), stored
+  in `~/.local/share/stele/llm.json` (0600), or from the `LLM_*` vars in `.env`.
+  A choice saved in the app wins over `.env`; "Offline only" is a saved choice
+  too, so the dialog doesn't ask again. The dialog sends one tiny request before
+  saving, so a bad key or retired model is caught there rather than as a quietly
+  worse lookup. Read per call, no restart. `GET /api/llm` never returns the key.
+  For Ollama the dialog lists the models actually pulled
+  (`GET /api/llm/models`, via Ollama's `/v1/models`, embedding models dropped)
+  in a dropdown, preferring a Qwen. That endpoint only asks **loopback**
+  addresses — it fetches a URL the page hands it, so anything wider would let a
+  page probe the reader's network through the server.
 - **Line translation:** the same chat API when one is configured
   (`llmTranslate.mjs`), because the offline models transliterate proper nouns
   instead of recognising them ("Herle Golan class" for Helgoland, "the battle in
