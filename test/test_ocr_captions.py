@@ -317,6 +317,113 @@ class FilterFurnitureTest(unittest.TestCase):
         times = [s[0] for s in samples if s[1] == block[0]]
         self.assertEqual(times, [20.0, 21.0, 22.0])
 
+    # Furniture slots and one-frame noise. Boxes are (x0, y0, x1, y1) as
+    # fractions of the frame, measured off the test videos.
+    CREDIT = (0.40, 0.07, 0.95, 0.12)     # MANBO HOMESTAY…/AP, top right
+    CAPTION = (0.32, 0.79, 0.86, 0.90)    # centred, bottom
+    LABEL = (0.245, 0.742, 0.356, 0.806)  # 錢江新聞, a speaker/source label
+
+    def line(self, text, box, score=0.99):
+        return (box[1] * 360, text, score, box)
+
+    def test_a_new_credit_in_a_furniture_slot_is_dropped(self):
+        # MANBO…/AP sits top right for 60 s and is dropped for dwell. Later a
+        # different credit appears for 12 s on the same right edge, at the same
+        # height: no time rule can call it, but it is the same furniture.
+        lines_at = {t: [self.line("MANBO HOMESTAY VALIDATED UGC/AP", self.CREDIT)] for t in range(60)}
+        for t in range(70, 82):
+            lines_at[t] = [self.line("SOCIAL MEDIA/路透社", (0.68, 0.07, 0.95, 0.12))]
+        for t in range(72, 77):
+            lines_at[t] = lines_at[t] + [self.line("街道上汽車都被沖走", self.CAPTION)]
+        samples = filter_furniture(self.frames(90, lines_at), 1.0)
+        joined = "".join(s[1] for s in samples)
+        self.assertNotIn("SOCIAL MEDIA", joined)
+        self.assertIn("街道上汽車都被沖走", joined)
+
+    def test_a_slot_shared_mostly_with_captions_is_left_alone(self):
+        # TVBS's headline strip sits in the caption band at caption height and
+        # is dropped for dwell. Captions there share its top, bottom and,
+        # for a long one, nearly its edges. They outnumber it, so its slot
+        # must not be used — or every caption goes with it.
+        strip = (0.25, 0.79, 0.96, 0.90)
+        lines_at = {t: [self.line("巴威直撲陸浙江高架橋變停車場躲淹水", strip)] for t in range(0, 30)}
+        caps = ["颱風巴威逼近浙江台州臨海", "車主們自發集體把車開上高架橋避險", "車輛沿道路兩側整齊停放"]
+        for i, cap in enumerate(caps):
+            for t in range(40 + 3 * i, 42 + 3 * i):
+                lines_at[t] = [self.line(cap, (0.27, 0.79, 0.94, 0.90))]
+        samples = filter_furniture(self.frames(60, lines_at), 1.0)
+        joined = "".join(s[1] for s in samples)
+        for cap in caps:
+            self.assertIn(cap, joined)
+
+    def test_a_backdrop_block_does_not_teach_its_slot(self):
+        # An on-screen article (a backdrop block) sits in the picture's
+        # content area, where an embedded clip's own captions also go. The
+        # article is dropped; captions later shown in the same place are not.
+        block = ["台风巴威逼近浙江临海车主自发", "把车开上还未通车的立交桥避险"]
+        lines_at = {}
+        for t in range(12):
+            rotating = "高架橋上停滿避險車輛" if t < 6 else "沿路兩側整齊停放留出車道"
+            lines_at[t] = [
+                self.line(block[0], (0.30, 0.30, 0.70, 0.36)),
+                self.line(block[1], (0.30, 0.37, 0.70, 0.43)),
+                self.line(rotating, self.CAPTION),
+            ]
+        for t in range(20, 23):
+            lines_at[t] = [self.line("网友把车都停在楼顶停车场", (0.30, 0.37, 0.62, 0.43))]
+        samples = filter_furniture(self.frames(30, lines_at), 1.0)
+        self.assertIn("网友把车都停在楼顶停车场", "".join(s[1] for s in samples))
+
+    def test_speaker_labels_in_a_tag_slot_are_dropped(self):
+        # 錢江新聞 sits through three captions: a tag. Later labels in the
+        # same slot (left-aligned, same height) are labels too, even shown
+        # beside a single caption. A third label, already dropped with a
+        # backdrop block, must not count as a survivor and outvote the slot.
+        caps = ["颱風巴威逼近浙江台州臨海", "車主們自發集體把車開上高架橋", "車輛沿道路兩側整齊停放"]
+        lines_at = {}
+        for t in range(0, 9):
+            lines_at[t] = [self.line("錢江新聞", self.LABEL), self.line(caps[t // 3], self.CAPTION)]
+        for t in range(20, 24):
+            lines_at[t] = [
+                self.line("浙江溫嶺公司值班人員", (0.247, 0.742, 0.506, 0.803)),
+                self.line("羅漢松前兩天就開始做這個罩子", self.CAPTION),
+            ]
+        # 侶行…王曠涵 shares its span with a second line, so the tag rule's
+        # partner guard spares it and the backdrop rule drops the pair.
+        rotating = ["強風一吹頭髮瞬間凌亂", "現場還同步測試", "窗戶貼上米字膠帶"]
+        for t in range(40, 49):
+            lines_at[t] = [
+                self.line("侶行杭州基地負責人王曠涵", (0.25, 0.744, 0.566, 0.803)),
+                self.line("@钱江视频", (0.88, 0.12, 0.97, 0.16)),
+                self.line(rotating[(t - 40) // 3], self.CAPTION),
+            ]
+        samples = filter_furniture(self.frames(60, lines_at), 1.0)
+        joined = "".join(s[1] for s in samples)
+        self.assertNotIn("浙江溫嶺公司值班人員", joined)
+        self.assertIn("羅漢松前兩天就開始做這個罩子", joined)
+
+    def test_a_one_frame_low_confidence_read_is_noise(self):
+        lines_at = {
+            5: [self.line("博校频号", (0.59, 0.05, 0.64, 0.08), score=0.80)],
+            9: [self.line("進行有效的保護", self.CAPTION, score=1.0)],
+        }
+        samples = filter_furniture(self.frames(15, lines_at), 1.0)
+        texts = {s[1] for s in samples if s[1]}
+        self.assertEqual(texts, {"進行有效的保護"}, "one crisp frame is still a caption")
+
+    def test_noise_still_counts_as_the_screen_changing_under_a_tag(self):
+        # 75公斤記者實測… was caught as a tag because it sat through flickering
+        # watermark reads. Those reads leave the output, but they must still
+        # count as other lines changing, or the banner comes back as a caption.
+        banner = "75公斤記者實測12級風像溺水窒息快嚇哭"
+        lines_at = {t: [self.line(banner, (0.25, 0.79, 0.96, 0.90))] for t in range(0, 12)}
+        for t, junk in [(2, "博校频号"), (5, "工视频"), (8, "新以信")]:
+            lines_at[t] = lines_at[t] + [self.line(junk, (0.59, 0.05, 0.64, 0.08), score=0.8)]
+        samples = filter_furniture(self.frames(20, lines_at), 1.0)
+        joined = "".join(s[1] for s in samples)
+        self.assertNotIn(banner, joined)
+        self.assertNotIn("博校频号", joined)
+
     def test_backdrop_block_over_rotating_captions_dropped(self):
         # An article screenshot: four summary lines share the screen 0-12 s
         # while the clip's real captions rotate beneath them, reading the
