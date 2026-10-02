@@ -70,7 +70,7 @@ import {
   togglePlayback,
 } from "./player.mjs";
 import { studyAction } from "./shortcuts.mjs";
-import { readImportStream } from "./importstream.mjs";
+import { percentOf, readImportStream } from "./importstream.mjs";
 import {
   populateLanguageSelects,
   syncTranslateLangs,
@@ -112,6 +112,7 @@ const els = {
   sourceStatus: document.querySelector("#sourceStatus"),
   sourceElapsed: document.querySelector("#sourceElapsed"),
   transcript: document.querySelector("#transcript"),
+  provisionalNote: document.querySelector("#provisionalNote"),
   subtitleCount: document.querySelector("#subtitleCount"),
   cardCount: document.querySelector("#cardCount"),
   reviewDue: document.querySelector("#reviewDue"),
@@ -1287,6 +1288,19 @@ function showProgress(message, percent) {
   }
 }
 
+// Mark the transcript as still-being-decoded, or clear the mark.
+//
+// These lines are real Whisper output, but they have not been merged with the
+// on-screen captions, refined, or converted to Traditional — all of which can
+// change them — so the reader is told rather than left to notice text shifting
+// under them. Saving a card from a line that is about to be rewritten is the
+// specific mistake this prevents.
+function setProvisional(on, note = "Still transcribing — these lines aren't final yet.") {
+  els.transcript.classList.toggle("provisional", on);
+  els.provisionalNote.hidden = !on;
+  if (on) els.provisionalNote.textContent = note;
+}
+
 function hideProgress() {
   els.progressFill.classList.remove("indeterminate");
   els.progressWrap.classList.remove("visible");
@@ -1306,24 +1320,41 @@ async function importSourceUrl() {
   state.sources.unshift(source);
   saveSources();
   els.queueUrl.disabled = true;
+  // A previous import that failed mid-decode leaves its mark up; this one owns
+  // the transcript from here.
+  setProvisional(false);
 
   // The server streams its real stages as newline-delimited JSON (#15). This
   // used to be a row of setTimeouts guessing at them — "Extracting
   // subtitles..." after 4s, "Downloading audio..." after 8s — which on a slow
   // import cheerfully said "Almost done" while Whisper still had minutes left.
   //
-  // The percentages went with them. There is no honest one to show: the work
-  // is dominated by transcription, whose length isn't known until it finishes.
-  // So the bar is indeterminate throughout, and what changes is the stage name
-  // (which is real) and the elapsed clock (which is also real).
+  // The percentages went with them, on the grounds that there was no honest
+  // one: the work is dominated by transcription, whose length wasn't known
+  // until it finished. That objection has since been answered for the steps
+  // that actually take the time, so a percentage is back \u2014 but only where the
+  // server sends a real denominator with it.
+  //
+  // The two long steps each count something exact: OCR knows it is on frame
+  // 212 of 541 (the frames are extracted before any are read), and Whisper
+  // knows how many seconds of audio it has decoded. Neither is a prediction of
+  // remaining *time* \u2014 a Whisper window that retries at a hotter temperature
+  // costs more than a clean one \u2014 so the bar tracks work done, and the elapsed
+  // clock stays next to it. Every other step still sends no numbers and still
+  // gets the indeterminate bar, which is the honest answer for a download of
+  // unknown size or a translation batch.
   const startedAt = Date.now();
   let stage = "Starting\u2026";
+  let progress = null;
   const elapsed = () => {
     const secs = Math.floor((Date.now() - startedAt) / 1000);
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   };
   const paint = () => {
-    showProgress(stage);
+    // undefined, not null: showProgress treats only undefined as "no number",
+    // and 0% is a real reading that must draw an empty bar rather than revert
+    // to the indeterminate sweep.
+    showProgress(stage, progress === null ? undefined : percentOf(progress));
     els.sourceElapsed.textContent = elapsed();
   };
   paint();
@@ -1343,10 +1374,21 @@ async function importSourceUrl() {
       throw new Error(failed.error || "Import failed.");
     }
 
-    const result = await readImportStream(response, (message) => {
-      stage = message;
-      paint();
-    });
+    const result = await readImportStream(
+      response,
+      (message, stageProgress) => {
+        stage = message;
+        progress = stageProgress;
+        paint();
+      },
+      (subtitles) => {
+        // Provisional, so no translation and no session save: this transcript
+        // is going to be replaced, and persisting it would survive a reload
+        // that the real result never reached.
+        setProvisional(true);
+        loadSubtitles(subtitles, "");
+      },
+    );
 
     clearProgressTimers();
     showProgress("Loading results\u2026");
@@ -1362,6 +1404,10 @@ async function importSourceUrl() {
     // New cards link back to this source + the moment they were made.
     state.currentSourceId = source.id;
 
+    // The authoritative transcript: merged, refined, script-converted and
+    // translated. It replaces any provisional lines wholesale, so the mark
+    // comes off here and nowhere earlier.
+    setProvisional(false);
     loadSubtitles(result.subtitles || "", result.translation || "");
     state.wordTimings = result.words || [];
     if (result.language) {
@@ -1410,6 +1456,12 @@ async function importSourceUrl() {
     source.error = error.message;
     setSourceStatus(error.message, els);
     hideProgress();
+    // Any provisional lines already on screen outlive the failure. They stay —
+    // a partial transcript is still worth reading — but the mark stays too,
+    // and says why, rather than letting unfinished output pass for the result.
+    if (state.subtitles.length && els.provisionalNote.hidden === false) {
+      setProvisional(true, "Import didn't finish — these lines are unverified.");
+    }
   } finally {
     els.queueUrl.disabled = false;
     saveSources();

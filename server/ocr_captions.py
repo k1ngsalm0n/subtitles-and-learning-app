@@ -95,6 +95,27 @@ PROBE_FRAMES = 8
 PROBE_MIN_HITS = 2
 
 
+# Progress goes to stderr, tagged, so server/import.mjs can pick it out of the
+# ordinary diagnostics on the same pipe. stdout stays exactly one JSON line —
+# the result — so nothing downstream has to learn a new output shape.
+PROGRESS_PREFIX = "@progress "
+_last_percent = -1
+
+
+def _emit_progress(done, total):
+    """Report frames read. Emits only when the whole percent moves, so a long
+    video sends ~100 lines rather than one per frame."""
+    global _last_percent
+    percent = int(done * 100 / total) if total else 100
+    if percent == _last_percent and 0 < done < total:
+        return
+    _last_percent = percent
+    sys.stderr.write(
+        PROGRESS_PREFIX + json.dumps({"done": done, "total": total}) + "\n"
+    )
+    sys.stderr.flush()
+
+
 def _extract_frames(video_path, workspace):
     """Sample the caption band into numbered JPEGs; returns their paths."""
     band = min(max(CAPTION_BAND, 0.05), 1.0)
@@ -577,11 +598,36 @@ def _probe_finds_text(engine, video_path, workspace):
     return False
 
 
-def read_captions(video_path):
-    import cv2
+def _build_engine():
+    """RapidOCR, optionally held to a thread budget.
+
+    Left alone (-1), onnxruntime picks its own thread count, and its choice is
+    good: measured on a 6-core/12-thread desktop it beat every number this knob
+    can set — 81s against 94s at 4 threads, 98s at 8 and 107s at 12. So a cap
+    here only ever buys politeness, never speed, and asking for MORE threads
+    than the default makes things worse rather than better.
+
+    Only intra_op is set. inter_op runs independent graph nodes in parallel and
+    does nothing unless execution_mode is ORT_PARALLEL, which it isn't; setting
+    it just builds a second thread pool that then competes with the first.
+    """
     from rapidocr import RapidOCR
 
-    engine = RapidOCR()
+    try:
+        threads = int(os.environ.get("OCR_THREADS", "-1"))
+    except ValueError:
+        threads = -1
+    if threads <= 0:
+        return RapidOCR()
+    return RapidOCR(
+        params={"EngineConfig.onnxruntime.intra_op_num_threads": threads}
+    )
+
+
+def read_captions(video_path):
+    import cv2
+
+    engine = _build_engine()
     workspace = tempfile.mkdtemp(prefix="stele-ocr-")
     try:
         if not _probe_finds_text(engine, video_path, workspace):
@@ -590,13 +636,19 @@ def read_captions(video_path):
             )
             return []
         frames = _extract_frames(video_path, workspace)
-        sys.stderr.write(f"OCR: reading {len(frames)} frames at {FPS} fps\n")
+        total = len(frames)
+        sys.stderr.write(f"OCR: reading {total} frames at {FPS} fps\n")
+        # This loop is the longest single stretch of a URL import — measured at
+        # 209 s of a 261 s import, outlasting the Whisper pass it runs beside.
+        # Every frame is already counted, so the reader can be told how far in
+        # it is instead of watching one unchanging line for three minutes.
+        _emit_progress(0, total)
         raw = []
         for idx, frame_path in enumerate(frames):
             img = cv2.imread(frame_path)
-            if img is None:
-                continue
-            raw.append((idx / FPS, _read_lines(engine, img)))
+            if img is not None:
+                raw.append((idx / FPS, _read_lines(engine, img)))
+            _emit_progress(idx + 1, total)
         samples = filter_furniture(raw, 1 / FPS)
         return samples_to_segments(samples, 1 / FPS)
     finally:

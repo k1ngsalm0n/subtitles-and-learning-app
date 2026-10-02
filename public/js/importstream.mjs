@@ -12,6 +12,14 @@
 // reads. Buffering that correctly is worth proving, and proving it against a
 // real ReadableStream is far more setup than proving it against strings.
 
+// A {done, total} pair as a whole percent, clamped. A step can overshoot its
+// own denominator by a hair — Whisper's last window can end fractionally past
+// the decoded duration — and a bar at 101% looks broken.
+export function percentOf({ done, total } = {}) {
+  if (!(total > 0)) return 0;
+  return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+}
+
 // Feed it whatever text arrives; get back the complete lines so far.
 export function createNdjsonParser() {
   let buffer = "";
@@ -49,8 +57,17 @@ function parseLine(line) {
 }
 
 // Drive the stream to its terminal event. `onStage` is called with each
-// message as it arrives; the resolved value is the import result.
-export async function readImportStream(response, onStage = () => {}) {
+// message as it arrives, and with a {done, total} progress pair as its second
+// argument when the running step counts something real (frames read, seconds
+// of audio decoded) — null when it doesn't. `onPartial` is called with the
+// subtitles decoded so far, which are provisional: not merged with the
+// on-screen captions and not script-converted, so the caller must mark them
+// and expect to replace them. The resolved value is the import result.
+export async function readImportStream(
+  response,
+  onStage = () => {},
+  onPartial = () => {},
+) {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("This browser can't read the import stream.");
   const decoder = new TextDecoder();
@@ -58,7 +75,19 @@ export async function readImportStream(response, onStage = () => {}) {
   let result = null;
 
   const handle = (event) => {
-    if (event?.stage === "working" && event.message) onStage(event.message);
+    if (event?.stage === "working" && event.message) {
+      // Both numbers or neither: a bar drawn from a partial pair would be at
+      // NaN%, which reads as broken in a way an indeterminate bar does not.
+      const progress =
+        Number.isFinite(event.done) && Number.isFinite(event.total) && event.total > 0
+          ? { done: event.done, total: event.total }
+          : null;
+      onStage(event.message, progress);
+    } else if (event?.stage === "partial") {
+      // An empty partial would blank a transcript the reader is mid-way
+      // through, so it is ignored rather than applied.
+      if (event.subtitles) onPartial(event.subtitles);
+    }
     else if (event?.stage === "error") throw new Error(event.error || "Import failed.");
     else if (event?.stage === "done") {
       const { stage, ...rest } = event;

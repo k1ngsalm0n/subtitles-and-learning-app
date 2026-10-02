@@ -57,6 +57,20 @@ def _compute_type():
     return os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
 
 
+def _cpu_threads():
+    """How many cores CTranslate2 may use. 0 means "the library's own default".
+
+    Left at 0 on a GPU box, where the CPU is free anyway. It exists because on
+    a machine with no GPU this process and the OCR pass are both CPU-bound and
+    each library, asked for nothing, takes every core — so the two fight, and
+    the laptop running them becomes unusable while they do.
+    """
+    try:
+        return max(0, int(os.environ.get("WHISPER_CPU_THREADS", "0")))
+    except ValueError:
+        return 0
+
+
 def _free_vram_mib():
     """Best-effort free VRAM in MiB via nvidia-smi, or None if undeterminable."""
     import subprocess
@@ -127,6 +141,59 @@ ZH_WINDOW_PROB = 0.5
 # during transcription, and reported as unintelligible if it never recovers.
 COMPRESSION_RATIO_THRESHOLD = 2.4
 
+# Progress goes to stderr, tagged, so server/import.mjs can pick it out of the
+# ordinary diagnostics on the same pipe. stdout stays exactly one JSON line —
+# the result — so nothing downstream has to learn a new output shape.
+PROGRESS_PREFIX = "@progress "
+# Each segment, the moment it is decoded, so the reader can start reading a
+# nine-minute transcript at thirty seconds instead of at four minutes. Slim on
+# purpose — no word timings — because these lines are provisional: the caller
+# shows them marked as such and replaces the lot with the real result, which is
+# the only thing that has been merged with the captions and script-converted.
+SEGMENT_PREFIX = "@segment "
+
+
+def _emit_segment(seg):
+    sys.stderr.write(
+        SEGMENT_PREFIX
+        + json.dumps(
+            {"start": seg["start"], "end": seg["end"], "text": seg["text"],
+             "logprob": seg["logprob"]},
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    sys.stderr.flush()
+
+
+def _emit_progress(done_seconds, total_seconds):
+    """Report how much of the audio has been decoded.
+
+    Honest as a fraction of *audio*, which is what the denominator says; it is
+    not a prediction of remaining time, since a window that falls back to a
+    hotter temperature costs more than a clean one. Emitted only when the whole
+    percent moves, so a long clip sends ~100 lines rather than one per segment.
+    """
+    global _last_percent
+    # `done >= total` is its own case rather than falling out of the division:
+    # in floating point x * 100 / x can land on 99.999…, which truncates to 99
+    # and — matching the previous reading — would suppress the line that
+    # finishes the bar, leaving it stalled just short of the end.
+    complete = done_seconds >= total_seconds or not total_seconds
+    percent = 100 if complete else int(done_seconds * 100 / total_seconds)
+    if percent == _last_percent:
+        return
+    _last_percent = percent
+    sys.stderr.write(
+        PROGRESS_PREFIX
+        + json.dumps({"done": round(done_seconds, 2), "total": round(total_seconds, 2)})
+        + "\n"
+    )
+    sys.stderr.flush()
+
+
+_last_percent = -1
+
 
 def _detect_language(model, audio):
     """Detect the clip's language from several windows, not just the opening.
@@ -172,7 +239,8 @@ def _transcribe_on(device, audio):
     # Detection runs on DETECT_MODEL (see above) and, when the audio is
     # rejected, the transcription model is never loaded at all.
     detector = WhisperModel(
-        DETECT_MODEL, device=device, compute_type=_compute_type()
+        DETECT_MODEL, device=device, compute_type=_compute_type(),
+        cpu_threads=_cpu_threads(),
     )
     language, prob, zh_avg, zh_max = _detect_language(detector, audio)
     sys.stderr.write(
@@ -188,7 +256,10 @@ def _transcribe_on(device, audio):
     model = (
         detector
         if model_name == DETECT_MODEL
-        else WhisperModel(model_name, device=device, compute_type=_compute_type())
+        else WhisperModel(
+            model_name, device=device, compute_type=_compute_type(),
+            cpu_threads=_cpu_threads(),
+        )
     )
     segments, info = model.transcribe(
         audio,
@@ -236,8 +307,14 @@ def _transcribe_on(device, audio):
     # segments, info = model.transcribe(
     #     audio, language=language, initial_prompt=prompt, beam_size=5,
     # )
+    duration = len(audio) / SAMPLE_RATE
+    _emit_progress(0.0, duration)
     segs = []
     for s in segments:
+        # `segments` is a generator: this loop is where decoding actually
+        # happens, one window at a time, in time order. Reporting from inside
+        # it is what turns a silent multi-minute wait into a moving bar.
+        _emit_progress(min(float(s.end), duration), duration)
         seg = {
             "start": float(s.start),
             "end": float(s.end),
@@ -255,6 +332,10 @@ def _transcribe_on(device, audio):
                 else float(s.avg_logprob)
             ),
         }
+        # Out the door before the word timings are attached below: this line
+        # exists to get text on screen early, and the timings are both the bulk
+        # of the payload and useless until the final result carries them.
+        _emit_segment(seg)
         # avg_logprob is computed once per ~30s decode window and copied onto
         # every segment carved out of it, so it can't see a brief hallucination
         # sitting inside an otherwise-clean window. Per-word probabilities are
@@ -278,6 +359,10 @@ def _transcribe_on(device, audio):
         if timed:
             seg["words"] = timed
         segs.append(seg)
+    # The last segment can end before the audio does (trailing silence, or a
+    # window skipped by no_speech_threshold), so finish the bar explicitly
+    # rather than leaving it stalled at 97%.
+    _emit_progress(duration, duration)
     return {"language": info.language, "segments": segs}
 
 

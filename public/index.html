@@ -671,6 +671,30 @@ select::-ms-expand { display: none; }
 /* No idle gap: collapse the status row entirely when it carries no message. */
 .translate-status:empty { display: none; }
 .transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
+/* Provisional transcript: Whisper's output as it is decoded, before the
+   caption merge and the Traditional conversion have had their say. Marked
+   because these lines can still change — saving a card from one that is about
+   to be rewritten is the mistake this is here to prevent. The stripe and the
+   note carry the meaning; the text itself stays at full contrast, since a
+   dimmed transcript is a transcript you can't read. */
+.provisional-note {
+  margin: 0 8px 6px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+.transcript.provisional .line {
+  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 4px 8px 8px 4px;
+}
+/* The line being spoken keeps its own full-strength stripe. Without this the
+   rule above wins on specificity (0,2,1 against .line.active's 0,2,0) and
+   every line carries the same edge, so the transcript loses the "you are
+   here" cue for exactly as long as it is provisional. */
+.transcript.provisional .line.active { border-left-color: var(--accent); }
 .line {
   display: grid;
   grid-template-columns: 48px 1fr;
@@ -2478,6 +2502,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <button id="loopLine" type="button" aria-pressed="false" title="Replay this line (R)">Loop Line</button>
               <button id="saveLine" type="button" title="Save this line as a card (S)">Save Line</button>
             </div>
+            <p id="provisionalNote" class="provisional-note" role="status" aria-live="polite" hidden></p>
             <div id="transcript" class="transcript" aria-label="Transcript"></div>
             <p class="study-keys muted">Space to play · ←/→ to step a line · R to replay · S to save</p>
           </section>
