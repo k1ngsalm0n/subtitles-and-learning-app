@@ -15,15 +15,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand, sendJson, readJsonBody } from "./util.mjs";
+import { sendJson, readJsonBody } from "./util.mjs";
 import { readPrefs, writePrefs, ALLOWED } from "./prefs.mjs";
+import { importPlan, probeMachine } from "./device.mjs";
 import { llmTranslationConfigured } from "./llmTranslate.mjs";
 import { llmStatus } from "./llmConfig.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
-const PYTHON_BIN = path.join(ROOT, ".venv", "bin", "python");
-const HEALTH_SCRIPT = path.join(__dirname, "health.py");
 
 const DATA_HOME =
   process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
@@ -54,15 +53,12 @@ async function countVoices() {
   }
 }
 
-async function probePython() {
-  try {
-    const result = await runCommand(PYTHON_BIN, [HEALTH_SCRIPT], { timeoutMs: 30_000 });
-    const line = result.stdout.trim().split("\n").filter(Boolean).at(-1) || "{}";
-    return JSON.parse(line);
-  } catch {
-    // No venv at all: report everything missing rather than failing the page.
-    return { modules: {}, cuda: false };
-  }
+// device.mjs runs the probe and caches it, because the import path needs the
+// same answer and two opinions about whether there is a GPU would drift apart
+// (#32). `fresh` is what "Check again" sends, and it must reach past that
+// cache as well as this page's.
+function probePython({ fresh = false } = {}) {
+  return probeMachine({ fresh });
 }
 
 // POST /api/prefs { speech, llm } -> the settings as they now stand.
@@ -100,7 +96,7 @@ export async function handleHealth(req, res) {
     return;
   }
   const [python, voices, strokes, ytdlp, deno, prefs] = await Promise.all([
-    probePython(),
+    probePython({ fresh }),
     countVoices(),
     exists(path.join(ROOT, "data", "graphics.txt")),
     exists(path.join(ROOT, ".venv", "bin", "yt-dlp")),
@@ -299,6 +295,36 @@ export async function handleHealth(req, res) {
       whisper && !python.cuda
         ? "Only worth it with an NVIDIA card. torch is pinned to the CPU build so the lockfile runs anywhere; a matching CUDA wheel is installed over the top."
         : null,
+  });
+
+  // --- How an import uses the machine --------------------------------------
+  // Added because the fallback below is otherwise completely invisible: the
+  // import finishes either way, and the only outward sign of the slow path is
+  // a laptop that gets hot. Not a toggle — a graphics card is a fact about the
+  // machine, not a preference, and a switch here would be a lie.
+  const plan = importPlan(python);
+  checks.push({
+    id: "importPlan",
+    label: "Reading captions and speech together",
+    state: plan.concurrent ? BEST : FALLBACK,
+    using: plan.why === "forced"
+      ? `${plan.concurrent ? "both at once" : "one after the other"} — set by STELE_IMPORT_PLAN`
+      : plan.why === "gpu"
+        ? "both at once — captions on the CPU, speech on the GPU"
+        : plan.concurrent
+          ? `both at once, sharing ${python.cores} cores`
+          : `one after the other — ${python.cores} cores is too few to share`,
+    detail: plan.concurrent
+      ? "The two heavy passes run at the same time, so an import takes about as long as the slower one rather than the sum of both."
+      : "Below six cores the two passes get in each other's way, so they queue — transcription first, since its lines appear as they are decoded and there is something to read long before the import ends.",
+    // Not a defect to fix on a small machine, and not a choice either: it is
+    // measured. The only real remedy is more hardware, so the row says what
+    // would change rather than offering a command that wouldn't help.
+    fix: plan.concurrent || plan.why === "forced" ? null : "See the GPU section of CLAUDE.md",
+    fixNote:
+      plan.concurrent || plan.why === "forced"
+        ? null
+        : "A graphics card takes transcription off the CPU entirely, which lets both run at once whatever the core count. Nothing else here is worth changing — capping threads was measured and made imports slower without making the machine meaningfully quieter.",
   });
 
   // --- Importing from a URL ------------------------------------------------

@@ -188,6 +188,12 @@ export function runCommand(command, args, options = {}) {
     // Collect stdout as a Buffer instead of a string. Anything that isn't text
     // — a WAV from the speech engine, say — is corrupted by decoding it.
     binary = false,
+    // Called with each complete stderr line as it arrives, rather than after
+    // the child exits. The long-running Python steps report their progress
+    // there (see PROGRESS_PREFIX in transcribe.py / ocr_captions.py), and a
+    // progress line delivered at exit is worth nothing. stderr is still
+    // accumulated as before, so error reporting is unchanged.
+    onStderrLine = null,
   } = options;
 
   return new Promise((resolve, reject) => {
@@ -215,8 +221,18 @@ export function runCommand(command, args, options = {}) {
       else stdout += chunk.toString();
     });
 
+    let stderrLine = "";
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      if (!onStderrLine) return;
+      // A chunk arrives when the pipe says so, not when a line ends, so the
+      // tail is held back until its newline turns up (same reasoning as the
+      // NDJSON parser the browser uses on the import stream).
+      stderrLine += text;
+      const lines = stderrLine.split("\n");
+      stderrLine = lines.pop() ?? "";
+      for (const line of lines) onStderrLine(line);
     });
 
     child.on("error", (error) => {

@@ -106,9 +106,56 @@ explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
 (pronunciation), `strokes.mjs` (Han stroke order: indexes
 `data/graphics.txt` once by byte range and serves
 `GET /api/strokes?chars=你好`; degrades to `{}` when the file is absent),
-`segment.mjs`, `cookies.mjs`, `backup.mjs` (see below). Python tests in
-`test/`, JS tests run via `node --test` (also in CI on every PR —
+`segment.mjs`, `cookies.mjs`, `backup.mjs`, `device.mjs` (see below). Python
+tests in `test/`, JS tests run via `node --test` (also in CI on every PR —
 `.github/workflows/test.yml`; `main` is protected and requires it).
+
+**One opinion about the hardware.** `device.mjs` asks the machine what it is —
+once per server process, via `health.py` — and every other module reads the
+answer from there. It exists because the import path used to *assert* one:
+"OCR is CPU-bound, Whisper runs on the GPU", written in a comment and checked
+nowhere.
+
+**The intuitive fix for that was wrong, and the measurements are why.** The
+obvious reading is that a machine with no GPU has the two passes fighting over
+one set of cores and should run them in turn. On a nine-minute video with the
+GPU disabled, 6 cores / 12 threads: **concurrent 249.1s, sequential 288.5s.**
+Contention is real — queued, Whisper takes 99s and OCR 188s; overlapped, 170s
+and 248s — but measured alone OCR wants 6.0 cores and Whisper 3.7, so a
+12-thread machine absorbs both and the overlap wins by 39s.
+
+So the deciding variable is not the GPU, it is **how many cores there are to
+share**. Splitting a fixed budget between the passes against giving it to each
+in turn (3-minute clip):
+
+| cores | concurrent | sequential | winner |
+|---|---|---|---|
+| 4 | 141.7s | 134.5s | queueing, 5.1% |
+| 6 | 114.0s | 115.4s | overlapping, 1.3% |
+| 8 | 112.1s | 141.8s | overlapping, 21.0% |
+| 12 | 102.1s | 149.0s | overlapping, 31.5% |
+
+`importPlan()` therefore overlaps when there is a GPU (Whisper leaves the CPU
+entirely) **or** at least 6 cores, and queues below that — transcription first,
+because it streams its segments and OCR first would show nothing until the
+whole caption pass finished. `STELE_IMPORT_PLAN=concurrent|sequential` forces
+one. The GPU question is asked of **CTranslate2**, not torch — `health.py`
+reports torch's answer as `cuda`, but faster-whisper runs on CTranslate2 and
+the two can disagree.
+
+**Thread caps were built, measured and dropped.** onnxruntime's own choice beat
+every value the knob could set (81s, against 94s at 4 threads, 98s at 8, 107s
+at 12 — more threads than physical cores oversubscribes and costs time), so a
+cap only buys quiet at the price of speed. `OCR_THREADS` and
+`WHISPER_CPU_THREADS` remain on the Python side for anyone who wants that
+trade; they are read from the environment and inherited, so nothing plumbs them.
+
+Two things that look like they would make an import polite and **do not**:
+`taskset` (the OCR pass resets its own affinity — under a 4-CPU mask it still
+burned 6.0 cores of CPU time) and `systemd-run --user -p AllowedCPUs` (this
+kind of session delegates `cpu io memory pids`, not `cpuset`, so systemd
+accepts the property and ignores it). Both silently *appear* to work, which is
+how they cost an afternoon.
 
 **Languages.** One table, `public/data/languages.json` — code, display name,
 NLLB Flores-200 code. `languages.mjs` imports it as a JSON module (so

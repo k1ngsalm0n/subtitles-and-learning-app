@@ -13,6 +13,12 @@ import {
   sendJson,
 } from "./util.mjs";
 import { ytdlpCookieArgs } from "./cookies.mjs";
+import { importPlan, probeMachine } from "./device.mjs";
+// The browser owns this protocol's parsing, and percentOf is part of it. Shared
+// rather than copied: a second definition is the "keep in sync" comment that
+// the languages table already had to be rescued from (#32). The module is pure
+// JS — it touches no DOM — so importing it here is safe.
+import { percentOf } from "../public/js/importstream.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
@@ -45,6 +51,11 @@ const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
 const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const TRANSCRIBE_SCRIPT = path.join(__dirname, "transcribe.py");
 const OCR_SCRIPT = path.join(__dirname, "ocr_captions.py");
+// How often provisional subtitles may be pushed to the reader. Each event
+// carries the whole transcript decoded so far (~15 KB by the end of a
+// nine-minute video), and Whisper hands segments over in bursts, so this is
+// what keeps a long import to tens of events rather than hundreds.
+const PARTIAL_INTERVAL_MS = 2000;
 const ZH_CONVERT_SCRIPT = path.join(__dirname, "zh_convert.py");
 // Subtitles are normalised to Traditional characters by default (the app's
 // current focus is Taiwanese content, and mixed-script sources — Simplified
@@ -265,7 +276,21 @@ function progressStream(res) {
     res.write(`${JSON.stringify(event)}\n`);
   };
   return {
-    stage: (message) => write({ stage: "working", message }),
+    // `progress` is optional {done, total}. Only the steps that genuinely
+    // count something send it — frames read, seconds of audio decoded — and
+    // the reader shows a determinate bar only while it is present.
+    stage: (message, progress = null) =>
+      write(
+        progress && progress.total > 0
+          ? { stage: "working", message, done: progress.done, total: progress.total }
+          : { stage: "working", message },
+      ),
+    // Subtitles decoded so far, while the import is still running. Explicitly
+    // *not* the result: these have not been merged with the on-screen
+    // captions, refined, or converted to Traditional, so the reader shows them
+    // marked as provisional and replaces the lot when `done` arrives. Any
+    // number of these may be sent, or none.
+    partial: (subtitles) => write({ stage: "partial", subtitles }),
     done: (result) => {
       write({ stage: "done", ...result });
       res.end();
@@ -336,35 +361,122 @@ export async function handleImportUrl(req, res) {
     // caption-less videos fall through to transcription without paying for a
     // full OCR pass.
     //
-    // The two heavy fallbacks use different hardware — OCR is CPU-bound,
-    // Whisper runs on the GPU — so the transcription is kicked off first and
-    // the OCR pass runs concurrently with it, instead of queueing the two
-    // (measured: ~45s saved on a 2-minute news clip). Whichever path needs
-    // the speech awaits the shared promise.
+    // The two heavy fallbacks overlap only when they are on different
+    // hardware: OCR is always CPU-bound, Whisper is on the GPU when there is
+    // one. With a card, kicking the transcription off first and running OCR
+    // alongside it saves real time (measured: ~45s on a 2-minute news clip).
+    // Without one they are the same resource and overlapping them only makes
+    // both slower, so device.mjs decides which it is. Whichever path needs the
+    // speech awaits the shared promise either way.
     let speechPromise = null;
     let audioPath = "";
+    // Whisper's progress outlives the block that starts it: transcription is
+    // kicked off inside the OCR branch but may end up being displayed by the
+    // transcription-only path below, once OCR has come back empty. So the
+    // latest reading lives here and `repaintSpeech` points at whichever block
+    // currently owns the stage line.
+    let speechProgress = null;
+    let repaintSpeech = () => {};
+    const onSpeechProgress = (progress) => {
+      speechProgress = progress;
+      repaintSpeech();
+    };
+
+    // Provisional subtitles. Whisper decodes in time order and hands each
+    // segment over as it lands, so the transcript can be read from about the
+    // first window instead of only when the whole import finishes — on a
+    // nine-minute video, seconds instead of four minutes.
+    //
+    // They are deliberately raw: no caption merge, no Traditional conversion,
+    // no word timings. Converting would mean a Python spawn per batch on a
+    // machine already running OCR and Whisper flat out, which is the opposite
+    // of the point. The reader marks them provisional and replaces all of them
+    // when the real result arrives.
+    const provisional = [];
+    let lastPartialAt = 0;
+    const emitPartial = () => {
+      // Throttled: Whisper can hand over a burst of segments in one tick, and
+      // each event re-sends the whole transcript so far.
+      const now = Date.now();
+      if (!provisional.length || now - lastPartialAt < PARTIAL_INTERVAL_MS) return;
+      lastPartialAt = now;
+      report.partial(segmentsToSrt(markUnintelligible(provisional)));
+    };
+    const onSpeechSegment = (segment) => {
+      provisional.push(segment);
+      emitPartial();
+    };
+    // What this machine can do decides whether the two heavy passes overlap
+    // and how much of the CPU each may take. Probed once per server process.
+    const machine = await probeMachine();
+    const plan = importPlan(machine);
     if (videoPath) {
+      // The heavy passes start here: OCR over the frames and, if the audio
+      // came out, Whisper over the speech. Together they are the overwhelming
+      // majority of an import \u2014 measured at 209 s of a 261 s run on a
+      // nine-minute video \u2014 and they used to share one stage line that never
+      // changed for the whole three and a half minutes.
+      //
+      // Both count something real, so both report it, and the line says which
+      // is running. That is not cosmetic: when they are queued rather than
+      // overlapped, following the OCR pass would leave the bar at nothing for
+      // the whole of transcription. `paint` is declared before either starts,
+      // since the first progress line can arrive before this function would
+      // otherwise exist.
+      let ocrProgress = null;
+      let phase = "captions"; // "speech" | "captions" | "both"
+      const paint = () => {
+        if (phase === "speech") {
+          // Queued, and this is the pass that is actually running. Its own
+          // fraction is the honest one to show.
+          report.stage("Transcribing the speech\u2026", speechProgress);
+          return;
+        }
+        const speech = speechProgress ? ` \u2014 speech ${percentOf(speechProgress)}%` : "";
+        report.stage(
+          phase === "both"
+            ? `Reading on-screen captions and transcribing the speech\u2026${speech}`
+            : "Reading on-screen captions\u2026",
+          ocrProgress,
+        );
+      };
+      repaintSpeech = paint;
+
       try {
         audioPath = await extractAudio(videoPath, workspace);
-        speechPromise = transcribeFastSegments(audioPath);
+        speechPromise = transcribeFastSegments(
+          audioPath,
+          onSpeechProgress,
+          onSpeechSegment,
+        );
         // Awaited later by whichever path consumes it; without this a
         // rejection during the OCR pass would surface as unhandled.
         speechPromise.catch(() => {});
+        phase = plan.concurrent ? "both" : "speech";
+        paint();
+        if (!plan.concurrent) {
+          // No GPU: the two passes share the cores, so they queue instead of
+          // fighting. Transcription goes first, and not only because it is the
+          // shorter of the two — it is the one that streams. Its segments
+          // reach the reader as they are decoded, so the transcript is legible
+          // within a minute even here; putting OCR first would leave a laptop
+          // showing nothing until the whole caption pass had finished.
+          await speechPromise.catch(() => {});
+        }
       } catch (err) {
         console.warn(
           `audio extraction failed (${String(err.message || err).split("\n")[0]}); continuing without transcription`,
         );
       }
 
-      // Both heavy passes are in flight from here: OCR on the CPU and, if the
-      // audio came out, Whisper on the GPU. Name them together rather than
-      // pretending they are sequential.
-      report.stage(
-        speechPromise
-          ? "Reading on-screen captions and transcribing the speech\u2026"
-          : "Reading on-screen captions\u2026",
-      );
-      const ocr = await ocrCaptions(videoPath);
+      // Transcription is either finished (queued) or running alongside from
+      // here; either way the captions pass is what the line follows now.
+      phase = speechPromise && plan.concurrent ? "both" : "captions";
+      paint();
+      const ocr = await ocrCaptions(videoPath, (progress) => {
+        ocrProgress = progress;
+        paint();
+      });
       if (ocr) {
         // Captions only cover what's written on screen; many news videos also
         // have uncaptioned speech (an anchor narrating between captioned
@@ -431,12 +543,19 @@ export async function handleImportUrl(req, res) {
     // result. Without a local video (or if its audio extraction failed), fall
     // back to a direct audio download and transcribe that.
     if (!audioPath) audioPath = await downloadAudio(url.href, workspace);
-    report.stage("Transcribing the speech \u2014 this is the slow part\u2026");
+    // This block now owns the stage line, so point the speech progress at it \u2014
+    // the transcription may have been running since the OCR branch above, in
+    // which case its readings were being drawn into that block's message.
+    repaintSpeech = () =>
+      report.stage("Transcribing the speech \u2014 this is the slow part\u2026", speechProgress);
+    repaintSpeech();
     const whisperResult = await transcribeWithWhisper(
       audioPath,
       workspace,
       speechPromise,
       report,
+      onSpeechProgress,
+      onSpeechSegment,
     );
     report.done({
       title: meta.title,
@@ -755,9 +874,19 @@ function unsupportedLanguageError(language) {
 // openai-whisper CLI only if faster-whisper isn't installed. When the caller
 // already started a transcription (the concurrent OCR+Whisper path), pass its
 // promise as `speechPromise` so the work isn't done twice.
-async function transcribeWithWhisper(audioPath, workspace, speechPromise = null, report = null) {
+async function transcribeWithWhisper(
+  audioPath,
+  workspace,
+  speechPromise = null,
+  report = null,
+  onProgress = null,
+  onSegment = null,
+) {
   try {
-    const speech = await (speechPromise || transcribeFastSegments(audioPath));
+    // The callbacks only apply when we start the transcription here. A promise
+    // handed in was spawned with its own already attached.
+    const speech = await (speechPromise ||
+      transcribeFastSegments(audioPath, onProgress, onSegment));
     return await finishFastTranscription(speech, report);
   } catch (err) {
     // Don't fall back to the CLI for a non-Chinese video — that would just
@@ -775,14 +904,60 @@ async function transcribeWithWhisper(audioPath, workspace, speechPromise = null,
   }
 }
 
+// The long Python steps tag their stderr lines (PROGRESS_PREFIX and
+// SEGMENT_PREFIX in transcribe.py / ocr_captions.py) so progress and decoded
+// segments can share the pipe with ordinary diagnostics. Anything untagged is
+// left alone — it is still collected into `stderr` for error reporting,
+// exactly as before, which is why stdout could stay one JSON line.
+const PROGRESS_PREFIX = "@progress ";
+const SEGMENT_PREFIX = "@segment ";
+
+// Returns a handler for runCommand's `onStderrLine`. Both callbacks optional.
+export function readTaggedLine({ onProgress = null, onSegment = null } = {}) {
+  return (line) => {
+    const tag = line.startsWith(PROGRESS_PREFIX)
+      ? PROGRESS_PREFIX
+      : line.startsWith(SEGMENT_PREFIX)
+        ? SEGMENT_PREFIX
+        : null;
+    if (!tag) return;
+    let payload;
+    try {
+      payload = JSON.parse(line.slice(tag.length));
+    } catch {
+      // A half-written or garbled line costs one skipped repaint, which is a
+      // far better outcome than throwing inside a stderr handler.
+      return;
+    }
+    if (tag === PROGRESS_PREFIX && onProgress) {
+      const { done, total } = payload;
+      // A malformed pair would render as a bar at NaN%, which looks broken in
+      // a way a missing bar does not. Drop it instead.
+      if (Number.isFinite(done) && Number.isFinite(total) && total > 0) {
+        onProgress({ done, total });
+      }
+      return;
+    }
+    if (tag === SEGMENT_PREFIX && onSegment) {
+      const { start, end, text } = payload;
+      // A segment with no usable window can't be placed on the timeline, and a
+      // provisional cue in the wrong place is worse than one missing cue.
+      if (Number.isFinite(start) && Number.isFinite(end) && typeof text === "string") {
+        onSegment(payload);
+      }
+    }
+  };
+}
+
 // Read burned-in (hardcoded) captions off the video frames via ocr_captions.py.
 // Returns {language, segments} or null when no legible captions were found —
 // the caller then falls back to the subtitle/transcription path.
-async function ocrCaptions(videoPath) {
+async function ocrCaptions(videoPath, onProgress = null) {
   let result;
   try {
     result = await runCommand(PYTHON_BIN, [OCR_SCRIPT, videoPath], {
       timeoutMs: 30 * 60_000,
+      onStderrLine: onProgress ? readTaggedLine({ onProgress }) : null,
     });
   } catch (err) {
     if (/No module named ['"]?rapidocr|ModuleNotFoundError/i.test(err.message || "")) {
@@ -813,9 +988,11 @@ async function ocrCaptions(videoPath) {
 // so the Traditional-Chinese prompt is applied without a second pass), JSON out.
 // Returns the raw timed segments; used directly by the OCR hybrid, which needs
 // them pre-SRT to interleave with caption segments.
-async function transcribeFastSegments(audioPath) {
+async function transcribeFastSegments(audioPath, onProgress = null, onSegment = null) {
   const result = await runCommand(PYTHON_BIN, [TRANSCRIBE_SCRIPT, audioPath], {
     timeoutMs: 30 * 60_000,
+    onStderrLine:
+      onProgress || onSegment ? readTaggedLine({ onProgress, onSegment }) : null,
   });
   const line = result.stdout.trim().split("\n").filter(Boolean).at(-1);
   if (!line) throw new Error("faster-whisper produced no output.");
