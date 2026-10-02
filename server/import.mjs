@@ -182,8 +182,27 @@ const VIDEO_CACHE_HIT_MAX_AGE_MS =
 // because the cache key includes it: a cached file was fetched under whatever
 // selection was in force at the time, so changing this has to miss rather than
 // silently serve the old quality.
+//
+// Separate video and audio, merged by ffmpeg, first. This used to be
+// "best[ext=mp4]/best" — a single file carrying both — and YouTube stopped
+// offering one: by October 2026 every format it served was video-only or
+// audio-only, the old 360p format 18 included, so every YouTube import failed
+// with "Requested format is not available". The single-file forms stay as the
+// fallback for sites that only have those.
+//
+// Capped at 720p. Burned-in captions read cleanly from it (ocr_captions.py),
+// and above it the download grows several times over for nothing the app
+// uses; a site without a 720p-or-smaller option still imports, at whatever it
+// has.
 const VIDEO_FORMAT_ARGS = [
-  "-f", "best[ext=mp4]/best",
+  "-f", [
+    "bv*[height<=720][ext=mp4]+ba[ext=m4a]",
+    "bv*[height<=720]+ba",
+    "b[height<=720][ext=mp4]",
+    "b[height<=720]",
+    "bv*+ba",
+    "b",
+  ].join("/"),
   "--merge-output-format", "mp4",
 ];
 
