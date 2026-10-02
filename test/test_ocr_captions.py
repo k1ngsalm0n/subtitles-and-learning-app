@@ -424,6 +424,53 @@ class FilterFurnitureTest(unittest.TestCase):
         self.assertNotIn(banner, joined)
         self.assertNotIn("博校频号", joined)
 
+    # Lines attached to furniture. ETtoday's corner logo is on screen the
+    # whole video (dwell furniture); its end card shows the logo large with
+    # 新聞雲 set beneath it, overlapping the logo's box.
+    CORNER_LOGO = (0.05, 0.04, 0.25, 0.14)
+    END_LOGO = (0.13, 0.27, 0.85, 0.65)
+    TAGLINE = (0.47, 0.56, 0.75, 0.76)
+
+    def test_a_tagline_under_a_furniture_logo_is_dropped(self):
+        lines_at = {t: [self.line("ETtoday", self.CORNER_LOGO)] for t in range(0, 30)}
+        for t in range(30, 33):
+            lines_at[t] = [self.line("ETtoday", self.END_LOGO), self.line("新聞雲", self.TAGLINE)]
+        lines_at[10] = lines_at[10] + [self.line("屋內都是海水", self.CAPTION)]
+        samples = filter_furniture(self.frames(33, lines_at), 1.0)
+        texts = {s[1] for s in samples if s[1]}
+        self.assertEqual(texts, {"屋內都是海水"})
+
+    def test_a_caption_below_a_large_logo_is_not_attached(self):
+        # Same end card, with a caption at the bottom: a clear gap separates
+        # it from the logo, so it stays.
+        lines_at = {t: [self.line("ETtoday", self.CORNER_LOGO)] for t in range(0, 30)}
+        for t in range(30, 33):
+            lines_at[t] = [self.line("ETtoday", self.END_LOGO), self.line("記得訂閱我們的頻道", self.CAPTION)]
+        samples = filter_furniture(self.frames(33, lines_at), 1.0)
+        self.assertIn("記得訂閱我們的頻道", "".join(s[1] for s in samples))
+
+    def test_a_line_attached_only_some_of_the_time_stays(self):
+        # Under the logo for one frame, on its own for two: not part of it.
+        lines_at = {t: [self.line("ETtoday", self.CORNER_LOGO)] for t in range(0, 30)}
+        lines_at[30] = [self.line("ETtoday", self.END_LOGO), self.line("新聞雲", self.TAGLINE)]
+        lines_at[31] = [self.line("新聞雲", self.TAGLINE)]
+        lines_at[32] = [self.line("新聞雲", self.TAGLINE)]
+        samples = filter_furniture(self.frames(33, lines_at), 1.0)
+        self.assertIn("新聞雲", "".join(s[1] for s in samples))
+
+    def test_a_line_dropped_as_attached_does_not_teach_a_slot(self):
+        # The tagline goes; a caption later shown in exactly its place does
+        # not. Attached lines are dropped after the slot rule has learned.
+        lines_at = {t: [self.line("ETtoday", self.CORNER_LOGO)] for t in range(0, 40)}
+        for t in range(10, 13):
+            lines_at[t] = lines_at[t] + [self.line("ETtoday", self.END_LOGO), self.line("新聞雲", self.TAGLINE)]
+        for t in range(20, 23):
+            lines_at[t] = lines_at[t] + [self.line("街道上汽車都被沖走", (0.47, 0.56, 0.90, 0.76))]
+        samples = filter_furniture(self.frames(40, lines_at), 1.0)
+        joined = "".join(s[1] for s in samples)
+        self.assertNotIn("新聞雲", joined)
+        self.assertIn("街道上汽車都被沖走", joined)
+
     def test_backdrop_block_over_rotating_captions_dropped(self):
         # An article screenshot: four summary lines share the screen 0-12 s
         # while the clip's real captions rotate beneath them, reading the
