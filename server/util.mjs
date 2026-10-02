@@ -189,7 +189,11 @@ function isPrivateIpv6(address) {
 
 // Anything this can't identify as an address is refused: a check that guesses
 // is worse than no check, because it reads as one.
-function isPrivateAddress(address) {
+//
+// server/address_guard.py applies the same table inside yt-dlp at connect
+// time; test/test_address_guard.py fails if the two ever disagree. Exported
+// for that test.
+export function isPrivateAddress(address) {
   const kind = isIP(address);
   if (kind === 4) return isPrivateIpv4(address);
   if (kind === 6) return isPrivateIpv6(address);

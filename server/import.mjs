@@ -232,10 +232,22 @@ const YTDLP_ENV = {
     : YTDLP_SHIM_DIR,
 };
 
+// What server/address_guard.py puts in the error when it refuses a connection
+// to a private address — at connect time, inside yt-dlp, which is the only
+// place that sees every host yt-dlp actually talks to (#19). Kept in step with
+// REFUSED_MARKER there by test/test_address_guard.py.
+export const PRIVATE_REFUSED_MARKER = "stele: refused a private network address";
+const PRIVATE_REFUSED = "Private network URLs are not supported.";
+const refusedPrivate = (text) => String(text || "").includes(PRIVATE_REFUSED_MARKER);
+
 async function ytdlpBase() {
   return [
     ...DENO_JS_RUNTIME,
     "--no-playlist",
+    // Keep downloads in yt-dlp's own Python code, where address_guard.py sees
+    // every connection. Left to choose, it hands some HLS streams to ffmpeg,
+    // which resolves names itself and would go around the guard.
+    "--downloader", "native",
     // YouTube hands out stream URLs that intermittently 403; yt-dlp's own
     // retries recover most of those without a full re-extraction.
     "--retries", "10",
@@ -254,6 +266,8 @@ async function runYtdlp(args, opts, attempts = 3) {
       return await runCommand(YTDLP_BIN, args, { env: YTDLP_ENV, ...opts });
     } catch (err) {
       lastErr = err;
+      // Not transient, and not worth three tries: the address won't change.
+      if (refusedPrivate(err.message)) throw new Error(PRIVATE_REFUSED);
       const transient = /403|forbidden|fragment|unable to download|timed out|connection|temporar/i.test(
         err.message || "",
       );
@@ -629,6 +643,9 @@ async function getMediaMeta(url) {
     [...(await ytdlpBase()), "-J", "--skip-download", url],
     { timeoutMs: 60_000, allowFailure: true, env: YTDLP_ENV },
   );
+  // Failures here usually degrade to a bare title, but this one must stop the
+  // import: the link itself, or somewhere it led, is on a private network.
+  if (refusedPrivate(result.stderr)) throw new Error(PRIVATE_REFUSED);
   let info;
   try {
     info = JSON.parse(result.stdout.trim());
@@ -947,7 +964,7 @@ async function getExistingSubtitle(url, workspace, meta, origBase) {
   const human = pickHumanTranslation(meta, sourceBase, "en");
 
   const want = [source.lang, ...(human ? [human] : [])];
-  await runCommand(
+  const subs = await runCommand(
     YTDLP_BIN,
     [
       ...(await ytdlpBase()),
@@ -965,6 +982,7 @@ async function getExistingSubtitle(url, workspace, meta, origBase) {
     ],
     { timeoutMs: 90_000, allowFailure: true, env: YTDLP_ENV },
   );
+  if (refusedPrivate(subs.stderr)) throw new Error(PRIVATE_REFUSED);
 
   const files = (await listFiles(workspace))
     .filter((file) => /\.(srt|vtt)$/i.test(file))
