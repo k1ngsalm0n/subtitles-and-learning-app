@@ -44,14 +44,15 @@ function normalizeImport(incoming) {
 // Two things are the "same" if a reader would say so, which is not the same
 // question as whether the ids match.
 //
-// Templates compare with `?.` and decks don't, and that asymmetry is load-
-// bearing rather than sloppy: two *unnamed* templates compare equal here
-// (undefined === undefined) and merge onto each other, which is the behaviour
-// the template phase relies on. Decks are guaranteed a string name by the
-// typeof guard on the way in, so the strict form matches what has always run —
-// including that it throws if a deck already in the store somehow has no name.
-// That is out-of-contract input, and quietly making it survive is a behaviour
-// change, not a tidy-up.
+// Templates compare with `?.` and decks don't, and the asymmetry is what has
+// always run rather than a design. Two *unnamed* templates compare equal here
+// (undefined === undefined), so an incoming one is remapped onto a stored one —
+// it is still not imported, having no name, but its cards follow the remap.
+// Decks are guaranteed a string name by the typeof guard on the way in, so the
+// strict form throws only if a deck already in the store somehow has no name.
+// Both are out-of-contract input; making either behave differently may well be
+// right, but it is a behaviour change, not a tidy-up. Tests in
+// portability.test.mjs fail if the two are collapsed into one helper.
 const sameDeckName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 const sameTemplateName = (a, b) => a?.trim().toLowerCase() === b?.trim().toLowerCase();
 
