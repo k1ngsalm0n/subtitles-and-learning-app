@@ -173,3 +173,70 @@ test("import can't create a deck nested two levels deep", () => {
   assert.equal(byId.b.parentId, "a");
   assert.equal(byId.c.parentId, null, "C's parent is itself a sub-deck");
 });
+
+// The two name comparisons in mergeImport are deliberately not the same, and
+// collapsing them into one shared helper is exactly the tidy-up a reader would
+// reach for. Either way of doing it changes behaviour, so each of the first two
+// tests below fails under one of them:
+//
+//   - the strict form for both (`a.trim()`) throws on unnamed templates, and
+//     loses the remap the first test checks;
+//   - the lenient form for both (`a?.trim()`) stops a nameless deck in the
+//     store from throwing, which the second test checks.
+//
+// Neither behaviour is being endorsed here. They are what has always run, and
+// changing one should be a decision made on purpose — with these tests
+// rewritten to say what the new behaviour is — not a side effect of a refactor.
+
+test("an unnamed template's cards land on an unnamed template already in the store", () => {
+  // Unnamed templates compare equal (undefined === undefined), so the incoming
+  // one is remapped onto the stored one. It is then not imported — it has no
+  // name — but the remap still decides where its cards go.
+  const card = { ...sampleCard("你好"), id: "c-nameless", templateId: "nameless-b" };
+  const current = { ...baseState(), templates: [...builtinTemplates(), { id: "nameless-a" }] };
+  const incoming = {
+    version: EXPORT_VERSION,
+    decks: [],
+    templates: [{ id: "nameless-b" }],
+    cards: [card],
+  };
+  const merged = mergeImport(current, incoming);
+  assert.equal(merged.report.templates.added, 0);
+  assert.equal(merged.report.templates.skipped, 1);
+  assert.ok(!merged.templates.some((t) => t.id === "nameless-b"));
+  assert.equal(
+    merged.cards.find((c) => c.id === "c-nameless").templateId,
+    "nameless-a",
+    "remapped onto the stored unnamed template, not sent to the default",
+  );
+});
+
+test("a deck in the store with no name makes a named import throw", () => {
+  // Out-of-contract: decks only get into the store through a typeof guard that
+  // requires a string name. If this is ever made to survive, that is a fix
+  // worth having, and this test should become the one that proves it.
+  const current = { ...baseState(), decks: [...builtinDecks(), { id: "nameless" }] };
+  const incoming = {
+    version: EXPORT_VERSION,
+    decks: [{ id: "fresh", name: "Fresh" }],
+    templates: [],
+    cards: [],
+  };
+  assert.throws(() => mergeImport(current, incoming), TypeError);
+});
+
+test("an incoming deck with no name is ignored, not imported half-formed", () => {
+  const incoming = {
+    version: EXPORT_VERSION,
+    decks: [{ id: "no-name" }, { id: "fine", name: "Fine" }],
+    templates: [],
+    cards: [],
+  };
+  const merged = mergeImport(baseState(), incoming);
+  assert.ok(!merged.decks.some((d) => d.id === "no-name"));
+  assert.ok(merged.decks.some((d) => d.id === "fine"));
+  // Skipped for being malformed isn't the same as skipped for already existing,
+  // so it isn't counted as either.
+  assert.equal(merged.report.decks.added, 1);
+  assert.equal(merged.report.decks.skipped, 0);
+});
