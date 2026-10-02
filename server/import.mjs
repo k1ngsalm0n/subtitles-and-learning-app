@@ -1,5 +1,6 @@
-import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +14,12 @@ import {
   sendJson,
 } from "./util.mjs";
 import { ytdlpCookieArgs } from "./cookies.mjs";
+import { importPlan, probeMachine } from "./device.mjs";
+// The browser owns this protocol's parsing, and percentOf is part of it. Shared
+// rather than copied: a second definition is the "keep in sync" comment that
+// the languages table already had to be rescued from (#32). The module is pure
+// JS — it touches no DOM — so importing it here is safe.
+import { percentOf } from "../public/js/importstream.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
@@ -45,6 +52,11 @@ const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
 const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const TRANSCRIBE_SCRIPT = path.join(__dirname, "transcribe.py");
 const OCR_SCRIPT = path.join(__dirname, "ocr_captions.py");
+// How often provisional subtitles may be pushed to the reader. Each event
+// carries the whole transcript decoded so far (~15 KB by the end of a
+// nine-minute video), and Whisper hands segments over in bursts, so this is
+// what keeps a long import to tens of events rather than hundreds.
+const PARTIAL_INTERVAL_MS = 2000;
 const ZH_CONVERT_SCRIPT = path.join(__dirname, "zh_convert.py");
 // Subtitles are normalised to Traditional characters by default (the app's
 // current focus is Taiwanese content, and mixed-script sources — Simplified
@@ -112,8 +124,10 @@ export function adoptLegacyVideoDir() {
     const { mkdir, rename } = await import("node:fs/promises");
     await mkdir(path.dirname(VIDEO_DIR), { recursive: true });
     try {
-      // The filenames are the UUIDs the stored sources already point at, so
-      // they come across untouched — only the folder changes.
+      // The filenames are the ones the stored sources already point at, so
+      // they come across untouched — only the folder changes. (Anything from
+      // before #101 is named with a random UUID rather than a URL digest; it
+      // stays reachable, it just can't be recognised as a cache hit.)
       await rename(LEGACY_VIDEO_DIR, VIDEO_DIR);
     } catch (err) {
       // Cross-filesystem (~/.local/share on a different mount from the repo) or
@@ -147,6 +161,31 @@ const VIDEO_CACHE_MAX_AGE_MS =
   60 *
   60 *
   1000;
+
+// How old a stored video may be and still be *re-used* — a separate, shorter
+// limit than the retention one above, and deliberately so. Retention answers
+// "is this worth the disk"; this answers "does the URL still serve this". A
+// link can change what it points at (a re-upload, a better format appearing),
+// and a hit that skips the download can't notice. Past this age the file is
+// deleted and fetched again. Set to 0 to re-use a cached video regardless of
+// age.
+const VIDEO_CACHE_HIT_MAX_AGE_MS =
+  (process.env.VIDEO_CACHE_HIT_MAX_AGE_DAYS !== undefined
+    ? Number(process.env.VIDEO_CACHE_HIT_MAX_AGE_DAYS)
+    : 7) *
+  24 *
+  60 *
+  60 *
+  1000;
+
+// The format selection every import downloads with. Named rather than inlined
+// because the cache key includes it: a cached file was fetched under whatever
+// selection was in force at the time, so changing this has to miss rather than
+// silently serve the old quality.
+const VIDEO_FORMAT_ARGS = [
+  "-f", "best[ext=mp4]/best",
+  "--merge-output-format", "mp4",
+];
 
 // Prefer the venv's yt-dlp (kept on the nightly channel, which gets YouTube
 // fixes ahead of distro packages); fall back to whatever is on PATH.
@@ -265,7 +304,21 @@ function progressStream(res) {
     res.write(`${JSON.stringify(event)}\n`);
   };
   return {
-    stage: (message) => write({ stage: "working", message }),
+    // `progress` is optional {done, total}. Only the steps that genuinely
+    // count something send it — frames read, seconds of audio decoded — and
+    // the reader shows a determinate bar only while it is present.
+    stage: (message, progress = null) =>
+      write(
+        progress && progress.total > 0
+          ? { stage: "working", message, done: progress.done, total: progress.total }
+          : { stage: "working", message },
+      ),
+    // Subtitles decoded so far, while the import is still running. Explicitly
+    // *not* the result: these have not been merged with the on-screen
+    // captions, refined, or converted to Traditional, so the reader shows them
+    // marked as provisional and replaces the lot when `done` arrives. Any
+    // number of these may be sent, or none.
+    partial: (subtitles) => write({ stage: "partial", subtitles }),
     done: (result) => {
       write({ stage: "done", ...result });
       res.end();
@@ -300,7 +353,14 @@ export async function handleImportUrl(req, res) {
     const meta = await getMediaMeta(url.href);
     const origBase = baseLang(meta.language);
     report.stage("Downloading the video\u2026");
-    const videoPath = await downloadVideo(url.href);
+    const videoPath = await downloadVideo(url.href, {
+      // Says so rather than narrating a download that isn't happening \u2014 the
+      // step goes from seconds to instant, and an unexplained jump reads as a
+      // skipped stage.
+      onCacheHit: () => report.stage("Reusing the video already downloaded\u2026"),
+      onRefreshFailed: () =>
+        report.stage("Couldn\u2019t fetch a fresh copy \u2014 using the one already downloaded\u2026"),
+    });
     const videoUrl = videoPath ? `/videos/${path.basename(videoPath)}` : "";
 
     // A subtitle track from the platform is the best source when it exists —
@@ -336,35 +396,122 @@ export async function handleImportUrl(req, res) {
     // caption-less videos fall through to transcription without paying for a
     // full OCR pass.
     //
-    // The two heavy fallbacks use different hardware — OCR is CPU-bound,
-    // Whisper runs on the GPU — so the transcription is kicked off first and
-    // the OCR pass runs concurrently with it, instead of queueing the two
-    // (measured: ~45s saved on a 2-minute news clip). Whichever path needs
-    // the speech awaits the shared promise.
+    // The two heavy fallbacks overlap only when they are on different
+    // hardware: OCR is always CPU-bound, Whisper is on the GPU when there is
+    // one. With a card, kicking the transcription off first and running OCR
+    // alongside it saves real time (measured: ~45s on a 2-minute news clip).
+    // Without one they are the same resource and overlapping them only makes
+    // both slower, so device.mjs decides which it is. Whichever path needs the
+    // speech awaits the shared promise either way.
     let speechPromise = null;
     let audioPath = "";
+    // Whisper's progress outlives the block that starts it: transcription is
+    // kicked off inside the OCR branch but may end up being displayed by the
+    // transcription-only path below, once OCR has come back empty. So the
+    // latest reading lives here and `repaintSpeech` points at whichever block
+    // currently owns the stage line.
+    let speechProgress = null;
+    let repaintSpeech = () => {};
+    const onSpeechProgress = (progress) => {
+      speechProgress = progress;
+      repaintSpeech();
+    };
+
+    // Provisional subtitles. Whisper decodes in time order and hands each
+    // segment over as it lands, so the transcript can be read from about the
+    // first window instead of only when the whole import finishes — on a
+    // nine-minute video, seconds instead of four minutes.
+    //
+    // They are deliberately raw: no caption merge, no Traditional conversion,
+    // no word timings. Converting would mean a Python spawn per batch on a
+    // machine already running OCR and Whisper flat out, which is the opposite
+    // of the point. The reader marks them provisional and replaces all of them
+    // when the real result arrives.
+    const provisional = [];
+    let lastPartialAt = 0;
+    const emitPartial = () => {
+      // Throttled: Whisper can hand over a burst of segments in one tick, and
+      // each event re-sends the whole transcript so far.
+      const now = Date.now();
+      if (!provisional.length || now - lastPartialAt < PARTIAL_INTERVAL_MS) return;
+      lastPartialAt = now;
+      report.partial(segmentsToSrt(markUnintelligible(provisional)));
+    };
+    const onSpeechSegment = (segment) => {
+      provisional.push(segment);
+      emitPartial();
+    };
+    // What this machine can do decides whether the two heavy passes overlap
+    // and how much of the CPU each may take. Probed once per server process.
+    const machine = await probeMachine();
+    const plan = importPlan(machine);
     if (videoPath) {
+      // The heavy passes start here: OCR over the frames and, if the audio
+      // came out, Whisper over the speech. Together they are the overwhelming
+      // majority of an import \u2014 measured at 209 s of a 261 s run on a
+      // nine-minute video \u2014 and they used to share one stage line that never
+      // changed for the whole three and a half minutes.
+      //
+      // Both count something real, so both report it, and the line says which
+      // is running. That is not cosmetic: when they are queued rather than
+      // overlapped, following the OCR pass would leave the bar at nothing for
+      // the whole of transcription. `paint` is declared before either starts,
+      // since the first progress line can arrive before this function would
+      // otherwise exist.
+      let ocrProgress = null;
+      let phase = "captions"; // "speech" | "captions" | "both"
+      const paint = () => {
+        if (phase === "speech") {
+          // Queued, and this is the pass that is actually running. Its own
+          // fraction is the honest one to show.
+          report.stage("Transcribing the speech\u2026", speechProgress);
+          return;
+        }
+        const speech = speechProgress ? ` \u2014 speech ${percentOf(speechProgress)}%` : "";
+        report.stage(
+          phase === "both"
+            ? `Reading on-screen captions and transcribing the speech\u2026${speech}`
+            : "Reading on-screen captions\u2026",
+          ocrProgress,
+        );
+      };
+      repaintSpeech = paint;
+
       try {
         audioPath = await extractAudio(videoPath, workspace);
-        speechPromise = transcribeFastSegments(audioPath);
+        speechPromise = transcribeFastSegments(
+          audioPath,
+          onSpeechProgress,
+          onSpeechSegment,
+        );
         // Awaited later by whichever path consumes it; without this a
         // rejection during the OCR pass would surface as unhandled.
         speechPromise.catch(() => {});
+        phase = plan.concurrent ? "both" : "speech";
+        paint();
+        if (!plan.concurrent) {
+          // No GPU: the two passes share the cores, so they queue instead of
+          // fighting. Transcription goes first, and not only because it is the
+          // shorter of the two — it is the one that streams. Its segments
+          // reach the reader as they are decoded, so the transcript is legible
+          // within a minute even here; putting OCR first would leave a laptop
+          // showing nothing until the whole caption pass had finished.
+          await speechPromise.catch(() => {});
+        }
       } catch (err) {
         console.warn(
           `audio extraction failed (${String(err.message || err).split("\n")[0]}); continuing without transcription`,
         );
       }
 
-      // Both heavy passes are in flight from here: OCR on the CPU and, if the
-      // audio came out, Whisper on the GPU. Name them together rather than
-      // pretending they are sequential.
-      report.stage(
-        speechPromise
-          ? "Reading on-screen captions and transcribing the speech\u2026"
-          : "Reading on-screen captions\u2026",
-      );
-      const ocr = await ocrCaptions(videoPath);
+      // Transcription is either finished (queued) or running alongside from
+      // here; either way the captions pass is what the line follows now.
+      phase = speechPromise && plan.concurrent ? "both" : "captions";
+      paint();
+      const ocr = await ocrCaptions(videoPath, (progress) => {
+        ocrProgress = progress;
+        paint();
+      });
       if (ocr) {
         // Captions only cover what's written on screen; many news videos also
         // have uncaptioned speech (an anchor narrating between captioned
@@ -431,12 +578,19 @@ export async function handleImportUrl(req, res) {
     // result. Without a local video (or if its audio extraction failed), fall
     // back to a direct audio download and transcribe that.
     if (!audioPath) audioPath = await downloadAudio(url.href, workspace);
-    report.stage("Transcribing the speech \u2014 this is the slow part\u2026");
+    // This block now owns the stage line, so point the speech progress at it \u2014
+    // the transcription may have been running since the OCR branch above, in
+    // which case its readings were being drawn into that block's message.
+    repaintSpeech = () =>
+      report.stage("Transcribing the speech \u2014 this is the slow part\u2026", speechProgress);
+    repaintSpeech();
     const whisperResult = await transcribeWithWhisper(
       audioPath,
       workspace,
       speechPromise,
       report,
+      onSpeechProgress,
+      onSpeechSegment,
     );
     report.done({
       title: meta.title,
@@ -539,27 +693,170 @@ function pickHumanTranslation(meta, sourceBase, target = "en") {
   return meta.manual.find((k) => baseLang(k) === target) || null;
 }
 
-async function downloadVideo(url) {
-  const { mkdir } = await import("node:fs/promises");
-  await adoptLegacyVideoDir();
-  await mkdir(VIDEO_DIR, { recursive: true });
-  const id = crypto.randomUUID();
-  const outTemplate = path.join(VIDEO_DIR, `${id}.%(ext)s`);
+// The stored filename for a URL. Downloads used to be named with a fresh
+// crypto.randomUUID(), which left nothing tying a file to the link it came
+// from: the directory bounded itself but could never produce a hit, so
+// re-importing something already on disk was indistinguishable from importing
+// it for the first time and paid for the whole download again (#101).
+//
+// The format arguments go into the digest with the URL, so a change to what we
+// ask yt-dlp for can't be answered from a file fetched under the old one. The
+// digest is truncated to 32 hex characters — this names a file in one local
+// directory, not a security boundary, and a collision would only serve the
+// wrong video to the one reader who caused it.
+export function videoCacheId(url) {
+  return createHash("sha256")
+    .update(`${VIDEO_FORMAT_ARGS.join(" ")}\n${url}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+// Completed downloads for a key, newest first.
+//
+// "Completed" is the whole job here. yt-dlp leaves debris behind when a run is
+// interrupted — "<id>.f399.mp4" is a single stream awaiting its merge,
+// "<id>.mp4.part" a download that stopped partway — and under a random UUID
+// that debris was harmless because nothing ever looked for it again. Keyed by
+// URL it sits exactly where the next import of that URL goes looking, so
+// serving one as a hit would hand the reader half a video. Both carry a second
+// extension segment; the finished file is "<id>.<ext>" and nothing else, which
+// is the test applied here. Empty files are refused for the same reason.
+async function cachedVideoFiles(id) {
+  let files;
+  try {
+    files = await listFiles(VIDEO_DIR);
+  } catch {
+    return []; // no directory yet — the first import of this install
+  }
+  const entries = [];
+  for (const file of files) {
+    const base = path.basename(file);
+    if (!base.startsWith(`${id}.`)) continue;
+    const ext = base.slice(id.length + 1);
+    if (!ext || ext.includes(".")) continue;
+    try {
+      const info = await stat(file);
+      if (info.size > 0) entries.push({ file, mtime: info.mtimeMs });
+    } catch {
+      // Pruned between the listing and the stat; treat it as absent.
+    }
+  }
+  return entries.sort((a, b) => b.mtime - a.mtime);
+}
+
+// What the cache can offer for a URL: the file, and whether it is too old to
+// re-use. Exported for the tests, which is why it takes `now`.
+export async function lookupCachedVideo(url, now = Date.now()) {
+  const [newest] = await cachedVideoFiles(videoCacheId(url));
+  if (!newest) return null;
+  const stale =
+    VIDEO_CACHE_HIT_MAX_AGE_MS > 0 &&
+    now - newest.mtime > VIDEO_CACHE_HIT_MAX_AGE_MS;
+  return { file: newest.file, stale };
+}
+
+// Mark a stored video used, without disturbing when it was fetched. Two clocks
+// live on this file and they answer different questions: mtime is when it was
+// downloaded, which is what staleness measures, and atime is when it was last
+// wanted, which is what pruning keeps alive. Touching mtime — the obvious move,
+// and what a plain `touch` does — would restart the staleness clock on every
+// re-import, so a video opened once a week would never expire and the limit
+// above would mean nothing.
+async function markUsed(file) {
+  try {
+    const { mtime } = await stat(file);
+    await utimes(file, new Date(), mtime);
+  } catch {
+    // Only costs this file some of its remaining life in the cache.
+  }
+}
+
+// The real download. `outTemplate` is a yt-dlp output template; whatever it
+// writes is found afterwards by name, so this only has to succeed or throw.
+async function fetchWithYtdlp(url, outTemplate) {
   await runYtdlp(
     [
       ...(await ytdlpBase()),
-      "-f", "best[ext=mp4]/best",
-      "--merge-output-format", "mp4",
+      ...VIDEO_FORMAT_ARGS,
       "-o", outTemplate,
       url,
     ],
     { timeoutMs: 10 * 60_000 },
   );
-  const files = await listFiles(VIDEO_DIR);
-  const video = files.find((f) => f.includes(id));
-  if (!video) return "";
+}
+
+// Exported for the tests, which pass a stand-in `fetch` so the replace-or-keep
+// logic can be exercised without yt-dlp or a network.
+export async function downloadVideo(
+  url,
+  { onCacheHit = () => {}, onRefreshFailed = () => {}, fetch = fetchWithYtdlp } = {},
+) {
+  const { mkdir, rename } = await import("node:fs/promises");
+  await adoptLegacyVideoDir();
+  await mkdir(VIDEO_DIR, { recursive: true });
+  const id = videoCacheId(url);
+
+  const cached = await lookupCachedVideo(url);
+  if (cached && !cached.stale) {
+    onCacheHit();
+    await markUsed(cached.file);
+    await pruneVideoCache(id);
+    return cached.file;
+  }
+
+  // Download under a name of its own, and only put it in place once it has
+  // arrived whole. Writing straight to "<id>.<ext>" meant a stale copy had to
+  // be deleted *before* re-fetching (yt-dlp skips an output file that already
+  // exists, "has already been downloaded"), so a re-download that failed — the
+  // bot check, a dropped connection — left neither the new video nor the old
+  // one. The staging name also keeps two imports of the same link from
+  // writing into one file: each gets its own, and the last to finish wins.
+  //
+  // "<id>-<uuid>" rather than "<id>.<uuid>": cachedVideoFiles(id) only accepts
+  // "<id>.<ext>", so a download still in progress can never be served as a hit.
+  const stagingId = `${id}-${randomUUID()}`;
+  let staged;
+  try {
+    await fetch(url, path.join(VIDEO_DIR, `${stagingId}.%(ext)s`));
+    [staged] = await cachedVideoFiles(stagingId);
+  } catch (err) {
+    await removeStaging(stagingId);
+    if (!cached) throw err;
+    // The link may have changed since, but a video that is a little out of
+    // date beats failing an import whose video is sitting right here.
+    onRefreshFailed();
+    await markUsed(cached.file);
+    await pruneVideoCache(id);
+    return cached.file;
+  }
+  if (!staged) {
+    await removeStaging(stagingId);
+    return cached ? cached.file : "";
+  }
+
+  const ext = path.basename(staged.file).slice(stagingId.length + 1);
+  const target = path.join(VIDEO_DIR, `${id}.${ext}`);
+  // Same filesystem, so this replaces any stored copy with the same extension
+  // in one step; a reader never sees the name pointing at nothing.
+  await rename(staged.file, target);
+  await removeStaging(stagingId);
+  // A refresh that came back in a different container leaves the old one
+  // behind under another extension; it is the same video, out of date.
+  if (cached && cached.file !== target) await rm(cached.file, { force: true });
   await pruneVideoCache(id);
-  return video;
+  return target;
+}
+
+// Whatever a download under `stagingId` left behind — a ".part", a stream
+// awaiting its merge. Best-effort: debris that survives is pruned with the rest.
+async function removeStaging(stagingId) {
+  try {
+    for (const file of await listFiles(VIDEO_DIR)) {
+      if (path.basename(file).startsWith(`${stagingId}.`)) await rm(file, { force: true });
+    }
+  } catch {
+    // Nothing to clean up, or nothing that can be.
+  }
 }
 
 // Pull a Whisper-ready audio track (mono 16 kHz) out of a local video file.
@@ -578,18 +875,27 @@ async function extractAudio(videoPath, workspace) {
   return audioPath;
 }
 
-// Enforce the cache retention policy: drop files older than the age limit,
-// then prune the oldest until at most VIDEO_CACHE_MAX remain. The file just
-// downloaded (keepId) is always preserved. Best-effort: never throws, so a
-// pruning hiccup can't fail an otherwise-successful import.
-async function pruneVideoCache(keepId) {
+// Enforce the cache retention policy: drop files unused for longer than the age
+// limit, then prune the least recently used until at most VIDEO_CACHE_MAX
+// remain. The file just downloaded or re-used (keepId) is always preserved.
+// Best-effort: never throws, so a pruning hiccup can't fail an
+// otherwise-successful import.
+//
+// "Used" is the later of the two timestamps, not mtime alone. A re-import
+// stamps atime and deliberately leaves mtime where it was (see downloadVideo),
+// so mtime on its own would age a video the reader returns to every week at
+// exactly the rate of one they downloaded once and forgot — and evict it just
+// the same. Taking the max also means files that predate any of this, which
+// have only ever been written, keep behaving exactly as they did.
+export async function pruneVideoCache(keepId) {
   try {
     const files = await listFiles(VIDEO_DIR);
     const entries = (
       await Promise.all(
         files.map(async (file) => {
           try {
-            return { file, mtime: (await stat(file)).mtimeMs };
+            const info = await stat(file);
+            return { file, used: Math.max(info.atimeMs, info.mtimeMs) };
           } catch {
             return null;
           }
@@ -601,14 +907,15 @@ async function pruneVideoCache(keepId) {
     const survivors = [];
     let keptCount = 0;
     for (const entry of entries) {
-      // The freshly downloaded file is never pruned, by age or by count.
+      // The file this import just downloaded or re-used is never pruned, by age
+      // or by count.
       if (keepId && path.basename(entry.file).includes(keepId)) {
         keptCount += 1;
         continue;
       }
       if (
         VIDEO_CACHE_MAX_AGE_MS > 0 &&
-        now - entry.mtime > VIDEO_CACHE_MAX_AGE_MS
+        now - entry.used > VIDEO_CACHE_MAX_AGE_MS
       ) {
         await rm(entry.file, { force: true });
       } else {
@@ -619,7 +926,7 @@ async function pruneVideoCache(keepId) {
     // The kept file counts toward the cap but is never itself removed.
     const budget = Math.max(VIDEO_CACHE_MAX - keptCount, 0);
     if (VIDEO_CACHE_MAX > 0 && survivors.length > budget) {
-      survivors.sort((a, b) => b.mtime - a.mtime); // newest first
+      survivors.sort((a, b) => b.used - a.used); // most recently used first
       for (const entry of survivors.slice(budget)) {
         await rm(entry.file, { force: true });
       }
@@ -755,9 +1062,19 @@ function unsupportedLanguageError(language) {
 // openai-whisper CLI only if faster-whisper isn't installed. When the caller
 // already started a transcription (the concurrent OCR+Whisper path), pass its
 // promise as `speechPromise` so the work isn't done twice.
-async function transcribeWithWhisper(audioPath, workspace, speechPromise = null, report = null) {
+async function transcribeWithWhisper(
+  audioPath,
+  workspace,
+  speechPromise = null,
+  report = null,
+  onProgress = null,
+  onSegment = null,
+) {
   try {
-    const speech = await (speechPromise || transcribeFastSegments(audioPath));
+    // The callbacks only apply when we start the transcription here. A promise
+    // handed in was spawned with its own already attached.
+    const speech = await (speechPromise ||
+      transcribeFastSegments(audioPath, onProgress, onSegment));
     return await finishFastTranscription(speech, report);
   } catch (err) {
     // Don't fall back to the CLI for a non-Chinese video — that would just
@@ -775,14 +1092,60 @@ async function transcribeWithWhisper(audioPath, workspace, speechPromise = null,
   }
 }
 
+// The long Python steps tag their stderr lines (PROGRESS_PREFIX and
+// SEGMENT_PREFIX in transcribe.py / ocr_captions.py) so progress and decoded
+// segments can share the pipe with ordinary diagnostics. Anything untagged is
+// left alone — it is still collected into `stderr` for error reporting,
+// exactly as before, which is why stdout could stay one JSON line.
+const PROGRESS_PREFIX = "@progress ";
+const SEGMENT_PREFIX = "@segment ";
+
+// Returns a handler for runCommand's `onStderrLine`. Both callbacks optional.
+export function readTaggedLine({ onProgress = null, onSegment = null } = {}) {
+  return (line) => {
+    const tag = line.startsWith(PROGRESS_PREFIX)
+      ? PROGRESS_PREFIX
+      : line.startsWith(SEGMENT_PREFIX)
+        ? SEGMENT_PREFIX
+        : null;
+    if (!tag) return;
+    let payload;
+    try {
+      payload = JSON.parse(line.slice(tag.length));
+    } catch {
+      // A half-written or garbled line costs one skipped repaint, which is a
+      // far better outcome than throwing inside a stderr handler.
+      return;
+    }
+    if (tag === PROGRESS_PREFIX && onProgress) {
+      const { done, total } = payload;
+      // A malformed pair would render as a bar at NaN%, which looks broken in
+      // a way a missing bar does not. Drop it instead.
+      if (Number.isFinite(done) && Number.isFinite(total) && total > 0) {
+        onProgress({ done, total });
+      }
+      return;
+    }
+    if (tag === SEGMENT_PREFIX && onSegment) {
+      const { start, end, text } = payload;
+      // A segment with no usable window can't be placed on the timeline, and a
+      // provisional cue in the wrong place is worse than one missing cue.
+      if (Number.isFinite(start) && Number.isFinite(end) && typeof text === "string") {
+        onSegment(payload);
+      }
+    }
+  };
+}
+
 // Read burned-in (hardcoded) captions off the video frames via ocr_captions.py.
 // Returns {language, segments} or null when no legible captions were found —
 // the caller then falls back to the subtitle/transcription path.
-async function ocrCaptions(videoPath) {
+async function ocrCaptions(videoPath, onProgress = null) {
   let result;
   try {
     result = await runCommand(PYTHON_BIN, [OCR_SCRIPT, videoPath], {
       timeoutMs: 30 * 60_000,
+      onStderrLine: onProgress ? readTaggedLine({ onProgress }) : null,
     });
   } catch (err) {
     if (/No module named ['"]?rapidocr|ModuleNotFoundError/i.test(err.message || "")) {
@@ -813,9 +1176,11 @@ async function ocrCaptions(videoPath) {
 // so the Traditional-Chinese prompt is applied without a second pass), JSON out.
 // Returns the raw timed segments; used directly by the OCR hybrid, which needs
 // them pre-SRT to interleave with caption segments.
-async function transcribeFastSegments(audioPath) {
+async function transcribeFastSegments(audioPath, onProgress = null, onSegment = null) {
   const result = await runCommand(PYTHON_BIN, [TRANSCRIBE_SCRIPT, audioPath], {
     timeoutMs: 30 * 60_000,
+    onStderrLine:
+      onProgress || onSegment ? readTaggedLine({ onProgress, onSegment }) : null,
   });
   const line = result.stdout.trim().split("\n").filter(Boolean).at(-1);
   if (!line) throw new Error("faster-whisper produced no output.");

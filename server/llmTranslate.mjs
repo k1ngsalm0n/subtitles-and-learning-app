@@ -15,12 +15,8 @@
 import { readFileSync } from "node:fs";
 
 import { readPrefs } from "./prefs.mjs";
+import { getLlmConfig } from "./llmConfig.mjs";
 
-const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-const LLM_BASE_URL = (
-  process.env.LLM_BASE_URL || "https://api.openai.com/v1"
-).replace(/\/$/, "");
-const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
 // LLM_TRANSLATE=off is the deployment-level switch and still wins; the
 // Settings toggle is the reader's, checked per call so flipping it takes effect
 // without a restart.
@@ -118,7 +114,8 @@ export function buildPrompt(from, to) {
   );
 }
 
-async function askModel(prompt, lines) {
+async function askModel(config, prompt, lines) {
+  const { apiKey: LLM_API_KEY, baseUrl: LLM_BASE_URL, model: LLM_MODEL } = config;
   const numbered = lines.map((text, index) => `${index + 1}. ${text}`).join("\n");
   const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
     method: "POST",
@@ -144,28 +141,33 @@ async function askModel(prompt, lines) {
   return content ? readTranslations(content, lines.length) : null;
 }
 
-// Whether a chat model *could* be used: a key is set and the deployment hasn't
-// forbidden it. Says nothing about the reader's preference — see the caller.
-export function llmTranslationConfigured() {
-  return Boolean(LLM_API_KEY) && ENV_ENABLED;
+// Whether a chat model *could* be used: one is configured and the deployment
+// hasn't forbidden it. Says nothing about the reader's preference — see the
+// caller.
+export async function llmTranslationConfigured() {
+  return Boolean(await getLlmConfig()) && ENV_ENABLED;
 }
 
+// The config to translate with, or null for "use the offline translator".
 export async function llmTranslationAvailable() {
-  if (!llmTranslationConfigured()) return false;
+  if (!ENV_ENABLED) return null;
+  const config = await getLlmConfig();
+  if (!config) return null;
   const { llm } = await readPrefs();
-  return llm !== "off";
+  return llm !== "off" ? config : null;
 }
 
 // Returns a translated SRT, or null to mean "use the offline translator".
 export async function translateSrtWithLlm(srt, from, to) {
-  if (!(await llmTranslationAvailable())) return null;
+  const config = await llmTranslationAvailable();
+  if (!config) return null;
 
   const cues = parseCues(srt);
   if (!cues.length || cues.length > MAX_LINES) return null;
 
   const prompt = buildPrompt(from, to);
   const groups = batches(cues.map((cue) => cue.text));
-  const results = await Promise.all(groups.map((group) => askModel(prompt, group)));
+  const results = await Promise.all(groups.map((group) => askModel(config, prompt, group)));
   // One bad batch means the rest would be a mix of two translators with
   // different names for the same ship. Hand the whole job back instead.
   if (results.some((group) => group === null)) return null;
