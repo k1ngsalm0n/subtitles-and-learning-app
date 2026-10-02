@@ -21,7 +21,7 @@ import {
   DEFAULT_DECK_ID,
 } from "./carddata.mjs";
 import { schedule } from "./scheduler.mjs";
-import { buildExport, mergeImport, buildAnkiTsv } from "./portability.mjs";
+import { buildExport, importFromText, buildAnkiTsv } from "./portability.mjs";
 import {
   renderAll,
   renderCardList,
@@ -353,15 +353,9 @@ export function exportAnkiTsv() {
 
 // Merge an exported file back in. Returns { report } or { error }.
 export function importCardsFromText(text) {
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return { error: "That file isn't valid JSON." };
-  }
-  const merged = mergeImport(
+  const merged = importFromText(
     { cards: state.cards, decks: state.decks, templates: state.templates },
-    parsed,
+    text,
   );
   if (merged.error) return merged;
   state.decks = merged.decks;

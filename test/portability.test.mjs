@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildExport,
   mergeImport,
+  importFromText,
   buildAnkiTsv,
   describeReport,
   EXPORT_VERSION,
@@ -239,4 +240,53 @@ test("an incoming deck with no name is ignored, not imported half-formed", () =>
   // so it isn't counted as either.
   assert.equal(merged.report.decks.added, 1);
   assert.equal(merged.report.decks.skipped, 0);
+});
+
+// ---------------------------------------------------------------------------
+// importFromText is what the import button and "Restore from backup" call. A
+// file that breaks mergeImport's assumptions used to throw out of the change
+// handler, so the import silently did nothing. Every one of these did that.
+
+const MALFORMED = {
+  "a template named with a number": {
+    version: EXPORT_VERSION,
+    templates: [{ id: "t", name: 42, frontFields: [], backFields: [] }],
+  },
+  "a template named with an object": {
+    version: EXPORT_VERSION,
+    templates: [{ id: "t", name: {}, frontFields: [], backFields: [] }],
+  },
+  "a null in the cards list": { version: EXPORT_VERSION, cards: [null] },
+  "a null in an old-style plain list of cards": [null],
+};
+
+for (const [what, file] of Object.entries(MALFORMED)) {
+  test(`${what} is reported, not thrown`, () => {
+    const result = importFromText(baseState(), JSON.stringify(file));
+    assert.match(result.error, /nothing was imported/);
+    assert.match(result.error, /Your cards are unchanged/);
+  });
+}
+
+test("a failed import leaves the store it was given untouched", () => {
+  const current = baseState();
+  current.cards.push(sampleCard("你好"));
+  const before = structuredClone(current);
+  const file = { version: EXPORT_VERSION, decks: [{ id: "d9", name: "New" }], cards: [null] };
+  importFromText(current, JSON.stringify(file));
+  assert.deepEqual(current, before);
+});
+
+test("text that isn't JSON says so", () => {
+  assert.deepEqual(importFromText(baseState(), "{not json"), {
+    error: "That file isn't valid JSON.",
+  });
+});
+
+test("a good file comes through importFromText exactly as through mergeImport", () => {
+  const source = baseState();
+  source.decks.push({ id: "d1", name: "HSK 4", createdAt: 1 });
+  source.cards.push(sampleCard("你好", "d1"));
+  const text = JSON.stringify(buildExport(source));
+  assert.deepEqual(importFromText(baseState(), text), mergeImport(baseState(), JSON.parse(text)));
 });

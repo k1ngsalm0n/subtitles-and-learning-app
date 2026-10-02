@@ -191,6 +191,32 @@ export function mergeImport(current, incoming) {
   return { decks, templates, cards, report };
 }
 
+// What the import button and "Restore from backup" both call: the text of a
+// file in, `{ decks, templates, cards, report }` or `{ error }` out — never a
+// throw. mergeImport assumes the shapes it reads, and a file can break that in
+// more ways than are worth guarding one by one (a template named 42, a null in
+// the cards list). It used to throw straight out of the change handler, so the
+// import silently did nothing: no toast, no message, just a file that didn't
+// arrive. Nothing is lost when that happens — the merge works on copies and the
+// caller only saves a result — which is why the message can say so.
+export function importFromText(current, text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { error: "That file isn't valid JSON." };
+  }
+  try {
+    return mergeImport(current, parsed);
+  } catch (err) {
+    console.error("Import failed:", err);
+    return {
+      error:
+        "Part of that file isn't in a shape Stele can read, so nothing was imported. Your cards are unchanged.",
+    };
+  }
+}
+
 export function describeReport(report) {
   const part = (label, r) =>
     r.added || r.skipped ? `${r.added} ${label} added (${r.skipped} skipped)` : "";
