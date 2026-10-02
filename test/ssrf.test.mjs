@@ -41,6 +41,17 @@ const PRIVATE = {
   "localhost by name": "http://localhost/x",
   "a subdomain of localhost": "http://foo.localhost/x",
   "mDNS name": "http://printer.local/x",
+  // IPv4 inside other IPv6 wrappers, and the v6 blocks that are never public.
+  // These were allowed until the second pass over the IPv6 table.
+  "IPv4-compatible loopback, hex form": "http://[::7f00:1]/x",
+  "IPv4-compatible loopback, dotted form": "http://[::127.0.0.1]/x",
+  "loopback through NAT64": "http://[64:ff9b::127.0.0.1]/x",
+  "cloud metadata through NAT64": "http://[64:ff9b::a9fe:a9fe]/x",
+  "local-use NAT64": "http://[64:ff9b:1::1]/x",
+  "loopback through 6to4": "http://[2002:7f00:1::]/x",
+  "cloud metadata through 6to4": "http://[2002:a9fe:a9fe::1]/x",
+  "IPv6 multicast": "http://[ff02::1]/x",
+  "IPv6 site-local": "http://[fec0::1]/x",
 };
 
 // The one that turns a private fetch into stolen credentials, so it gets its
@@ -60,6 +71,20 @@ test("ordinary public URLs still work", async () => {
     "https://example.com/x",
     "https://www.youtube.com/watch?v=abc",
     "http://93.184.216.34/x",
+  ]) {
+    assert.equal(await allowed(target), true, `${target} was refused`);
+  }
+});
+
+// A wrapper is only refused for what it carries. NAT64 is how an IPv6-only
+// network reaches every IPv4 site, so refusing the prefix outright would break
+// imports there.
+test("IPv6 wrappers around a public IPv4 address still work", async () => {
+  for (const target of [
+    "http://[64:ff9b::8.8.8.8]/x",
+    "http://[2002:808:808::1]/x",
+    "http://[::ffff:8.8.8.8]/x",
+    "http://[2606:4700:4700::1111]/x",
   ]) {
     assert.equal(await allowed(target), true, `${target} was refused`);
   }

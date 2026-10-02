@@ -120,10 +120,12 @@ function ipv6Groups(address) {
 }
 
 // The v4 ranges that are not somewhere on the public internet: this machine,
-// this network, the link, the carrier's own space, and the blocks reserved for
-// documentation and benchmarking. 169.254.169.254 — the cloud metadata
-// endpoint — falls inside link-local, which is the one that turns a private
-// fetch into stolen credentials.
+// this network, the link, the carrier's own space, and the block reserved for
+// benchmarking. 169.254.169.254 — the cloud metadata endpoint — falls inside
+// link-local, which is the one that turns a private fetch into stolen
+// credentials. The documentation blocks (192.0.2.0/24, 198.51.100.0/24,
+// 203.0.113.0/24) aren't listed: nothing routes them, so there is nothing
+// behind them to reach.
 //
 // This reads as a list because it is one. Every line is a CIDR block with the
 // reason it's here; keeping them as one expression is what lets you check the
@@ -149,25 +151,39 @@ function isPrivateIpv4(address) {
   );
 }
 
+// Two 16-bit groups as the IPv4 address they carry.
+const v4From = (hi, lo) => [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join(".");
+
 // The same table for v6, plus the wrapper forms — an address that is really an
 // IPv4 one in disguise has to be judged as that address, or ::ffff:127.0.0.1
-// walks straight through.
+// walks straight through. Each wrapper is a prefix with the v4 address at a
+// fixed place in it; the public ones are allowed only when the address inside
+// is public.
 function isPrivateIpv6(address) {
   const groups = ipv6Groups(address);
   if (!groups) return true;
-  // ::ffff:0:0/96 wraps an IPv4 address; judge it as that address.
-  const mapped =
-    groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff;
-  if (mapped) {
-    const v4 = [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff];
-    return isPrivateIpv4(v4.join("."));
+  const zero = (from, to) => groups.slice(from, to).every((g) => g === 0);
+
+  // ::ffff:0:0/96, IPv4-mapped: the last 32 bits are the address.
+  if (zero(0, 5) && groups[5] === 0xffff) return isPrivateIpv4(v4From(groups[6], groups[7]));
+  // 64:ff9b::/96, the well-known NAT64 prefix: on an IPv6-only network this is
+  // how every IPv4 site is reached, so it can't be refused wholesale — but
+  // 64:ff9b::127.0.0.1 is a gateway being asked for its own loopback.
+  if (groups[0] === 0x64 && groups[1] === 0xff9b && zero(2, 6)) {
+    return isPrivateIpv4(v4From(groups[6], groups[7]));
   }
-  const allZero = groups.every((g) => g === 0);
+  // 2002::/16, 6to4: the IPv4 address is the next 32 bits.
+  if (groups[0] === 0x2002) return isPrivateIpv4(v4From(groups[1], groups[2]));
+
   return (
-    allZero ||                                       // ::
-    (groups.slice(0, 7).every((g) => g === 0) && groups[7] === 1) || // ::1
-    (groups[0] & 0xfe00) === 0xfc00 ||               // fc00::/7 unique local
-    (groups[0] & 0xffc0) === 0xfe80                  // fe80::/10 link-local
+    zero(0, 6) ||                         // ::/96 — ::, ::1, and the deprecated
+                                          //   IPv4-compatible form (::127.0.0.1)
+    (groups[0] === 0x64 && groups[1] === 0xff9b && groups[2] === 1) || // 64:ff9b:1::/48
+                                          //   local-use NAT64, private by definition
+    (groups[0] & 0xfe00) === 0xfc00 ||    // fc00::/7 unique local
+    (groups[0] & 0xffc0) === 0xfe80 ||    // fe80::/10 link-local
+    (groups[0] & 0xffc0) === 0xfec0 ||    // fec0::/10 site-local (deprecated)
+    (groups[0] & 0xff00) === 0xff00       // ff00::/8 multicast
   );
 }
 
