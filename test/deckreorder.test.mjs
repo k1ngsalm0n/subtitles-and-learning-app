@@ -446,3 +446,28 @@ test("a replaced container gets its own listeners", () => {
   dragOver(replacement, "a", 0.1);
   assert.deepEqual(shape(replacement), ["b", "a"], "and they work");
 });
+
+// Two rules the suite above let through when they were deliberately broken:
+// removing either one failed no test, and a wrong answer to both looks like an
+// ordinary drag that landed somewhere else.
+
+test("a built-in deck can be reordered but never filed inside another", async () => {
+  const nav = sidebar(["a", "c", "b"]);
+  state.decks.find((deck) => deck.id === "b").builtIn = true;
+  grab(nav, "b");
+  dragOver(nav, "a", 0.5); // the nesting band of a top-level row
+  assert.ok(!shape(nav).includes("b>a"), "a built-in deck stays top level");
+  assert.ok(
+    !rowFor(nav, "a").classList.contains("nest-target"),
+    "and the band is never offered to it",
+  );
+  // The middle of the row is still a slot, so it reorders instead.
+  assert.deepEqual(shape(nav), ["a", "b", "c"]);
+});
+
+test("the slot between a parent and its first sub-deck lands inside the group", async () => {
+  const nav = sidebar(["a", "a/x", "b"]);
+  grab(nav, "b");
+  dragOver(nav, "x", 0.1); // just under a, just above x
+  assert.deepEqual(shape(nav), ["a", "b>a", "x>a"]);
+});
