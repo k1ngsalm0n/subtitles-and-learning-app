@@ -15,6 +15,12 @@ so screen furniture can be told apart from captions:
     lived than global furniture but still outlast the captions they share the
     screen with — any line whose on-screen run fully contains several complete
     runs of other lines is dropped as a local tag.
+  * Furniture slots: once a video's furniture is known, a new line in the
+    exact slot it held (same top, bottom and one edge) is furniture too —
+    a fresh credit or location pin, however briefly it shows. A slot counts
+    only where furniture outnumbers the other lines ever seen in it.
+  * One-frame noise: a line read in a single frame with low confidence is a
+    flickering watermark, not a caption.
   * Captions (speech subtitles, title cards) live for a few seconds each —
     short-dwell lines are kept and merged into timed segments, with a majority
     vote across frames to iron out per-frame OCR jitter.
@@ -82,6 +88,21 @@ MAX_LINES = 8
 # caption changes. Size/position can't tell them apart (embedded-clip captions
 # are often *smaller* than watermarks), but this temporal shape can.
 TAG_MIN_CONTAINED_RUNS = 2
+# A line read in only one frame is weak evidence. Real captions read crisply
+# even then (0.93-1.00 on the test videos); the one-frame readings below this
+# were all garbled watermarks — 微博视频号 read as 博校频号, 新以信 — which
+# flicker in and out of legibility and never read the same way twice, so no
+# reading of them lasts long enough for the dwell or tag rules to see.
+ONE_FRAME_MIN_SCORE = 0.9
+# Furniture slots. A news layout puts the same kind of furniture in the same
+# place every time — a source credit at the top right, a location pin under
+# it, a speaker label at one left edge — and a new instance there is
+# furniture too, however briefly it shows. A line is in a furniture line's
+# slot when its top and bottom are within this fraction of the frame height
+# of the furniture's, and it shares the furniture's left or right edge within
+# this fraction of the width. Shared top, bottom and edge — not mere overlap:
+# captions are centred, and their edges move with their length.
+SLOT_TOLERANCE = 0.03
 # Samples this far apart still belong to one on-screen run: OCR failing to
 # read a line for a single frame must not split its run — a split run loses
 # its equal-span partners and can be misclassified as a tag. Two consecutive
@@ -147,15 +168,23 @@ def _is_caption_line(text):
 
 
 def _read_lines(engine, img):
-    """OCR one frame; returns text lines as [(y, text, score)], top first."""
+    """OCR one frame; returns text lines as [(y, text, score, box)], top first.
+
+    `box` is (x0, y0, x1, y1) as fractions of the frame, so furniture slots
+    compare across videos of any resolution.
+    """
     out = engine(img)
     if not out.txts:
         return []
+    height, width = img.shape[:2]
     lines = []
     for box, text, score in zip(out.boxes, out.txts, out.scores):
         text, score = text.strip(), float(score)
         if text and score >= MIN_SCORE and _is_caption_line(text):
-            lines.append((min(p[1] for p in box), text, score))
+            xs = [float(p[0]) for p in box]
+            ys = [float(p[1]) for p in box]
+            norm = (min(xs) / width, min(ys) / height, max(xs) / width, max(ys) / height)
+            lines.append((min(ys), text, score, norm))
     return sorted(lines)
 
 
@@ -198,7 +227,7 @@ def _max_dwell(times, interval):
 def filter_furniture(raw, interval):
     """Drop long-dwell text lines; join the survivors per frame.
 
-    `raw` is [(time, [(y, text, score), ...])]. Lines are fuzzily clustered
+    `raw` is [(time, [(y, text, score[, box]), ...])]. Lines are fuzzily clustered
     across frames (OCR jitter makes furniture read slightly differently frame
     to frame), each cluster's screen time is measured, and clusters that
     exceed the dwell/presence cutoffs are removed everywhere. Returns samples
@@ -208,11 +237,13 @@ def filter_furniture(raw, interval):
     # new lines against any of them: jitter drifts (這裡 → 道裡 → 道理), and a
     # double-misread can sit below the threshold against the first reading
     # while clearly matching a later one.
-    clusters = []  # {"rep": str, "texts": [str, ...], "times": [t, ...]}
+    clusters = []  # {"rep", "texts", "times", "scores", "boxes"}
     assigned = []  # [(time, [(y, text, score, cluster_index), ...])]
     for time, lines in raw:
         row = []
-        for y, text, score in lines:
+        for line in lines:
+            y, text, score = line[:3]
+            box = line[3] if len(line) > 3 else None
             index = next(
                 (
                     i
@@ -226,11 +257,16 @@ def filter_furniture(raw, interval):
             )
             if index is None:
                 index = len(clusters)
-                clusters.append({"rep": text, "texts": [text], "times": []})
+                clusters.append(
+                    {"rep": text, "texts": [text], "times": [], "scores": [], "boxes": []}
+                )
             cluster = clusters[index]
             if text not in cluster["texts"] and len(cluster["texts"]) < 5:
                 cluster["texts"].append(text)
             cluster["times"].append(time)
+            cluster["scores"].append(score)
+            if box is not None:
+                cluster["boxes"].append(box)
             row.append((y, text, score, index))
         assigned.append((time, row))
 
@@ -248,9 +284,24 @@ def filter_furniture(raw, interval):
         )
         if _max_dwell(times, interval) > MAX_DWELL_SECONDS or fraction_furniture:
             banned.add(index)
+    noise = {
+        index
+        for index, cluster in enumerate(clusters)
+        if index not in banned
+        and len(set(cluster["times"])) == 1
+        and max(cluster["scores"]) < ONE_FRAME_MIN_SCORE
+    }
+    if noise:
+        dropped = ", ".join(repr(clusters[i]["rep"]) for i in sorted(noise))
+        sys.stderr.write(f"OCR: dropped one-frame low-confidence reads: {dropped}\n")
     if banned:
         dropped = ", ".join(repr(clusters[i]["rep"]) for i in sorted(banned))
         sys.stderr.write(f"OCR: dropped screen furniture: {dropped}\n")
+    # Noise stays in the run analysis below and only leaves the output: a
+    # flickering watermark is still something on screen changing, and a
+    # banner that sat through several of those flickers is a tag — the
+    # 75公斤記者實測… strip was caught that way, and taking the noise out first
+    # let it back in as a caption.
 
     # Contiguous on-screen runs per surviving cluster, for the local-tag rule.
     runs = []  # (cluster_index, start, end)
@@ -402,6 +453,71 @@ def filter_furniture(raw, interval):
         )
         sys.stderr.write(f"OCR: dropped static backdrop block: {dropped}\n")
         tag_runs.extend(backdrop_runs)
+
+    # Furniture slots: a line sitting exactly where this video's furniture
+    # sits — same top and bottom, same left or right edge — is another piece
+    # of it. Learned from the video itself, from lines already proven to be
+    # furniture by dwell or as tags. SOCIAL MEDIA/路透社 at the top right ran
+    # 17 s and outlasted one caption, so no time rule could call it; but it sat
+    # on the right edge MANBO HOMESTAY…/AP and NEWSFLARE/路透社 had held. Same
+    # for 河北省承德市 under 浙江省台州市, and speaker labels in the slot
+    # 錢江新聞 and 新京報記者 used.
+    #
+    # The guard: a slot only counts when most of the distinct lines ever seen
+    # in it are furniture already. A headline strip can sit in the caption
+    # band at caption height — TVBS's does — and without this its slot would
+    # take every caption with it; there, captions outnumber headlines ten to
+    # one, and the slot is left alone.
+    # Learned only from dwell furniture and single-line tags, not backdrop
+    # blocks: an on-screen article sits in the picture's content area, where
+    # an embedded clip's own captions also go, and learning its slot took two
+    # of those captions with it.
+    proven = (banned - noise) | tag_clusters
+    # What the guard counts, though, is every line some rule already took out,
+    # backdrop members included: a line already gone isn't a caption competing
+    # for the slot. The speaker-label slot held 錢江新聞 and 新京報記者 (tags)
+    # and 侶行杭州基地負責人王曠涵 (dropped with a backdrop block); counted as
+    # a survivor, that last one outvoted the furniture and let two more
+    # labels through.
+    already_out = proven | {ci for ci, _s, _e in tag_runs}
+
+    def _median_box(cluster):
+        boxes = cluster["boxes"]
+        if not boxes:
+            return None
+        return tuple(sorted(b[k] for b in boxes)[len(boxes) // 2] for k in range(4))
+
+    boxes = {i: _median_box(c) for i, c in enumerate(clusters)}
+
+    def _same_slot(a, b):
+        return (
+            a is not None
+            and b is not None
+            and abs(a[1] - b[1]) <= SLOT_TOLERANCE
+            and abs(a[3] - b[3]) <= SLOT_TOLERANCE
+            and (
+                abs(a[0] - b[0]) <= SLOT_TOLERANCE
+                or abs(a[2] - b[2]) <= SLOT_TOLERANCE
+            )
+        )
+
+    in_slots = set()
+    for f in proven:
+        if boxes[f] is None:
+            continue
+        here = [
+            i for i in range(len(clusters))
+            if i not in noise and _same_slot(boxes[i], boxes[f])
+        ]
+        held_by_furniture = sum(1 for i in here if i in already_out)
+        newcomers = [i for i in here if i not in already_out]
+        if newcomers and held_by_furniture >= len(newcomers):
+            in_slots.update(newcomers)
+    if in_slots:
+        dropped = ", ".join(repr(clusters[i]["rep"]) for i in sorted(in_slots))
+        sys.stderr.write(f"OCR: dropped lines in furniture slots: {dropped}\n")
+        banned |= in_slots
+    banned |= noise
 
     def is_tagged(ci, time):
         return any(
@@ -608,7 +724,7 @@ def _probe_finds_text(engine, video_path, workspace):
             continue
         cjk_line = any(
             sum(1 for ch in text if "㐀" <= ch <= "鿿") >= 2
-            for _y, text, _s in _read_lines(engine, img)
+            for _y, text, *_rest in _read_lines(engine, img)
         )
         if cjk_line:
             hits += 1
