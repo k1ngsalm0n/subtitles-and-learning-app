@@ -26,6 +26,7 @@ import {
   cleanCaptions,
   alignTranslationByTime,
   dedupeContinuationLines,
+  dropUnreadableGlimpses,
   markUnintelligible,
   mergeCaptionSpeech,
   paceCaptionLines,
@@ -588,8 +589,8 @@ export async function handleImportUrl(req, res) {
         }
         // A static summary block stays on screen while short captions rotate
         // beneath it — repeat only what changed, then pace long blocks.
-        segments = dedupeContinuationLines(segments).flatMap((s) =>
-          s.caption ? paceCaptionLines(s) : [s],
+        segments = dropUnreadableGlimpses(dedupeContinuationLines(segments)).flatMap(
+          (s) => (s.caption ? paceCaptionLines(s) : [s]),
         );
         // No refine pass here: speech was already refined, and caption blocks
         // were paced within their real display windows — a character-count

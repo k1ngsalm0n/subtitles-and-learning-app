@@ -419,6 +419,28 @@ const GLIMPSE_MAX_SECONDS = 2;
 // of its lines reappear there (same display state, minus a rotated line).
 const GLIMPSE_SHARED_FRACTION = 0.5;
 
+// The time judgement above, made by text: a clipped caption remainder that
+// would have to be read faster than this can't be read at all. Subtitle
+// guidelines put Chinese at about 9 characters a second; 12 leaves room for a
+// short glance. Seen live: a headline strip, 18 characters, squeezed into the
+// 1.16 s pause between two narration lines — gone before it could be read,
+// and not something the narration was saying anyway.
+//
+// Runs after dedupeContinuationLines, on the text actually shown: a caption
+// that still carries a name tag the previous state already displayed is
+// longer before dedupe than the viewer will ever see it (an interviewee's
+// line was lost to exactly that). And only where clipping cut the window — a
+// caption shown for its full on-screen run is left alone however dense.
+const MAX_CLIPPED_CAPTION_CPS = 12;
+
+export function dropUnreadableGlimpses(segments) {
+  return segments.filter((seg) => {
+    if (!seg.caption || !seg.clipped) return true;
+    const chars = [...String(seg.text || "").replace(/\s/g, "")].length;
+    return chars / Math.max(seg.end - seg.start, 0.01) <= MAX_CLIPPED_CAPTION_CPS;
+  });
+}
+
 export function dedupeContinuationLines(segments) {
   // Pre-pass: a caption whose front was clipped off by narration can be left
   // as an unreadable flash (five lines for 1.4 s) just before the next state

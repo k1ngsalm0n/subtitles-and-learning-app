@@ -327,6 +327,25 @@ def filter_furniture(raw, interval):
         )
         sys.stderr.write(f"OCR: dropped per-clip tags: {dropped}\n")
 
+    # A tag is a tag every time it appears. The rule above judges one run at a
+    # time, so a headline strip caught sitting through captions at 14-24 s was
+    # still kept at 0-6 s and 30-43 s, where nothing else was on screen for it
+    # to outlast — and shipped as a caption twice. Captions don't sit through
+    # several other captions; a line that did is a banner wherever it recurs.
+    # Single-line tags only: a backdrop block's text is often what the
+    # narration reads out, so spreading that verdict could take real captions
+    # with it.
+    tag_clusters = {ci for ci, _s, _e in tag_runs}
+    repeats = [
+        run for run in runs if run[0] in tag_clusters and run not in tag_runs
+    ]
+    if repeats:
+        dropped = ", ".join(
+            f"{clusters[ci]['rep']!r}@{s:.0f}-{e:.0f}s" for ci, s, e in repeats
+        )
+        sys.stderr.write(f"OCR: dropped repeats of per-clip tags: {dropped}\n")
+        tag_runs.extend(repeats)
+
     # Static backdrop blocks. The partner guard above protects multi-line
     # blocks from the tag rule one run at a time — right for a title card
     # that lives and dies with its caption, but it also shields an article
