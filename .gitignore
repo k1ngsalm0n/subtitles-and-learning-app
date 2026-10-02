@@ -11,3 +11,6 @@ __pycache__/
 Thumbs.db
 server.out
 test-results/
+
+# Saved subtitle audits (scripts/subtitle_audit.py --save runs/...)
+/runs/
