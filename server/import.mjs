@@ -1,6 +1,6 @@
 import { readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -333,6 +333,8 @@ export async function handleImportUrl(req, res) {
       // step goes from seconds to instant, and an unexplained jump reads as a
       // skipped stage.
       onCacheHit: () => report.stage("Reusing the video already downloaded\u2026"),
+      onRefreshFailed: () =>
+        report.stage("Couldn\u2019t fetch a fresh copy \u2014 using the one already downloaded\u2026"),
     });
     const videoUrl = videoPath ? `/videos/${path.basename(videoPath)}` : "";
 
@@ -634,40 +636,25 @@ export async function lookupCachedVideo(url, now = Date.now()) {
   return { file: newest.file, stale };
 }
 
-async function downloadVideo(url, { onCacheHit = () => {} } = {}) {
-  const { mkdir } = await import("node:fs/promises");
-  await adoptLegacyVideoDir();
-  await mkdir(VIDEO_DIR, { recursive: true });
-  const id = videoCacheId(url);
-
-  const cached = await lookupCachedVideo(url);
-  if (cached && !cached.stale) {
-    onCacheHit();
-    // Mark it used, without disturbing when it was fetched. Two clocks live on
-    // this file and they answer different questions: mtime is when it was
-    // downloaded, which is what staleness measures, and atime is when it was
-    // last wanted, which is what pruning keeps alive. Touching mtime — the
-    // obvious move, and what a plain `touch` does — would restart the
-    // staleness clock on every re-import, so a video opened once a week would
-    // never expire and the limit above would mean nothing.
-    try {
-      const { mtime } = await stat(cached.file);
-      await utimes(cached.file, new Date(), mtime);
-    } catch {
-      // Only costs this file some of its remaining life in the cache.
-    }
-    await pruneVideoCache(id);
-    return cached.file;
+// Mark a stored video used, without disturbing when it was fetched. Two clocks
+// live on this file and they answer different questions: mtime is when it was
+// downloaded, which is what staleness measures, and atime is when it was last
+// wanted, which is what pruning keeps alive. Touching mtime — the obvious move,
+// and what a plain `touch` does — would restart the staleness clock on every
+// re-import, so a video opened once a week would never expire and the limit
+// above would mean nothing.
+async function markUsed(file) {
+  try {
+    const { mtime } = await stat(file);
+    await utimes(file, new Date(), mtime);
+  } catch {
+    // Only costs this file some of its remaining life in the cache.
   }
-  if (cached) {
-    // Stale, so re-fetch — but delete it first. yt-dlp skips a download whose
-    // output file already exists ("has already been downloaded"), so leaving it
-    // in place would refresh the mtime and keep serving the same stale copy
-    // forever, which is worse than never having expired it.
-    await rm(cached.file, { force: true });
-  }
+}
 
-  const outTemplate = path.join(VIDEO_DIR, `${id}.%(ext)s`);
+// The real download. `outTemplate` is a yt-dlp output template; whatever it
+// writes is found afterwards by name, so this only has to succeed or throw.
+async function fetchWithYtdlp(url, outTemplate) {
   await runYtdlp(
     [
       ...(await ytdlpBase()),
@@ -677,10 +664,80 @@ async function downloadVideo(url, { onCacheHit = () => {} } = {}) {
     ],
     { timeoutMs: 10 * 60_000 },
   );
-  const [downloaded] = await cachedVideoFiles(id);
-  if (!downloaded) return "";
+}
+
+// Exported for the tests, which pass a stand-in `fetch` so the replace-or-keep
+// logic can be exercised without yt-dlp or a network.
+export async function downloadVideo(
+  url,
+  { onCacheHit = () => {}, onRefreshFailed = () => {}, fetch = fetchWithYtdlp } = {},
+) {
+  const { mkdir, rename } = await import("node:fs/promises");
+  await adoptLegacyVideoDir();
+  await mkdir(VIDEO_DIR, { recursive: true });
+  const id = videoCacheId(url);
+
+  const cached = await lookupCachedVideo(url);
+  if (cached && !cached.stale) {
+    onCacheHit();
+    await markUsed(cached.file);
+    await pruneVideoCache(id);
+    return cached.file;
+  }
+
+  // Download under a name of its own, and only put it in place once it has
+  // arrived whole. Writing straight to "<id>.<ext>" meant a stale copy had to
+  // be deleted *before* re-fetching (yt-dlp skips an output file that already
+  // exists, "has already been downloaded"), so a re-download that failed — the
+  // bot check, a dropped connection — left neither the new video nor the old
+  // one. The staging name also keeps two imports of the same link from
+  // writing into one file: each gets its own, and the last to finish wins.
+  //
+  // "<id>-<uuid>" rather than "<id>.<uuid>": cachedVideoFiles(id) only accepts
+  // "<id>.<ext>", so a download still in progress can never be served as a hit.
+  const stagingId = `${id}-${randomUUID()}`;
+  let staged;
+  try {
+    await fetch(url, path.join(VIDEO_DIR, `${stagingId}.%(ext)s`));
+    [staged] = await cachedVideoFiles(stagingId);
+  } catch (err) {
+    await removeStaging(stagingId);
+    if (!cached) throw err;
+    // The link may have changed since, but a video that is a little out of
+    // date beats failing an import whose video is sitting right here.
+    onRefreshFailed();
+    await markUsed(cached.file);
+    await pruneVideoCache(id);
+    return cached.file;
+  }
+  if (!staged) {
+    await removeStaging(stagingId);
+    return cached ? cached.file : "";
+  }
+
+  const ext = path.basename(staged.file).slice(stagingId.length + 1);
+  const target = path.join(VIDEO_DIR, `${id}.${ext}`);
+  // Same filesystem, so this replaces any stored copy with the same extension
+  // in one step; a reader never sees the name pointing at nothing.
+  await rename(staged.file, target);
+  await removeStaging(stagingId);
+  // A refresh that came back in a different container leaves the old one
+  // behind under another extension; it is the same video, out of date.
+  if (cached && cached.file !== target) await rm(cached.file, { force: true });
   await pruneVideoCache(id);
-  return downloaded.file;
+  return target;
+}
+
+// Whatever a download under `stagingId` left behind — a ".part", a stream
+// awaiting its merge. Best-effort: debris that survives is pruned with the rest.
+async function removeStaging(stagingId) {
+  try {
+    for (const file of await listFiles(VIDEO_DIR)) {
+      if (path.basename(file).startsWith(`${stagingId}.`)) await rm(file, { force: true });
+    }
+  } catch {
+    // Nothing to clean up, or nothing that can be.
+  }
 }
 
 // Pull a Whisper-ready audio track (mono 16 kHz) out of a local video file.

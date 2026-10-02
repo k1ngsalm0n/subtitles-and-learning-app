@@ -13,7 +13,7 @@ process.env.STELE_VIDEO_DIR = DIR;
 process.env.VIDEO_CACHE_HIT_MAX_AGE_DAYS = "7";
 process.env.VIDEO_CACHE_MAX = "2";
 process.env.VIDEO_CACHE_MAX_AGE_DAYS = "30";
-const { videoCacheId, lookupCachedVideo, pruneVideoCache } = await import(
+const { videoCacheId, lookupCachedVideo, pruneVideoCache, downloadVideo } = await import(
   "../server/import.mjs"
 );
 
@@ -191,4 +191,98 @@ test("the cap evicts by last use, not by download date", async () => {
 
 test.after(async () => {
   await fs.rm(DIR, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// Replacing a stored video. The download is a stand-in that writes what
+// yt-dlp would: a ".part" while it runs, then "<name>.<ext>".
+
+function fakeFetch({ ext = "mp4", bytes = "new video", fail = false } = {}) {
+  const calls = [];
+  const fetch = async (url, outTemplate) => {
+    calls.push(outTemplate);
+    const out = outTemplate.replace("%(ext)s", ext);
+    await fs.writeFile(`${out}.part`, "half");
+    if (fail) throw new Error("yt-dlp: Sign in to confirm you're not a bot");
+    await fs.rm(`${out}.part`);
+    await fs.writeFile(out, bytes);
+  };
+  return { fetch, calls };
+}
+
+const listing = async () => (await fs.readdir(DIR)).sort();
+
+test("a first download lands under the URL's name, with nothing left over", async () => {
+  await reset();
+  const { fetch } = fakeFetch();
+  const file = await downloadVideo(URL_A, { fetch });
+  assert.equal(path.basename(file), `${videoCacheId(URL_A)}.mp4`);
+  assert.deepEqual(await listing(), [`${videoCacheId(URL_A)}.mp4`]);
+});
+
+test("a fresh copy is served without downloading", async () => {
+  await reset();
+  const stored = await put(`${videoCacheId(URL_A)}.mp4`, { bytes: "old video" });
+  const { fetch, calls } = fakeFetch();
+  let hit = false;
+  const file = await downloadVideo(URL_A, { fetch, onCacheHit: () => (hit = true) });
+  assert.equal(file, stored);
+  assert.equal(calls.length, 0);
+  assert.ok(hit);
+});
+
+test("a stale copy is replaced once the new one has arrived", async () => {
+  await reset();
+  const stored = await put(`${videoCacheId(URL_A)}.mp4`, { bytes: "old video", ageMs: 8 * DAY });
+  const { fetch, calls } = fakeFetch();
+  const file = await downloadVideo(URL_A, { fetch });
+  assert.equal(calls.length, 1);
+  assert.equal(file, stored, "the same name, so a saved source still points at it");
+  assert.equal(await fs.readFile(file, "utf8"), "new video");
+  assert.deepEqual(await listing(), [`${videoCacheId(URL_A)}.mp4`]);
+});
+
+test("a failed refresh keeps the stale copy and uses it", async () => {
+  await reset();
+  const stored = await put(`${videoCacheId(URL_A)}.mp4`, { bytes: "old video", ageMs: 8 * DAY });
+  const { fetch } = fakeFetch({ fail: true });
+  let fellBack = false;
+  const file = await downloadVideo(URL_A, { fetch, onRefreshFailed: () => (fellBack = true) });
+  assert.equal(file, stored);
+  assert.equal(await fs.readFile(file, "utf8"), "old video");
+  assert.ok(fellBack, "the reader is told the copy is not a fresh one");
+  assert.deepEqual(await listing(), [`${videoCacheId(URL_A)}.mp4`], "the .part is cleared away");
+});
+
+test("a failed first download fails the import and leaves no debris", async () => {
+  await reset();
+  const { fetch } = fakeFetch({ fail: true });
+  await assert.rejects(downloadVideo(URL_A, { fetch }), /not a bot/);
+  assert.deepEqual(await listing(), []);
+});
+
+test("a refresh in a different container replaces the old one rather than sitting beside it", async () => {
+  await reset();
+  await put(`${videoCacheId(URL_A)}.webm`, { bytes: "old video", ageMs: 8 * DAY });
+  const { fetch } = fakeFetch({ ext: "mp4" });
+  const file = await downloadVideo(URL_A, { fetch });
+  assert.equal(path.basename(file), `${videoCacheId(URL_A)}.mp4`);
+  assert.deepEqual(await listing(), [`${videoCacheId(URL_A)}.mp4`]);
+});
+
+test("a download in progress is never served as a hit", async () => {
+  await reset();
+  // What an import that is still downloading looks like from another one.
+  await put(`${videoCacheId(URL_A)}-0b7a5c2e-0000-4000-8000-000000000000.mp4`);
+  assert.equal(await lookupCachedVideo(URL_A), null);
+});
+
+test("each download gets its own staging name", async () => {
+  await reset();
+  const { fetch, calls } = fakeFetch();
+  await downloadVideo(URL_A, { fetch });
+  await fs.rm(DIR, { recursive: true, force: true });
+  await downloadVideo(URL_A, { fetch });
+  assert.equal(calls.length, 2);
+  assert.notEqual(calls[0], calls[1], "two imports of one link must not share a file");
 });
