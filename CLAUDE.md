@@ -107,8 +107,10 @@ explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
 `data/graphics.txt` once by byte range and serves
 `GET /api/strokes?chars=你好`; degrades to `{}` when the file is absent),
 `segment.mjs`, `cookies.mjs`, `backup.mjs`, `device.mjs` (see below). Python
-tests in `test/`, JS tests run via `node --test` (also in CI on every PR —
-`.github/workflows/test.yml`; `main` is protected and requires it).
+tests in `test/`, JS tests run via `node --test`. CI runs both on every PR —
+`.github/workflows/test.yml`, one `test` job, which `main` is protected on.
+The Python tests install the locked packages but must never load a model: CI
+runs them offline with an empty model cache, so one that does fails there.
 
 **One opinion about the hardware.** `device.mjs` asks the machine what it is —
 once per server process, via `health.py` — and every other module reads the
