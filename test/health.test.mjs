@@ -55,8 +55,9 @@ test("a fallback offers a fix and a best one doesn't", async () => {
       assert.equal(check.fix, null, `${check.id} is fine but suggests a fix`);
     } else if (!chosen(check)) {
       // A fallback the reader *picked* is not a problem, and the next test
-      // asserts it must not carry a command. Only an unwanted one needs a fix.
-      assert.ok(check.fix, `${check.id} is degraded but offers no fix`);
+      // asserts it must not carry a command. Only an unwanted one needs a fix:
+      // a command to type, or a dialog to open (the chat model's key).
+      assert.ok(check.fix || check.action, `${check.id} is degraded but offers no fix`);
     }
   }
 });
@@ -136,7 +137,11 @@ test("every option explains what choosing it means", async () => {
 const NOTHING = {
   has: () => false,
   cuda: false,
+  whisperCuda: false,
+  cores: 2,
   llm: false,
+  llmProvider: undefined,
+  llmModel: undefined,
   voices: 0,
   strokes: false,
   ytdlp: false,
@@ -148,7 +153,11 @@ const EVERYTHING = {
   ...NOTHING,
   has: () => true,
   cuda: true,
+  whisperCuda: true,
+  cores: 12,
   llm: true,
+  llmProvider: "Groq",
+  llmModel: "openai/gpt-oss-120b",
   voices: 2,
   strokes: true,
   ytdlp: true,
@@ -159,11 +168,12 @@ const EVERYTHING = {
 const only = (...names) => (name) => names.includes(name);
 const row = (facts, id) => buildChecks(facts).checks.find((c) => c.id === id);
 
-test("a bare machine reports every row as degraded, with something to type", () => {
+test("a bare machine reports every row as degraded, with a way out", () => {
   const { checks, summary } = buildChecks(NOTHING);
   assert.equal(summary.best, 0, "nothing is installed, so nothing is best");
   for (const check of checks) {
-    assert.ok(check.fix, `${check.id} is degraded but offers no fix`);
+    // A command to type, or a dialog to open (the chat model's key).
+    assert.ok(check.fix || check.action, `${check.id} is degraded but offers no fix`);
   }
 });
 
@@ -206,7 +216,11 @@ test("a key that exists but is switched off reads differently from no key at all
   assert.match(off.using, /chosen here/);
   assert.equal(off.fix, null, "the key is there; it was turned off on purpose");
   assert.doesNotMatch(absent.using, /chosen here/);
-  assert.ok(absent.fix, "no key is something to fix");
+  // The key goes into a dialog that checks it, not a file the reader edits.
+  assert.equal(absent.fix, null);
+  assert.equal(absent.action.id, "llm-setup");
+  assert.equal(absent.action.label, "Set up a chat model");
+  assert.equal(off.action.label, "Change provider or key");
   assert.equal(
     absent.toggle.options.find((o) => o.value === "on").enabled,
     false,
@@ -247,4 +261,45 @@ test("yt-dlp without a JavaScript runtime still imports, badly", () => {
   assert.match(degraded.detail, /144p/);
   assert.equal(degraded.fixNote, "Installs deno into the venv.");
   assert.equal(row({ ...EVERYTHING, ytdlp: false }, "import").state, "off");
+});
+
+test("the chat model row names the provider and model actually in use", () => {
+  assert.match(row(EVERYTHING, "llm").using, /\(Groq, openai\/gpt-oss-120b\)/);
+});
+
+// importPlan() also reads STELE_IMPORT_PLAN; these are about the machine.
+function withoutForcedPlan(fn) {
+  const saved = process.env.STELE_IMPORT_PLAN;
+  delete process.env.STELE_IMPORT_PLAN;
+  try {
+    fn();
+  } finally {
+    if (saved !== undefined) process.env.STELE_IMPORT_PLAN = saved;
+  }
+}
+
+test("a small machine with no GPU queues the import passes, and says what would change it", () => {
+  withoutForcedPlan(() => {
+    const plan = row({ ...EVERYTHING, whisperCuda: false, cores: 4 }, "importPlan");
+    assert.equal(plan.state, "fallback");
+    assert.match(plan.using, /one after the other — 4 cores/);
+    assert.match(plan.fix, /GPU section/);
+  });
+});
+
+test("enough cores overlap the passes without a GPU, and nag about nothing", () => {
+  withoutForcedPlan(() => {
+    const plan = row({ ...EVERYTHING, whisperCuda: false, cores: 12 }, "importPlan");
+    assert.equal(plan.state, "best");
+    assert.match(plan.using, /sharing 12 cores/);
+    assert.equal(plan.fix, null);
+  });
+});
+
+test("the import plan asks CTranslate2 about the GPU, not torch", () => {
+  withoutForcedPlan(() => {
+    // torch sees a card that faster-whisper can't use: still a small machine.
+    const plan = row({ ...EVERYTHING, cuda: true, whisperCuda: false, cores: 4 }, "importPlan");
+    assert.equal(plan.state, "fallback");
+  });
 });

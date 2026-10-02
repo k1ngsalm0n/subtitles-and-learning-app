@@ -7,6 +7,13 @@
 // can't tell a deliberate fallback from something they installed wrongly. This
 // page is the answer to "why does this sound like that?".
 
+import { openLlmSetup } from "./llmsetup.mjs";
+
+// Rows whose fix is a dialog rather than a terminal command.
+const ACTIONS = {
+  "llm-setup": openLlmSetup,
+};
+
 const LABELS = {
   best: "Best available",
   fallback: "Using a fallback",
@@ -202,6 +209,15 @@ function checkRow(check) {
   }
 
   if (check.toggle) row.append(toggleRow(check.toggle));
+
+  if (check.action && ACTIONS[check.action.id]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "health-action";
+    button.textContent = check.action.label;
+    button.addEventListener("click", () => ACTIONS[check.action.id]());
+    row.append(button);
+  }
 
   if (check.fix) {
     const fix = document.createElement("div");

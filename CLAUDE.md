@@ -21,7 +21,22 @@ lifting — speech-to-text and offline translation — runs through Python.
   (`Helsinki-NLP/opus-mt-zh-en` / `opus-mt-en-zh`, ~310 MB each, fast on CPU)
   for the app's zh↔en pairs, NLLB-200 (`facebook/nllb-200-distilled-600M`) as
   the fallback for other languages. All via `transformers`/`torch`.
-- **Word lookups:** any OpenAI-compatible chat API (currently free Groq), falls back to NLLB.
+- **Word lookups:** any OpenAI-compatible chat API (currently free Groq,
+  `openai/gpt-oss-120b` — Groq retired `llama-3.3-70b-versatile`, and a dead
+  model fails *silently* into the NLLB fallback), falls back to NLLB.
+  **Which provider and key** come from `llmConfig.mjs`: chosen in the app's
+  "Get clear word meanings" dialog (`public/js/llmsetup.mjs`, opens on first
+  visit when nothing is configured, and from Settings → What's running), stored
+  in `~/.local/share/stele/llm.json` (0600), or from the `LLM_*` vars in `.env`.
+  A choice saved in the app wins over `.env`; "Offline only" is a saved choice
+  too, so the dialog doesn't ask again. The dialog sends one tiny request before
+  saving, so a bad key or retired model is caught there rather than as a quietly
+  worse lookup. Read per call, no restart. `GET /api/llm` never returns the key.
+  For Ollama the dialog lists the models actually pulled
+  (`GET /api/llm/models`, via Ollama's `/v1/models`, embedding models dropped)
+  in a dropdown, preferring a Qwen. That endpoint only asks **loopback**
+  addresses — it fetches a URL the page hands it, so anything wider would let a
+  page probe the reader's network through the server.
 - **Line translation:** the same chat API when one is configured
   (`llmTranslate.mjs`), because the offline models transliterate proper nouns
   instead of recognising them ("Herle Golan class" for Helgoland, "the battle in
@@ -91,9 +106,58 @@ explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
 (pronunciation), `strokes.mjs` (Han stroke order: indexes
 `data/graphics.txt` once by byte range and serves
 `GET /api/strokes?chars=你好`; degrades to `{}` when the file is absent),
-`segment.mjs`, `cookies.mjs`, `backup.mjs` (see below). Python tests in
-`test/`, JS tests run via `node --test` (also in CI on every PR —
-`.github/workflows/test.yml`; `main` is protected and requires it).
+`segment.mjs`, `cookies.mjs`, `backup.mjs`, `device.mjs` (see below). Python
+tests in `test/`, JS tests run via `node --test`. CI runs both on every PR —
+`.github/workflows/test.yml`, one `test` job, which `main` is protected on.
+The Python tests install the locked packages but must never load a model: CI
+runs them offline with an empty model cache, so one that does fails there.
+
+**One opinion about the hardware.** `device.mjs` asks the machine what it is —
+once per server process, via `health.py` — and every other module reads the
+answer from there. It exists because the import path used to *assert* one:
+"OCR is CPU-bound, Whisper runs on the GPU", written in a comment and checked
+nowhere.
+
+**The intuitive fix for that was wrong, and the measurements are why.** The
+obvious reading is that a machine with no GPU has the two passes fighting over
+one set of cores and should run them in turn. On a nine-minute video with the
+GPU disabled, 6 cores / 12 threads: **concurrent 249.1s, sequential 288.5s.**
+Contention is real — queued, Whisper takes 99s and OCR 188s; overlapped, 170s
+and 248s — but measured alone OCR wants 6.0 cores and Whisper 3.7, so a
+12-thread machine absorbs both and the overlap wins by 39s.
+
+So the deciding variable is not the GPU, it is **how many cores there are to
+share**. Splitting a fixed budget between the passes against giving it to each
+in turn (3-minute clip):
+
+| cores | concurrent | sequential | winner |
+|---|---|---|---|
+| 4 | 141.7s | 134.5s | queueing, 5.1% |
+| 6 | 114.0s | 115.4s | overlapping, 1.3% |
+| 8 | 112.1s | 141.8s | overlapping, 21.0% |
+| 12 | 102.1s | 149.0s | overlapping, 31.5% |
+
+`importPlan()` therefore overlaps when there is a GPU (Whisper leaves the CPU
+entirely) **or** at least 6 cores, and queues below that — transcription first,
+because it streams its segments and OCR first would show nothing until the
+whole caption pass finished. `STELE_IMPORT_PLAN=concurrent|sequential` forces
+one. The GPU question is asked of **CTranslate2**, not torch — `health.py`
+reports torch's answer as `cuda`, but faster-whisper runs on CTranslate2 and
+the two can disagree.
+
+**Thread caps were built, measured and dropped.** onnxruntime's own choice beat
+every value the knob could set (81s, against 94s at 4 threads, 98s at 8, 107s
+at 12 — more threads than physical cores oversubscribes and costs time), so a
+cap only buys quiet at the price of speed. `OCR_THREADS` and
+`WHISPER_CPU_THREADS` remain on the Python side for anyone who wants that
+trade; they are read from the environment and inherited, so nothing plumbs them.
+
+Two things that look like they would make an import polite and **do not**:
+`taskset` (the OCR pass resets its own affinity — under a 4-CPU mask it still
+burned 6.0 cores of CPU time) and `systemd-run --user -p AllowedCPUs` (this
+kind of session delegates `cpu io memory pids`, not `cpuset`, so systemd
+accepts the property and ignores it). Both silently *appear* to work, which is
+how they cost an afternoon.
 
 **Languages.** One table, `public/data/languages.json` — code, display name,
 NLLB Flores-200 code. `languages.mjs` imports it as a JSON module (so

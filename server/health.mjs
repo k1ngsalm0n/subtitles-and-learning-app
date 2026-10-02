@@ -15,14 +15,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand, sendJson, readJsonBody } from "./util.mjs";
+import { sendJson, readJsonBody } from "./util.mjs";
 import { readPrefs, writePrefs, ALLOWED } from "./prefs.mjs";
+import { importPlan, probeMachine } from "./device.mjs";
 import { llmTranslationConfigured } from "./llmTranslate.mjs";
+import { llmStatus } from "./llmConfig.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
-const PYTHON_BIN = path.join(ROOT, ".venv", "bin", "python");
-const HEALTH_SCRIPT = path.join(__dirname, "health.py");
 
 const DATA_HOME =
   process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
@@ -53,15 +53,12 @@ async function countVoices() {
   }
 }
 
-async function probePython() {
-  try {
-    const result = await runCommand(PYTHON_BIN, [HEALTH_SCRIPT], { timeoutMs: 30_000 });
-    const line = result.stdout.trim().split("\n").filter(Boolean).at(-1) || "{}";
-    return JSON.parse(line);
-  } catch {
-    // No venv at all: report everything missing rather than failing the page.
-    return { modules: {}, cuda: false };
-  }
+// device.mjs runs the probe and caches it, because the import path needs the
+// same answer and two opinions about whether there is a GPU would drift apart
+// (#32). `fresh` is what "Check again" sends, and it must reach past that
+// cache as well as this page's.
+function probePython({ fresh = false } = {}) {
+  return probeMachine({ fresh });
 }
 
 // POST /api/prefs { speech, llm } -> the settings as they now stand.
@@ -80,22 +77,36 @@ export async function handlePrefs(req, res) {
   sendJson(res, 200, { prefs, allowed: ALLOWED });
 }
 
+// The LLM row describes llmConfig.mjs's state, so a new key makes it stale.
+export function forgetHealth() {
+  cached = null;
+}
+
 // Everything the rows are decided from, gathered once. Kept apart from the
 // rows themselves so that each capability below is a plain function of facts —
 // no I/O, no order dependence, and testable without a venv.
-async function gatherFacts() {
-  const [python, voices, strokes, ytdlp, deno, prefs] = await Promise.all([
-    probePython(),
+async function gatherFacts({ fresh = false } = {}) {
+  const [python, voices, strokes, ytdlp, deno, prefs, llm, llmConfig] = await Promise.all([
+    probePython({ fresh }),
     countVoices(),
     exists(path.join(ROOT, "data", "graphics.txt")),
     exists(path.join(ROOT, ".venv", "bin", "yt-dlp")),
     exists(path.join(ROOT, ".venv", "bin", "deno")),
     readPrefs(),
+    llmTranslationConfigured(),
+    llmStatus(),
   ]);
   return {
     has: (name) => Boolean(python.modules?.[name]),
     cuda: Boolean(python.cuda),
-    llm: llmTranslationConfigured(),
+    // importPlan() reads exactly these two, and asks CTranslate2 rather than
+    // torch about the GPU — see device.mjs.
+    whisperCuda: Boolean(python.whisperCuda),
+    cores: python.cores || 0,
+    llm,
+    llmProvider:
+      llmConfig.origin === "env" ? "set in .env" : llmConfig.providers[llmConfig.provider]?.label,
+    llmModel: llmConfig.model,
     voices,
     strokes,
     ytdlp,
@@ -193,11 +204,11 @@ function speechCheck({ has, voices, prefs }) {
 }
 
 // --- Translation and word lookups ------------------------------------------
-function llmCheck({ llm: ready, prefs }) {
+function llmCheck({ llm: ready, llmProvider, llmModel, prefs }) {
   const on = ready && prefs.llm !== "off";
 
   let using;
-  if (on) using = "a chat model, with the offline translator as backup";
+  if (on) using = `a chat model (${llmProvider}, ${llmModel}), with the offline translator as backup`;
   else if (ready) using = "the offline translator only — chosen here";
   else using = "the offline translator only";
 
@@ -209,10 +220,14 @@ function llmCheck({ llm: ready, prefs }) {
     detail: on
       ? "Everyday phrases come out as what they mean rather than word by word, less common names are recognised, and word lookups come with real explanations."
       : "Free, private and quick, but it translates literally. 你别给我戴高帽子了 — “stop flattering me” — comes back as “Don't put your hat on me”, and 她的中文说得很地道 as “Her Chinnese laguage says a lot”. Common names are fine; unusual ones get spelled out a syllable at a time. Word lookups give a bare meaning with no explanation.",
-    fix: ready ? null : "Add LLM_BASE_URL, LLM_MODEL and LLM_API_KEY to .env",
-    fixNote: ready
-      ? null
-      : "A free Groq key works: console.groq.com/keys. See .env.example. Anything over 400 lines uses the offline translator regardless, because it is faster in bulk.",
+    fix: null,
+    fixNote: null,
+    // Not a terminal command any more: the key is pasted into a dialog, which
+    // checks it before keeping it. The page opens that dialog for this id.
+    action: {
+      id: "llm-setup",
+      label: ready ? "Change provider or key" : "Set up a chat model",
+    },
     toggle: {
       name: "llm",
       value: prefs.llm,
@@ -348,6 +363,41 @@ function whisperCheck({ has, cuda }) {
   };
 }
 
+// --- How an import uses the machine ----------------------------------------
+//
+// Added because the fallback below is otherwise completely invisible: the
+// import finishes either way, and the only outward sign of the slow path is a
+// laptop that gets hot. Not a toggle — a graphics card is a fact about the
+// machine, not a preference, and a switch here would be a lie.
+function importPlanCheck({ whisperCuda, cores }) {
+  const plan = importPlan({ whisperCuda, cores });
+  // Not a defect to fix on a small machine, and not a choice either: it is
+  // measured. The only real remedy is more hardware, so the row says what
+  // would change rather than offering a command that wouldn't help.
+  const settled = plan.concurrent || plan.why === "forced";
+
+  let using;
+  if (plan.why === "forced")
+    using = `${plan.concurrent ? "both at once" : "one after the other"} — set by STELE_IMPORT_PLAN`;
+  else if (plan.why === "gpu") using = "both at once — captions on the CPU, speech on the GPU";
+  else if (plan.concurrent) using = `both at once, sharing ${cores} cores`;
+  else using = `one after the other — ${cores} cores is too few to share`;
+
+  return {
+    id: "importPlan",
+    label: "Reading captions and speech together",
+    state: plan.concurrent ? BEST : FALLBACK,
+    using,
+    detail: plan.concurrent
+      ? "The two heavy passes run at the same time, so an import takes about as long as the slower one rather than the sum of both."
+      : "Below six cores the two passes get in each other's way, so they queue — transcription first, since its lines appear as they are decoded and there is something to read long before the import ends.",
+    fix: settled ? null : "See the GPU section of CLAUDE.md",
+    fixNote: settled
+      ? null
+      : "A graphics card takes transcription off the CPU entirely, which lets both run at once whatever the core count. Nothing else here is worth changing — capping threads was measured and made imports slower without making the machine meaningfully quieter.",
+  };
+}
+
 // --- Importing from a URL --------------------------------------------------
 //
 // yt-dlp without a JS runtime still imports, which is why this isn't OFF —
@@ -409,6 +459,7 @@ const CAPABILITIES = [
   ocrCheck,
   openccCheck,
   whisperCheck,
+  importPlanCheck,
   importCheck,
   strokesCheck,
 ];
@@ -441,7 +492,7 @@ export async function handleHealth(req, res) {
     sendJson(res, 200, cached.body);
     return;
   }
-  const body = buildChecks(await gatherFacts());
+  const body = buildChecks(await gatherFacts({ fresh }));
   cached = { at: Date.now(), body };
   sendJson(res, 200, body);
 }
