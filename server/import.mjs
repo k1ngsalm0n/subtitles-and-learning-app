@@ -190,16 +190,20 @@ const VIDEO_CACHE_HIT_MAX_AGE_MS =
 // with "Requested format is not available". The single-file forms stay as the
 // fallback for sites that only have those.
 //
-// Capped at 720p. Burned-in captions read cleanly from it (ocr_captions.py),
-// and above it the download grows several times over for nothing the app
-// uses; a site without a 720p-or-smaller option still imports, at whatever it
-// has.
+// Capped at 360p, the size format 18 always was — and the size the burned-in
+// caption pass (ocr_captions.py) was tuned on. More pixels is not better for
+// it: at 720p both test videos started reading channel watermarks (微博視頻號,
+// SANY) into real captions and scrambled one caption's lines, because text too
+// small to resolve at 360p becomes legible. It did fix one misread character.
+// Raising this means re-tuning the screen-furniture filters first, and
+// re-auditing both test videos. A site with nothing at 360p or below still
+// imports, at whatever it has.
 const VIDEO_FORMAT_ARGS = [
   "-f", [
-    "bv*[height<=720][ext=mp4]+ba[ext=m4a]",
-    "bv*[height<=720]+ba",
-    "b[height<=720][ext=mp4]",
-    "b[height<=720]",
+    "bv*[height<=360][ext=mp4]+ba[ext=m4a]",
+    "bv*[height<=360]+ba",
+    "b[height<=360][ext=mp4]",
+    "b[height<=360]",
     "bv*+ba",
     "b",
   ].join("/"),
