@@ -112,6 +112,19 @@ tests in `test/`, JS tests run via `node --test`. CI runs both on every PR —
 The Python tests install the locked packages but must never load a model: CI
 runs them offline with an empty model cache, so one that does fails there.
 
+**Private addresses are refused twice, and the second one is the real one.**
+`rejectPrivateHost` (util.mjs) checks a pasted URL up front, for a quick, clear
+error. But yt-dlp resolves names again when it fetches, and follows redirects
+and media hosts the up-front check never sees (#19). So
+`ytdlp_shim/sitecustomize.py` also loads `address_guard.py` into yt-dlp, which
+wraps `socket.getaddrinfo`. Every Python connection path (yt-dlp's own
+helper, urllib3, `happy_eyeballs`) connects to exactly what that returns, so
+the address checked is the address used. It fails closed: if the guard can't
+load, yt-dlp exits. `--downloader native` keeps HLS in Python; live streams,
+RTSP/MMS (ffmpeg) and RTMP (rtmpdump) still resolve for themselves. The range
+table exists in both languages, and `test/test_address_guard.py` fails if
+`isPrivateAddress` and `is_private` disagree on any address. Change both.
+
 **One opinion about the hardware.** `device.mjs` asks the machine what it is —
 once per server process, via `health.py` — and every other module reads the
 answer from there. It exists because the import path used to *assert* one:
