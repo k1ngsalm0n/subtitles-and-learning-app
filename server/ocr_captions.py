@@ -19,6 +19,8 @@ so screen furniture can be told apart from captions:
     exact slot it held (same top, bottom and one edge) is furniture too —
     a fresh credit or location pin, however briefly it shows. A slot counts
     only where furniture outnumbers the other lines ever seen in it.
+  * Attached furniture: a line that, every time it shows, touches known
+    furniture and sits within its width (a logo's tagline) is part of it.
   * One-frame noise: a line read in a single frame with low confidence is a
     flickering watermark, not a caption.
   * Captions (speech subtitles, title cards) live for a few seconds each —
@@ -103,6 +105,14 @@ ONE_FRAME_MIN_SCORE = 0.9
 # this fraction of the width. Shared top, bottom and edge — not mere overlap:
 # captions are centred, and their edges move with their length.
 SLOT_TOLERANCE = 0.03
+# Attached furniture: a line that, in every frame it shows, touches a proven
+# furniture line — vertically within this fraction of the frame height — with
+# at least ATTACH_WITHIN of its width inside the furniture's, is part of that
+# graphic. ETtoday's end card is a logo with 新聞雲 set beneath it; the logo
+# reads as the corner logo (furniture for the whole video), the tagline was
+# shown once and fits no other rule.
+ATTACH_GAP = 0.02
+ATTACH_WITHIN = 0.8
 # Samples this far apart still belong to one on-screen run: OCR failing to
 # read a line for a single frame must not split its run — a split run loses
 # its equal-span partners and can be misclassified as a tag. Two consecutive
@@ -267,7 +277,7 @@ def filter_furniture(raw, interval):
             cluster["scores"].append(score)
             if box is not None:
                 cluster["boxes"].append(box)
-            row.append((y, text, score, index))
+            row.append((y, text, score, index, box))
         assigned.append((time, row))
 
     total = raw[-1][0] - raw[0][0] + interval if raw else 0.0
@@ -517,6 +527,39 @@ def filter_furniture(raw, interval):
         dropped = ", ".join(repr(clusters[i]["rep"]) for i in sorted(in_slots))
         sys.stderr.write(f"OCR: dropped lines in furniture slots: {dropped}\n")
         banned |= in_slots
+
+    # Lines attached to furniture, every time they appear. Checked frame by
+    # frame against the furniture actually on screen with them: a logo's
+    # tagline, a station name under its emblem. Captions sit apart from
+    # furniture — at the bottom, or beside a label with most of their width
+    # outside it — so requiring every appearance to be attached keeps them.
+    def _attached(box, furniture_box):
+        if box is None or furniture_box is None:
+            return False
+        if box[1] > furniture_box[3] + ATTACH_GAP or box[3] < furniture_box[1] - ATTACH_GAP:
+            return False
+        width = box[2] - box[0]
+        overlap = min(box[2], furniture_box[2]) - max(box[0], furniture_box[0])
+        return width > 0 and overlap / width >= ATTACH_WITHIN
+
+    # Attached to dwell furniture only — the most certain kind — and placed
+    # after the slot rule so what it drops can never teach a slot.
+    proven_now = banned - noise - in_slots
+    appearances = {}  # cluster -> [attached in that frame?]
+    for _time, row in assigned:
+        on_screen = [(ci, b) for _y, _t, _s, ci, b in row if ci in proven_now]
+        for _y, _t, _s, ci, b in row:
+            if ci in banned:
+                continue
+            appearances.setdefault(ci, []).append(
+                any(_attached(b, fb) for fi, fb in on_screen if fi != ci)
+            )
+    attached = {ci for ci, seen in appearances.items() if seen and all(seen)}
+    if attached:
+        dropped = ", ".join(repr(clusters[i]["rep"]) for i in sorted(attached))
+        sys.stderr.write(f"OCR: dropped lines attached to furniture: {dropped}\n")
+        banned |= attached
+
     banned |= noise
 
     def is_tagged(ci, time):
@@ -528,7 +571,7 @@ def filter_furniture(raw, interval):
     for time, row in assigned:
         kept = [
             (y, text, score, ci)
-            for y, text, score, ci in row
+            for y, text, score, ci, _box in row
             if ci not in banned and not is_tagged(ci, time)
         ]
         if kept and len(kept) <= MAX_LINES:
