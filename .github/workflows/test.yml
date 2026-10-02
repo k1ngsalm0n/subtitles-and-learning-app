@@ -1,10 +1,16 @@
-# JS unit tests on every push and pull request. Node's built-in runner, no
-# install step — the project deliberately has no third-party Node deps.
+# JS and Python unit tests on every push and pull request.
 #
-# The Python tests are deliberately not here: they need torch/transformers and
-# a multi-GB model cache, which is minutes of download per run for code that
-# rarely changes. Run those locally with:
-#   python -m unittest discover -s test -p "test_*.py"
+# JS: Node's built-in runner, no install step — the project deliberately has
+# no third-party Node deps.
+#
+# Python: the tests import torch and transformers (through translate.py) but
+# never load a model, so this installs the locked packages and nothing else —
+# no Whisper or NLLB download. They pass with an empty, offline model cache;
+# HF_HUB_OFFLINE keeps it that way, so a test that starts reaching for a model
+# fails here instead of quietly downloading gigabytes. uv's cache is keyed on
+# uv.lock, so the torch wheel is only fetched again when the lockfile changes.
+#
+# Both run in the one `test` job because that is the check `main` requires.
 name: tests
 
 on:
@@ -21,3 +27,13 @@ jobs:
         with:
           node-version: '22'
       - run: npm test
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen --python 3.14
+      - run: uv run --frozen python -m unittest discover -s test -p "test_*.py"
+        env:
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
