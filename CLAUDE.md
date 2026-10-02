@@ -419,6 +419,19 @@ npm test                                              # JS unit tests
 python -m unittest discover -s test -p "test_*.py"    # Python (venv active)
 ```
 
+Unit tests don't cover what an import actually produces. After any change to
+caption OCR, Whisper or how they merge, audit the **whole** subtitle timeline
+of both test videos, saving a baseline before the change and diffing after:
+
+```bash
+python scripts/subtitle_audit.py --server http://localhost:3000 --save runs/before
+python scripts/subtitle_audit.py --server http://localhost:3000 --save runs/after --baseline runs/before
+```
+
+Its flags are questions, not verdicts: read the frames or listen before
+changing code. `scripts/transcript_audit.py` answers whether a flagged gap
+held speech.
+
 ## Conventions / guardrails
 
 - No third-party Node dependencies — keep the server on the standard library.
