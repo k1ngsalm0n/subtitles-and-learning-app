@@ -5,6 +5,7 @@ import {
   cleanCaptions,
   alignTranslationByTime,
   dedupeContinuationLines,
+  dropUnreadableGlimpses,
   markUnintelligible,
   mergeCaptionSpeech,
   paceCaptionLines,
@@ -431,4 +432,53 @@ test("placeholders never displace captions nor sway the coverage decision", () =
   assert.ok(ph, "placeholder survives in the free stretch");
   assert.equal(ph.start, 26);
   assert.ok(Math.abs(ph.end - 29.9) < 1e-9);
+});
+
+// A clipped caption remainder is dropped when it can't be read in the time
+// left. The case seen live: a headline strip squeezed into the pause between
+// two narration lines in GzUpiAc1Irc.
+test("a clipped caption too dense to read is dropped", () => {
+  const banner = {
+    start: 57.84,
+    end: 59.0,
+    text: '防吹跑!浙江工廠架10公尺鐵桶護"羅漢松',
+    caption: true,
+    clipped: true,
+  };
+  assert.deepEqual(dropUnreadableGlimpses([banner]), []);
+});
+
+test("a caption shown for its whole run is kept however dense", () => {
+  const card = {
+    start: 57.84,
+    end: 59.0,
+    text: '防吹跑!浙江工廠架10公尺鐵桶護"羅漢松',
+    caption: true,
+  };
+  assert.deepEqual(dropUnreadableGlimpses([card]), [card]);
+});
+
+test("a clipped caption with time to read it is kept", () => {
+  const line = { start: 62, end: 63.46, text: "目前罩的話就那一顆", caption: true, clipped: true };
+  assert.deepEqual(dropUnreadableGlimpses([line]), [line]);
+});
+
+test("speech is never judged by the caption reading limit", () => {
+  const fast = { start: 0, end: 1, text: "這是一句說得非常快的話語而且很長", clipped: true };
+  assert.deepEqual(dropUnreadableGlimpses([fast]), [fast]);
+});
+
+// The order matters: judged before dedupe, this interviewee's line still
+// carried the name tag the previous state showed, came out at 13 characters
+// a second, and was lost — it was 6 once the tag was stripped.
+test("density is judged on the text left after repeated lines are removed", () => {
+  const tag = "浙江溫嶺公司值班人員";
+  const segments = [
+    { start: 59, end: 62, text: `${tag}\n羅漢松前兩天就開始做這個罩子`, caption: true },
+    { start: 62, end: 63.46, text: `${tag}\n目前罩的話就那一顆`, caption: true, clipped: true },
+  ];
+  const shown = dropUnreadableGlimpses(dedupeContinuationLines(segments));
+  assert.equal(shown.at(-1).text, "目前罩的話就那一顆");
+  // The other way round loses it, which is why import.mjs dedupes first.
+  assert.equal(dropUnreadableGlimpses(segments).length, 1);
 });

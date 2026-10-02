@@ -273,6 +273,50 @@ class FilterFurnitureTest(unittest.TestCase):
         texts = {s[1] for s in samples if s[1]}
         self.assertEqual(texts, set(caps))
 
+    def test_a_tag_is_dropped_wherever_it_recurs(self):
+        # A headline strip: alone on screen 0-5 s, then sitting through three
+        # caption changes 10-19 s, then alone again 25-30 s. Only the middle
+        # run has captions to outlast, so the run-by-run rule caught it there
+        # and kept it at both ends, where it shipped as a caption (seen live,
+        # GzUpiAc1Irc). Once it is a tag, it is a tag everywhere.
+        banner = "巴威直撲陸浙江高架橋變停車場躲淹水"
+        caps = ["颱風巴威逼近浙江台州臨海", "車主們自發集體把車開上高架橋", "車輛沿道路兩側整齊停放"]
+        lines_at = {t: [(30.0, banner, 0.97)] for t in range(0, 5)}
+        for t in range(10, 19):
+            lines_at[t] = [(30.0, banner, 0.97), (400.0, caps[(t - 10) // 3], 0.99)]
+        for t in range(25, 30):
+            lines_at[t] = [(30.0, banner, 0.97)]
+        samples = filter_furniture(self.frames(40, lines_at), 1.0)
+        joined = "".join(s[1] for s in samples)
+        self.assertNotIn(banner, joined)
+        for cap in caps:
+            self.assertIn(cap, joined)
+
+    def test_a_caption_that_recurs_without_ever_being_a_tag_survives(self):
+        # A refrain shown twice, each time on its own: never sat through
+        # anything, so there is no verdict to spread.
+        refrain = "風雨過後就是晴天"
+        lines_at = {t: [(400.0, refrain, 0.99)] for t in [*range(0, 3), *range(20, 23)]}
+        lines_at.update({t: [(400.0, "中間的另一句台詞", 0.99)] for t in range(8, 11)})
+        samples = filter_furniture(self.frames(30, lines_at), 1.0)
+        times = [s[0] for s in samples if s[1] == refrain]
+        self.assertEqual(times, [0.0, 1.0, 2.0, 20.0, 21.0, 22.0])
+
+    def test_a_backdrop_verdict_does_not_spread_to_a_matching_caption(self):
+        # An article screenshot whose first line the narration's caption later
+        # reads out word for word. The block is dropped as backdrop over
+        # 0-12 s; the caption at 20-23 s is the same text, and must stay.
+        block = ["台风巴威逼近浙江临海车主自发", "把车开上还未通车的立交桥避险"]
+        lines_at = {}
+        for t in range(12):
+            rotating = "高架橋上停滿避險車輛" if t < 6 else "沿路兩側整齊停放留出車道"
+            lines_at[t] = [(30.0, block[0], 0.99), (55.0, block[1], 0.99), (400.0, rotating, 0.95)]
+        for t in range(20, 23):
+            lines_at[t] = [(400.0, block[0], 0.99)]
+        samples = filter_furniture(self.frames(30, lines_at), 1.0)
+        times = [s[0] for s in samples if s[1] == block[0]]
+        self.assertEqual(times, [20.0, 21.0, 22.0])
+
     def test_backdrop_block_over_rotating_captions_dropped(self):
         # An article screenshot: four summary lines share the screen 0-12 s
         # while the clip's real captions rotate beneath them, reading the
