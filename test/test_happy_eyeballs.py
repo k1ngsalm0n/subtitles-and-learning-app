@@ -137,8 +137,10 @@ class PatchingTest(unittest.TestCase):
                 socket_options=[(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)],
             )
             self.assertEqual(sock.getpeername(), ("127.0.0.1", port))
-            self.assertEqual(
-                sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY), 1
+            # Non-zero, not 1: Linux reads the option back as 1, but macOS
+            # reports 4 for the same "on", so an exact 1 failed there.
+            self.assertNotEqual(
+                sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY), 0
             )
             sock.close()
 
