@@ -104,6 +104,22 @@ lifting — speech-to-text and offline translation — runs through Python.
   the moment it is read, so identity-matching lost the pinyin whenever
   translation won that race.
 
+**The uploader's English over a transcript.** A video with no usable source
+track is transcribed, but it may still carry human-made English subtitles (a
+Chinese song with the uploader's translated lyrics). Those are fetched beside
+the transcription and become the translation. When their timing fits —
+`regridToHuman` in captions.mjs, at least half the transcript landing inside
+their lines — the Chinese is **re-cut to their lines**: every character gets a
+time (Whisper's word timings when they account for the cue one-for-one, spread
+evenly otherwise, e.g. OCR'd captions), goes to the uploader line it falls in,
+and the cuts are tidied (strays within 0.8s join their line, a Whisper cue
+keeps the character or two at its edge, a cut slides up to 3 units to a space).
+Chinese outside every line stays as its own cue and is machine-translated; an
+uploader line with nothing heard under it gets the（聽不清楚的聲音）placeholder.
+When the timing doesn't fit, their lines are hung on Whisper's cues instead
+(`preferHumanTranslation`). Words are matched by count, not glyph — Whisper's
+are often Simplified while the transcript is Traditional.
+
 Key server modules: `import.mjs` (URL import via yt-dlp), `transcribe.py`
 (faster-whisper), `ocr_captions.py` (burned-in caption OCR via RapidOCR — runs
 automatically on URL imports with no subtitle track; a quick frame probe

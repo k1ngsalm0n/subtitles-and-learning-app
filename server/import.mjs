@@ -31,6 +31,9 @@ import {
   alignTranslationByTime,
   dedupeContinuationLines,
   preferHumanTranslation,
+  regridToHuman,
+  cuesToSrt,
+  srtTexts,
   dropUnreadableGlimpses,
   markUnintelligible,
   mergeCaptionSpeech,
@@ -634,12 +637,15 @@ export async function handleImportUrl(req, res) {
         // No refine pass here: speech was already refined, and caption blocks
         // were paced within their real display windows — a character-count
         // re-timing on top would fabricate different boundaries again.
-        const subtitles = await toTraditional(segmentsToSrt(segments, { refine: false }));
+        const transcript = await toTraditional(segmentsToSrt(segments, { refine: false }));
+        // Caption segments carry no timings; only the spoken ones do.
+        const words = speechWordsOutsideCaptions(speechWords, segments);
         report.stage("Translating\u2026");
-        const translation = preferHumanTranslation(
-          subtitles,
+        const { subtitles, translation } = await withUploaderTranslation(
+          transcript,
+          words,
           await uploaderTranslation,
-          await translateSrt(subtitles, "zh"),
+          () => translateSrt(transcript, "zh"),
         );
         report.done({
           title: meta.title,
@@ -648,8 +654,7 @@ export async function handleImportUrl(req, res) {
           language: "zh",
           subtitles,
           translation,
-          // Caption segments carry no timings; only the spoken ones do.
-          words: speechWordsOutsideCaptions(speechWords, segments),
+          words,
         });
         return;
       }
@@ -673,17 +678,19 @@ export async function handleImportUrl(req, res) {
       onSpeechProgress,
       onSpeechSegment,
     );
+    const { subtitles, translation } = await withUploaderTranslation(
+      whisperResult.subtitles,
+      whisperResult.words || [],
+      await uploaderTranslation,
+      async () => whisperResult.translation,
+    );
     report.done({
       title: meta.title,
       videoUrl,
       source: "whisper",
       language: whisperResult.language,
-      subtitles: whisperResult.subtitles,
-      translation: preferHumanTranslation(
-        whisperResult.subtitles,
-        await uploaderTranslation,
-        whisperResult.translation,
-      ),
+      subtitles,
+      translation,
       // Absent on the openai-whisper CLI fallback, which reports no word
       // timings; the reader falls back to its own estimate then.
       words: whisperResult.words || [],
@@ -1079,6 +1086,36 @@ async function getUploaderTranslation(url, workspace, meta) {
   await mkdir(dir, { recursive: true });
   const file = (await downloadSubTracks(url, dir, [lang], { auto: false }))(lang);
   return file ? cleanCaptions(await readFile(file, "utf8")) : "";
+}
+
+// Lay the uploader's English over a transcript. When their lines' timing fits
+// the transcript, the Chinese is re-cut to their lines (regridToHuman), so each
+// English line sits over exactly what's sung under it, and only the leftover
+// Chinese they didn't translate goes through the machine translator. When it
+// doesn't fit, their lines are hung on the transcript's own cues as before
+// (preferHumanTranslation). With no uploader track it's the machine
+// translation untouched. `machine` is a thunk so a re-cut that needs only a few
+// leftover lines translated doesn't pay for the whole transcript.
+async function withUploaderTranslation(transcript, words, uploader, machine) {
+  if (!uploader) return { subtitles: transcript, translation: await machine() };
+  const cues = regridToHuman(transcript, uploader, words);
+  if (!cues) {
+    return {
+      subtitles: transcript,
+      translation: preferHumanTranslation(transcript, uploader, await machine()),
+    };
+  }
+  const leftovers = cues.filter((cue) => cue.human == null);
+  const machineLines = leftovers.length
+    ? srtTexts(await translateSrt(cuesToSrt(leftovers), "zh"))
+    : [];
+  let next = 0;
+  return {
+    subtitles: cuesToSrt(cues),
+    translation: cuesToSrt(
+      cues.map((cue) => ({ ...cue, text: cue.human ?? machineLines[next++] ?? "" })),
+    ),
+  };
 }
 
 // Resolve the best existing subtitles for study. Returns the clean source text,

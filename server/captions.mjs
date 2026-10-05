@@ -204,6 +204,238 @@ export function preferHumanTranslation(sourceSrt, humanSrt, machineSrt = "") {
   );
 }
 
+// Re-cut a transcript to the uploader's own lines (#3).
+//
+// preferHumanTranslation keeps Whisper's cue boundaries and hangs each English
+// line on the cue it overlaps most, so a long English line ends up under a
+// Chinese line it only half covers. When the uploader's lines are well timed
+// — lyrics usually are — it's better to take their boundaries and re-cut the
+// Chinese into them, so each English line sits over exactly the words sung
+// beneath it.
+//
+// Every character of the transcript gets a time: from Whisper's word timings
+// where they account for the cue's characters one-for-one (words carry their
+// own spelling, often Simplified, so it's the count that's matched, not the
+// glyphs), and spread evenly across the cue otherwise — OCR'd captions have no
+// word timings. Each character then goes to the uploader line it falls in.
+// What falls outside every uploader line keeps its own cue, and an uploader
+// line with nothing heard under it gets the "unintelligible" placeholder so
+// its English isn't dropped.
+//
+// Returns [{ start, end, text, human }] in time order — `human` is the
+// uploader's line, or null for a leftover cue the caller should machine-
+// translate — or null when too little of the transcript lands inside the
+// uploader's lines for their timing to be trusted (MIN_REGRID_COVERAGE).
+const MIN_REGRID_COVERAGE = 0.5;
+// A word belongs to a cue when its midpoint is this close to the cue's span.
+const WORD_SLACK = 0.25;
+// Whisper and the uploader rarely agree to the frame: a character heard just
+// before an uploader line starts belongs to it, not to a one-character line.
+const SNAP_SECONDS = 0.8;
+const SNAP_MAX_UNITS = 2;
+// How far a cut may move to land on a space or punctuation mark instead of
+// splitting the words either side of it.
+const BREAK_REACH = 3;
+const CJK_CHAR = /\p{Script=Han}/u;
+const LEADING_PUNCT = /^[\s，。、！？；：,.!?;:]+/u;
+const HAS_LETTER = /\p{L}/u;
+
+// A cue's text as units: one per Han character, one per run of other letters
+// or digits (so "AiCREWFILM" is never split), one per run of spaces and
+// punctuation (a natural place to cut).
+function textUnits(text) {
+  return String(text).match(/\p{Script=Han}|[\p{L}\p{N}]+|[^\p{L}\p{N}]+/gu) || [];
+}
+
+export function regridToHuman(sourceSrt, humanSrt, words = []) {
+  const textOf = (c) => c.lines.map(normalizeLine).filter(Boolean).join(" ").trim();
+  const src = parseCues(sourceSrt).map((c) => ({ start: c.start, end: c.end, text: textOf(c) }));
+  const human = parseCues(humanSrt)
+    .map((c) => ({ start: c.start, end: c.end, text: textOf(c) }))
+    .filter((c) => c.text && c.end > c.start);
+  if (!src.length || !human.length) return null;
+
+  const timed = words
+    .filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end))
+    .map((w) => ({ ...w, mid: (w.start + w.end) / 2 }));
+
+  // [{ text, start, end, cue, kind }] in order. kind: "han", "word" (other
+  // letters), "break" (spaces/punctuation), "placeholder" (a whole
+  // unintelligible cue, kept whole and never mixed into a lyric).
+  const units = [];
+  src.forEach((cue, cueIndex) => {
+    if (cue.text === UNINTELLIGIBLE) {
+      units.push({ text: cue.text, start: cue.start, end: cue.end, cue: cueIndex, kind: "placeholder" });
+      return;
+    }
+    const parts = textUnits(cue.text).map((text) => ({
+      text,
+      kind: CJK_CHAR.test(text) ? "han" : HAS_LETTER.test(text) || /\p{N}/u.test(text) ? "word" : "break",
+    }));
+    const hanCount = parts.filter((u) => u.kind === "han").length;
+    // Whisper's per-character slots for this cue, if they add up.
+    const slots = [];
+    for (const w of timed) {
+      if (w.mid < cue.start - WORD_SLACK || w.mid >= cue.end + WORD_SLACK) continue;
+      const han = [...String(w.word)].filter((g) => CJK_CHAR.test(g));
+      const step = (w.end - w.start) / Math.max(han.length, 1);
+      han.forEach((_, i) => slots.push({ start: w.start + i * step, end: w.start + (i + 1) * step }));
+    }
+    const useWords = hanCount > 0 && slots.length === hanCount;
+    const totalChars = parts.reduce((n, u) => n + [...u.text].length, 0) || 1;
+    const span = Math.max(cue.end - cue.start, 0.001);
+    let han = 0;
+    let charsBefore = 0;
+    let last = { start: cue.start, end: cue.start };
+    for (const part of parts) {
+      let slot;
+      if (useWords) {
+        // Anything that isn't a Han character rides with the one before it.
+        slot = part.kind === "han" ? slots[han++] : { start: last.end, end: last.end };
+      } else {
+        const n = [...part.text].length;
+        slot = {
+          start: cue.start + (charsBefore / totalChars) * span,
+          end: cue.start + ((charsBefore + n) / totalChars) * span,
+        };
+        charsBefore += n;
+      }
+      last = slot;
+      units.push({ ...part, start: slot.start, end: slot.end, cue: cueIndex });
+    }
+  });
+
+  // Which uploader line each unit falls in (-1: none). A placeholder goes to
+  // the line it overlaps most; everything else by its midpoint.
+  const owner = units.map((u) => {
+    if (u.kind === "placeholder") {
+      let best = -1;
+      let most = 0;
+      human.forEach((h, i) => {
+        const overlap = Math.min(u.end, h.end) - Math.max(u.start, h.start);
+        if (overlap > most) [best, most] = [i, overlap];
+      });
+      return best;
+    }
+    const mid = (u.start + u.end) / 2;
+    return human.findIndex((h) => mid >= h.start && mid < h.end);
+  });
+
+  const counts = (u) => u.kind === "han" || u.kind === "word";
+  const total = units.filter(counts).length;
+  const inside = units.filter((u, i) => counts(u) && owner[i] >= 0).length;
+  if (!total || inside / total < MIN_REGRID_COVERAGE) return null;
+
+  // Snap stray characters: a short run outside every line, inside one source
+  // cue, that touches an owned run and sits within SNAP_SECONDS of its line.
+  for (let i = 0; i < units.length; ) {
+    if (owner[i] !== -1 || units[i].kind === "placeholder") { i++; continue; }
+    let j = i;
+    while (j < units.length && owner[j] === -1 && units[j].cue === units[i].cue && units[j].kind !== "placeholder") j++;
+    const size = units.slice(i, j).filter(counts).length;
+    if (size && size <= SNAP_MAX_UNITS) {
+      const next = j < units.length && units[j].cue === units[i].cue ? owner[j] : -1;
+      const prev = i > 0 && units[i - 1].cue === units[i].cue ? owner[i - 1] : -1;
+      const near = (h) => h >= 0 &&
+        Math.min(Math.abs(human[h].start - units[j - 1].end), Math.abs(units[i].start - human[h].end)) <= SNAP_SECONDS;
+      const to = near(next) ? next : near(prev) ? prev : -1;
+      if (to >= 0) for (let k = i; k < j; k++) owner[k] = to;
+    }
+    i = j;
+  }
+
+  // Whisper's own cue boundaries fall at pauses, so a cue shouldn't shed a
+  // character or two at its edge to the neighbouring line: "說了再 | 再把…"
+  // keeps its 再 rather than leaving "說了再再" behind. A short run at the start
+  // or end of a cue joins the rest of that cue.
+  const edge = (from, step) => {
+    const cue = units[from].cue;
+    let k = from;
+    const first = owner[k];
+    let size = 0;
+    while (k >= 0 && k < units.length && units[k].cue === cue && owner[k] === first) {
+      if (counts(units[k])) size++;
+      k += step;
+    }
+    const inCue = k >= 0 && k < units.length && units[k].cue === cue;
+    if (!inCue || size > SNAP_MAX_UNITS || owner[k] < 0) return;
+    for (let m = from; m !== k; m += step) owner[m] = owner[k];
+  };
+  for (let i = 0; i < units.length; i++) {
+    if (i === 0 || units[i - 1].cue !== units[i].cue) edge(i, 1);
+    if (i === units.length - 1 || units[i + 1].cue !== units[i].cue) edge(i, -1);
+  }
+
+  // Move each cut between two lines onto a nearby break, so the words either
+  // side of it stay whole: "錢城拜三百 錢包…" cuts at the space, not inside 錢包.
+  for (let i = 1; i < units.length; i++) {
+    const a = owner[i - 1];
+    const b = owner[i];
+    if (a === b || a < 0 || b < 0 || units[i - 1].cue !== units[i].cue) continue;
+    if (units[i - 1].kind === "break" || units[i].kind === "break") continue;
+    for (let d = 1; d <= BREAK_REACH; d++) {
+      // A break a little later: the left line keeps everything up to it.
+      const later = i + d - 1;
+      if (later < units.length && units[later].cue === units[i].cue && units[later].kind === "break") {
+        for (let k = i; k <= later; k++) owner[k] = a;
+        break;
+      }
+      // A break a little earlier: the right line takes everything after it.
+      const earlier = i - d;
+      if (earlier >= 0 && units[earlier].cue === units[i].cue && units[earlier].kind === "break") {
+        for (let k = earlier + 1; k < i; k++) owner[k] = b;
+        break;
+      }
+    }
+  }
+
+  const join = (list) =>
+    list
+      .filter((u) => u.kind !== "placeholder")
+      .map((u) => u.text)
+      .join("")
+      .replace(LEADING_PUNCT, "")
+      .trim();
+
+  const out = human.map((h, hi) => {
+    const text = join(units.filter((_, i) => owner[i] === hi));
+    return { start: h.start, end: h.end, text: HAS_LETTER.test(text) ? text : UNINTELLIGIBLE, human: h.text };
+  });
+  // Leftovers: runs outside every line, split where the source cue changes,
+  // so a leftover never spans two of Whisper's lines.
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    const placeholder = run.every((u) => u.kind === "placeholder");
+    const text = placeholder ? UNINTELLIGIBLE : join(run);
+    if (HAS_LETTER.test(text)) {
+      out.push({ start: run[0].start, end: run.at(-1).end, text, human: null });
+    }
+    run = [];
+  };
+  units.forEach((u, i) => {
+    if (owner[i] >= 0 || (run.length && run[0].cue !== u.cue)) flush();
+    if (owner[i] < 0) run.push(u);
+  });
+  flush();
+
+  const cues = out.sort((a, b) => a.start - b.start);
+  // No overlaps: an evenly-spread character can poke a little past a boundary.
+  for (let i = 0; i < cues.length - 1; i++) {
+    if (cues[i].end > cues[i + 1].start) cues[i].end = Math.max(cues[i].start, cues[i + 1].start);
+  }
+  return cues;
+}
+
+export function cuesToSrt(cues) {
+  return toSrt(cues);
+}
+
+// Each cue's text, in order — for reading a translated SRT back cue by cue.
+export function srtTexts(srt) {
+  return parseCues(srt).map((c) => c.lines.join(" ").trim());
+}
+
 // Real speech is never slower than this (CJK runs ~3–8 characters/second).
 // Whisper's silence hallucinations are the opposite shape: a few invented
 // characters stretched over tens of seconds ("中文字幕 李宗盛" across 23 s).
