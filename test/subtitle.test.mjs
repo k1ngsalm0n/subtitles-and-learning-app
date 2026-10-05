@@ -17,7 +17,7 @@ test("parseSubtitle parses index/timestamp/text blocks", () => {
     cueIndex: 1,
     start: 0,
     end: 3.2,
-    text: "Learning with real conversations makes vocabulary easier to remember.",
+    text: "用真實對話學習，會讓詞彙更容易記住。",
   });
 });
 
