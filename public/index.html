@@ -49,6 +49,14 @@
   --accent: #6ee7b7;
   --accent-2: #fbbf24;
   --danger: #f87171;
+  /* Pinyin tone colours, in Pleco's order: 1 red, 2 orange, 3 green, 4 blue,
+     neutral grey. Lighter here, deeper in the light theme, so each keeps its
+     contrast against the ground. */
+  --tone1: #f87171;
+  --tone2: #fb923c;
+  --tone3: #4ade80;
+  --tone4: #60a5fa;
+  --tone5: var(--muted);
   --shadow: 0 4px 24px rgba(0,0,0,0.3);
   --radius: 12px;
   --topbar-h: 52px;
@@ -65,6 +73,11 @@
   --accent: #059669;
   --accent-2: #d97706;
   --danger: #dc2626;
+  --tone1: #dc2626;
+  --tone2: #c2410c;
+  --tone3: #15803d;
+  --tone4: #1d4ed8;
+  --tone5: var(--muted);
   --shadow: 0 4px 24px rgba(0,0,0,0.06);
 }
 * { box-sizing: border-box; margin: 0; }
@@ -756,6 +769,20 @@ rt {
 }
 /* Karaoke highlight sweeps the whole word, reading included. */
 .word.spoken rt { color: var(--text); }
+/* Pinyin coloured by tone. Hover and the karaoke sweep above still take the
+   reading over (they're more specific), so the word lights up as one unit. */
+.tone1 { color: var(--tone1); }
+.tone2 { color: var(--tone2); }
+.tone3 { color: var(--tone3); }
+.tone4 { color: var(--tone4); }
+.tone5 { color: var(--tone5); }
+/* Off: back to the plain grey reading. :where() keeps this as weak as the
+   rules above, so hover and the karaoke sweep still win when colours are off. */
+:where(:root[data-tones="off"]) .tone1,
+:where(:root[data-tones="off"]) .tone2,
+:where(:root[data-tones="off"]) .tone3,
+:where(:root[data-tones="off"]) .tone4,
+:where(:root[data-tones="off"]) .tone5 { color: var(--muted); }
 
 /* Cards view */
 /* Review is the main event here, so it takes the wider flexible column and the
@@ -2348,6 +2375,9 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           theme === "light" ? "light" : "dark";
         // A colour cached by applyAccent(), so this script needs no palette.
         // Validated before use: it comes out of storage, where anything can be.
+        if (localStorage.getItem("stele.toneColours") === "off") {
+          document.documentElement.dataset.tones = "off";
+        }
         var accent = localStorage.getItem("stele.accentColor");
         if (accent && /^#[0-9a-f]{3,8}$/i.test(accent)) {
           document.documentElement.style.setProperty("--accent", accent);
@@ -2591,6 +2621,13 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <div class="segmented">
                 <button id="themeDark" type="button">Dark</button>
                 <button id="themeLight" type="button">Light</button>
+              </div>
+            </div>
+            <div class="data-row">
+              <span>Pinyin tone colours</span>
+              <div class="segmented">
+                <button id="tonesOn" type="button">On</button>
+                <button id="tonesOff" type="button">Off</button>
               </div>
             </div>
             <div id="accentBay" class="accent-bay">

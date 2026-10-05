@@ -231,6 +231,8 @@ const els = {
   settingsLayout: document.querySelector("#settingsLayout"),
   themeDark: document.querySelector("#themeDark"),
   themeLight: document.querySelector("#themeLight"),
+  tonesOn: document.querySelector("#tonesOn"),
+  tonesOff: document.querySelector("#tonesOff"),
   accentBay: document.querySelector("#accentBay"),
   accentDial: document.querySelector("#accentDial"),
   accentFace: document.querySelector("#accentFace"),
@@ -1105,6 +1107,25 @@ function setupSettings() {
   });
   els.themeDark.addEventListener("click", () => setTheme("dark"));
   els.themeLight.addEventListener("click", () => setTheme("light"));
+  els.tonesOn.addEventListener("click", () => setToneColours(true));
+  els.tonesOff.addEventListener("click", () => setToneColours(false));
+  setToneColours(document.documentElement.dataset.tones !== "off", { store: false });
+}
+
+// Pinyin tone colours on or off. An attribute on <html> rather than a
+// re-render: the classes are always there, and CSS decides whether they show.
+function setToneColours(on, { store = true } = {}) {
+  if (on) delete document.documentElement.dataset.tones;
+  else document.documentElement.dataset.tones = "off";
+  if (store) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.toneColours, on ? "on" : "off");
+    } catch {
+      // storage unavailable — the choice lasts until reload
+    }
+  }
+  els.tonesOn.classList.toggle("active", on);
+  els.tonesOff.classList.toggle("active", !on);
 }
 
 // Turning the dial repaints Settings alone, so a colour can be judged against

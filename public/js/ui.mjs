@@ -15,6 +15,7 @@ import { previewIntervals, formatInterval } from "./scheduler.mjs";
 import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
+import { pinyinTone, tonedPinyinHtml } from "./tones.mjs";
 import { activateLine } from "./player.mjs";
 import { spokenProgress } from "./karaoke.mjs";
 import { paintHighlight } from "./imagehighlight.mjs";
@@ -312,9 +313,20 @@ const _segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 // <ruby> so the reading sits in its own box directly above the base, and can't
 // drift away from the character it belongs to.
 
-function rubyUnit(base, pron) {
+// `tone` (tones.mjs) colours the reading: 1–4, 5 for neutral, 0 for none.
+// Whether colours show at all is CSS's call (html[data-tones="off"]), so the
+// switch in Appearance needs no re-render.
+function rubyUnit(base, pron, tone = 0) {
   const b = escapeHtml(base);
-  return pron ? `<ruby>${b}<rt>${escapeHtml(pron)}</rt></ruby>` : b;
+  if (!pron) return b;
+  const cls = tone ? ` class="tone${tone}"` : "";
+  return `<ruby>${b}<rt${cls}>${escapeHtml(pron)}</rt></ruby>`;
+}
+
+// Tones are a Chinese idea. Romaji goes through the same renderer, and its
+// long vowels (ō, ū) look exactly like first-tone marks.
+function showsTones() {
+  return state.learningLang === "zh";
 }
 
 // Char-aligned (Chinese): every pronounced token is a single character, so we
@@ -359,6 +371,7 @@ function renderRubyTranscript(tokens, text, savedWords, words) {
   const savedClass = (word) => (savedWords?.has(word) ? " saved" : "");
   if (isCharAligned(tokens)) {
     const pron = pronByOffset(tokens);
+    const tones = showsTones();
     // Character index, not UTF-16 offset: the highlight indexes into the
     // recogniser's per-character boxes, which are one per character.
     let charStart = 0;
@@ -373,7 +386,8 @@ function renderRubyTranscript(tokens, text, savedWords, words) {
       let inner = "";
       let off = seg.index;
       for (const ch of seg.segment) {
-        inner += rubyUnit(ch, pron.get(off) || "");
+        const reading = pron.get(off) || "";
+        inner += rubyUnit(ch, reading, tones ? pinyinTone(reading) : 0);
         off += ch.length;
       }
       // aria-label carries the bare word: the ruby annotations inside would
@@ -1451,7 +1465,11 @@ async function openWordBubble(anchor, context, els) {
   if (bubble.hidden) return;
 
   const pron = result.pronunciation
-    ? `<div class="bubble-pron">${escapeHtml(result.pronunciation)}</div>`
+    ? `<div class="bubble-pron">${
+        lang === "zh"
+          ? tonedPinyinHtml(result.pronunciation, escapeHtml)
+          : escapeHtml(result.pronunciation)
+      }</div>`
     : "";
   const meaningHtml = result.meaning
     ? `<div class="bubble-meaning">${escapeHtml(result.meaning)}</div>`
