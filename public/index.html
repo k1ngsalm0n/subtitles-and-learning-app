@@ -1469,9 +1469,6 @@ rt {
   justify-self: start;
 }
 .card-source:hover { color: var(--accent); }
-/* Only the title gives way. The timestamp after it is the point of the chip,
-   so it stays whole however little room there is. */
-.card-source-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* .card-source is left-aligned in the browse list, but the review card is a
    centered column — left-aligning these two chips broke that line. Spacing
    comes from the card's grid gap, so the old margin would double up. */
