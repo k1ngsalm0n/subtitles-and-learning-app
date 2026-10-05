@@ -24,6 +24,8 @@ export const STORAGE_KEYS = {
   // The accent *resolved to a colour*, cached so the pre-paint script in
   // index.html can apply it without knowing the palette (see applyAccent).
   accentColor: "stele.accentColor",
+  // "off" hides pinyin tone colours; anything else shows them.
+  toneColours: "stele.toneColours",
   settingsPage: "stele.settingsPage",
   zhScript: "stele.zhScript",
   session: "stele.session",
