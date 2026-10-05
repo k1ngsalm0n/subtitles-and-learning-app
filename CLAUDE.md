@@ -317,7 +317,9 @@ gitignored; `SKIP_STROKES=1` to skip; attribution in README).
 Known words: `knownwords.mjs` decides each transcript word's mark — dimmed when
 the reader has said they know it (`stele.knownWords`, set from the word pop-up
 or **K** on a focused word), underlined when it has a card, full strength when
-it's new — and the toolbar counts the new ones. Matching goes through
+it's new — and the toolbar counts the new ones. "Line Known" marks every *new*
+word in the active line (saved ones stay saved) and its toast's Undo removes
+exactly those (`setWordsKnown` returns what changed). Matching goes through
 `savedWordForms`, so knowing 头发 dims 頭髮. Known words ride along in Export
 and backups (`knownWords`, optional in a v2 file) and merge as a union.
 

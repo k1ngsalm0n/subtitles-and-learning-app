@@ -41,6 +41,21 @@ export function knownEntriesFor(word, knownWords = [], formsOf = (w) => [w]) {
   );
 }
 
+// The different words in `wordList` that carry no mark, in order of first
+// appearance. What "Line Known" marks: saved words stay saved — the reader
+// saved them to learn them — and known ones are already done.
+export function newWordsIn(wordList, markOf) {
+  const seen = new Set();
+  const fresh = [];
+  for (const word of wordList) {
+    const key = knownKey(word);
+    if (markOf(word) || seen.has(key)) continue;
+    seen.add(key);
+    fresh.push(word);
+  }
+  return fresh;
+}
+
 // How many different words in `wordList` carry no mark at all.
 export function countNewWords(wordList, markOf) {
   const fresh = new Set();

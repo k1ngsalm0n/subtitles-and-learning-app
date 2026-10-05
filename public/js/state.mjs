@@ -408,6 +408,27 @@ export function setWordKnown(word, known) {
   saveKnownWords();
 }
 
+// Several at once, saved once — a whole line's worth from "Line Known".
+// Returns the stored entries that actually changed, so the caller can undo
+// exactly those and nothing that was already known.
+export function setWordsKnown(words, known) {
+  const changed = [];
+  const current = new Set(state.knownWords);
+  for (const word of words) {
+    const key = knownKey(word);
+    if (!key || current.has(key) === known) continue;
+    if (known) current.add(key);
+    else current.delete(key);
+    changed.push(key);
+  }
+  if (!changed.length) return changed;
+  state.knownWords = known
+    ? [...state.knownWords, ...changed]
+    : state.knownWords.filter((w) => current.has(w));
+  saveKnownWords();
+  return changed;
+}
+
 export function saveKnownWords() {
   storeString(STORAGE_KEYS.knownWords, JSON.stringify(state.knownWords));
 }

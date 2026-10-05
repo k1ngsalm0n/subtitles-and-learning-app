@@ -11,8 +11,14 @@ import {
   getChildDecks,
   setSelectedDeck,
   setWordKnown,
+  setWordsKnown,
 } from "./state.mjs";
-import { buildWordMarks, knownEntriesFor, countNewWords } from "./knownwords.mjs";
+import {
+  buildWordMarks,
+  knownEntriesFor,
+  countNewWords,
+  newWordsIn,
+} from "./knownwords.mjs";
 import { previewIntervals, formatInterval } from "./scheduler.mjs";
 import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
@@ -170,6 +176,25 @@ export function toggleWordKnown(word, els) {
   else setWordKnown(word, true);
   refreshWordMarks(els);
   return !entries.length;
+}
+
+// "Line Known": every new word in the active line, marked at once. Returns the
+// entries it added (for undo), [] when the line had nothing new, or null when
+// the line isn't on screen — a search can filter it out, and then there are no
+// drawn words to read the line's segmentation from.
+export function markActiveLineKnown(els) {
+  const e = els || _els;
+  const line = e.transcript.querySelector(`.line[data-index="${state.activeIndex}"]`);
+  if (!line) return null;
+  const lineWords = [...line.querySelectorAll(".word")].map((w) => w.dataset.word);
+  const added = setWordsKnown(newWordsIn(lineWords, currentWordMarks()), true);
+  if (added.length) refreshWordMarks(e);
+  return added;
+}
+
+export function forgetKnownWords(entries, els) {
+  setWordsKnown(entries, false);
+  refreshWordMarks(els);
 }
 
 // Turn the card over instead of swapping its face instantly. The content is

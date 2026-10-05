@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildWordMarks, knownEntriesFor, countNewWords } from "../public/js/knownwords.mjs";
+import { buildWordMarks, knownEntriesFor, countNewWords, newWordsIn } from "../public/js/knownwords.mjs";
 import { mergeImport, buildExport, describeReport } from "../public/js/portability.mjs";
 
 // Stands in for savedWordForms: what the converter would say 头发 looks like
@@ -67,4 +67,12 @@ test("an older export without known words still imports, and keeps the current o
   );
   assert.ok(!merged.error);
   assert.deepEqual(merged.knownWords, ["我們"]);
+});
+
+test("Line Known takes only the new words, each once, in order", () => {
+  const markOf = buildWordMarks({ knownWords: ["我們"], cards: [{ word: "來財" }] });
+  assert.deepEqual(
+    newWordsIn(["我們", "來財", "八方", "因果", "八方"], markOf),
+    ["八方", "因果"],
+  );
 });

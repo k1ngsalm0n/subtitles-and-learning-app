@@ -92,6 +92,8 @@ import {
   flipWithTurn,
   setSourceJumper,
   setPracticeOpener,
+  markActiveLineKnown,
+  forgetKnownWords,
 } from "./ui.mjs";
 import { setupPractice, openPractice } from "./practice.mjs";
 import { setupMiniPlayer } from "./miniplayer.mjs";
@@ -123,6 +125,7 @@ const els = {
   zhSimp: document.querySelector("#zhSimp"),
   zhTrad: document.querySelector("#zhTrad"),
   saveLine: document.querySelector("#saveLine"),
+  lineKnown: document.querySelector("#lineKnown"),
   translateFrom: document.querySelector("#translateFrom"),
   translateTo: document.querySelector("#translateTo"),
   swapLangs: document.querySelector("#swapLangs"),
@@ -346,6 +349,20 @@ function bindEvents() {
   );
   els.loopLine.addEventListener("click", () => loopActiveLine(els));
   els.saveLine.addEventListener("click", () => saveActiveLine(els));
+  els.lineKnown.addEventListener("click", () => {
+    const added = markActiveLineKnown(els);
+    if (added === null) {
+      showToast("This line is hidden by the search — clear it to mark the line.");
+    } else if (!added.length) {
+      showToast("Nothing new in this line — every word is already known or saved.");
+    } else {
+      // Undo takes back exactly these, not words that were known before.
+      showToast(
+        added.length === 1 ? "Marked 1 word as known." : `Marked ${added.length} words as known.`,
+        { actions: [{ label: "Undo", onClick: () => forgetKnownWords(added, els) }] },
+      );
+    }
+  });
   els.swapLangs.addEventListener("click", () => swapLanguages(els));
   els.translateButton.addEventListener("click", () => runTranslation(els));
   els.queueUrl.addEventListener("click", () => importSourceUrl());
