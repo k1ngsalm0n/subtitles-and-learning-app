@@ -14,7 +14,9 @@ import {
   sendJson,
 } from "./util.mjs";
 import { ytdlpCookieArgs } from "./cookies.mjs";
-import { YTDLP_BIN, waitForYtdlpUpdate } from "./ytdlp.mjs";
+// VENV_YTDLP is for #131's 403 message, which asks whether the venv's copy is
+// the one in use; it lived in this file before ytdlp.mjs took it over.
+import { YTDLP_BIN, VENV_YTDLP, waitForYtdlpUpdate } from "./ytdlp.mjs";
 import { importPlan, probeMachine } from "./device.mjs";
 // The browser owns this protocol's parsing, and percentOf is part of it. Shared
 // rather than copied: a second definition is the "keep in sync" comment that
