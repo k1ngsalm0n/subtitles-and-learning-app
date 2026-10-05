@@ -144,7 +144,8 @@ const NOTHING = {
   llmModel: undefined,
   voices: 0,
   strokes: false,
-  ytdlp: false,
+  venv: false,
+  ytdlp: { source: null, version: "", ageDays: null },
   deno: false,
   prefs: { speech: "auto", llm: "on" },
 };
@@ -160,7 +161,8 @@ const EVERYTHING = {
   llmModel: "openai/gpt-oss-120b",
   voices: 2,
   strokes: true,
-  ytdlp: true,
+  venv: true,
+  ytdlp: { source: "venv", version: "2026.09.27", ageDays: 3 },
   deno: true,
 };
 
@@ -260,7 +262,50 @@ test("yt-dlp without a JavaScript runtime still imports, badly", () => {
   assert.equal(degraded.state, "fallback");
   assert.match(degraded.detail, /144p/);
   assert.equal(degraded.fixNote, "Installs deno into the venv.");
-  assert.equal(row({ ...EVERYTHING, ytdlp: false }, "import").state, "off");
+  assert.equal(row({ ...EVERYTHING, ytdlp: NOTHING.ytdlp }, "import").state, "off");
+});
+
+// The case behind the persistent 403: a machine that never ran the bootstrap
+// imports with whatever yt-dlp the system has, and nothing looked wrong.
+test("the system's yt-dlp is a fallback that names its version and the fix", () => {
+  const system = row(
+    { ...EVERYTHING, ytdlp: { source: "system", version: "2026.03.17", ageDays: 202 } },
+    "import",
+  );
+  assert.equal(system.state, "fallback");
+  assert.match(system.using, /system's yt-dlp 2026\.03\.17, 202 days old/);
+  assert.match(system.detail, /403/);
+  assert.equal(system.fix, "npm run sync");
+});
+
+test("the app's own yt-dlp gone stale means updating has stopped working", () => {
+  const stale = { source: "venv", version: "2026.06.01", ageDays: 45 };
+  const on = row({ ...EVERYTHING, ytdlp: stale }, "import");
+  assert.equal(on.state, "fallback");
+  assert.match(on.detail, /updating is failing/);
+  const off = row({ ...EVERYTHING, ytdlp: stale, ytdlpAutoUpdate: false }, "import");
+  assert.match(off.detail, /STELE_YTDLP_AUTOUPDATE=off/);
+  // A week or two old is just between updates, not a problem.
+  const fresh = { source: "venv", version: "2026.09.20", ageDays: 10 };
+  assert.equal(row({ ...EVERYTHING, ytdlp: fresh }, "import").state, "best");
+});
+
+test("an old yt-dlp that an update just confirmed is the newest is not stale", () => {
+  // yt-dlp sometimes goes weeks without a nightly; that is upstream, not us.
+  const quiet = { source: "venv", version: "2026.06.01", ageDays: 45, confirmedCurrent: true };
+  const import_ = row({ ...EVERYTHING, ytdlp: quiet }, "import");
+  assert.equal(import_.state, "best");
+  assert.match(import_.using, /the newest release/);
+});
+
+test("no .venv is one red row with one command, not a puzzle", () => {
+  const python = row(NOTHING, "python");
+  assert.equal(python.state, "off");
+  assert.equal(python.fix, "npm run sync");
+  assert.match(python.detail, /Pinyin/);
+  assert.equal(row(EVERYTHING, "python").state, "best");
+  // First, because every other row's trouble follows from it.
+  assert.equal(buildChecks(NOTHING).checks[0].id, "python");
 });
 
 test("the chat model row names the provider and model actually in use", () => {

@@ -14,6 +14,7 @@ import {
   sendJson,
 } from "./util.mjs";
 import { ytdlpCookieArgs } from "./cookies.mjs";
+import { YTDLP_BIN, waitForYtdlpUpdate } from "./ytdlp.mjs";
 import { importPlan, probeMachine } from "./device.mjs";
 // The browser owns this protocol's parsing, and percentOf is part of it. Shared
 // rather than copied: a second definition is the "keep in sync" comment that
@@ -211,10 +212,7 @@ const VIDEO_FORMAT_ARGS = [
   "--merge-output-format", "mp4",
 ];
 
-// Prefer the venv's yt-dlp (kept on the nightly channel, which gets YouTube
-// fixes ahead of distro packages); fall back to whatever is on PATH.
-const VENV_YTDLP = path.join(__dirname, "..", ".venv", "bin", "yt-dlp");
-const YTDLP_BIN = existsSync(VENV_YTDLP) ? VENV_YTDLP : "yt-dlp";
+// Which yt-dlp runs, and keeping it current, live in ytdlp.mjs.
 
 // yt-dlp's YouTube extractor now needs a JavaScript runtime; without one it
 // falls back to degraded player clients and lower-quality (or missing) formats.
@@ -371,6 +369,12 @@ function progressStream(res) {
   };
 }
 
+// Imports in flight, so the yt-dlp updater can hold off while one is running.
+let importsRunning = 0;
+export function importInProgress() {
+  return importsRunning > 0;
+}
+
 export async function handleImportUrl(req, res) {
   const body = await readJsonBody(req);
   const url = normalizeExternalUrl(body.url);
@@ -378,6 +382,7 @@ export async function handleImportUrl(req, res) {
 
   const workspace = await mkdtemp(path.join(tmpdir(), "stele-import-"));
   const report = progressStream(res);
+  importsRunning++;
   try {
     await ensureCommand(
       YTDLP_BIN,
@@ -387,6 +392,8 @@ export async function handleImportUrl(req, res) {
       ].join(" "),
     );
 
+    // A background yt-dlp update (ytdlp.mjs) may be swapping its files.
+    await waitForYtdlpUpdate();
     report.stage("Reading the link\u2026");
     const meta = await getMediaMeta(url.href);
     const origBase = baseLang(meta.language);
@@ -651,6 +658,7 @@ export async function handleImportUrl(req, res) {
     console.error(err);
     report.fail(err.message || "Import failed.");
   } finally {
+    importsRunning--;
     await rm(workspace, { recursive: true, force: true });
   }
 }

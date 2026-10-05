@@ -48,7 +48,7 @@ import { runCommand } from "./util.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HEALTH_SCRIPT = path.join(__dirname, "health.py");
-const PYTHON_BIN =
+export const PYTHON_BIN =
   process.env.STELE_PYTHON || path.join(__dirname, "..", ".venv", "bin", "python");
 
 // Below this, the two passes are better off queued. Measured, not guessed —

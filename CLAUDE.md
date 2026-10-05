@@ -369,6 +369,18 @@ with `CUDA_BUILD=cpu npm run sync` or `CUDA_BUILD=cu130 npm run sync`; skip the
 model download with `SKIP_MODELS=1 npm run sync`. The manual equivalents are
 below if you'd rather run the steps yourself.
 
+**yt-dlp keeps itself current.** `npm run sync` installs the nightly once, and
+YouTube starts answering an old copy with HTTP 403 within weeks — nothing in
+the failure says "update me". So `server/ytdlp.mjs` checks the venv's copy 30s
+after startup and daily: once its version (a date) is a week old it runs the
+same `uv pip install -U` sync does, between imports (imports wait for an update
+in flight). Only the venv's copy — a yt-dlp on PATH belongs to the system.
+`STELE_YTDLP_AUTOUPDATE=off` turns it off. What's running shows the version, its
+age, and whether it's the app's own; a venv copy over 30 days old is flagged
+only if no update has confirmed it is still the newest (yt-dlp sometimes goes
+weeks between nightlies). A missing `.venv` gets its own row there and a
+warning at startup, since every Python feature fails separately without it.
+
 **deno** is yt-dlp's JavaScript runtime. YouTube extraction without one is
 deprecated and degrades to low-quality formats (capped ~144p) with a
 `No supported JavaScript runtime` warning. `npm run sync` downloads the static

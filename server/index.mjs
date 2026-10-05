@@ -1,7 +1,10 @@
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { handleImportUrl, VIDEO_DIR, adoptLegacyVideoDir } from "./import.mjs";
+import { existsSync } from "node:fs";
+import { handleImportUrl, importInProgress, VIDEO_DIR, adoptLegacyVideoDir } from "./import.mjs";
+import { startYtdlpUpdates } from "./ytdlp.mjs";
+import { PYTHON_BIN } from "./device.mjs";
 import { handleGetCookies, handleSaveCookies } from "./cookies.mjs";
 import { handleLookup } from "./lookup.mjs";
 import { handleTranslate } from "./translate.mjs";
@@ -143,4 +146,17 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, "127.0.0.1", () => {
   console.log(`Stele running at http://localhost:${PORT}`);
+  // Without the venv the app still opens, and pinyin, Traditional/Simplified,
+  // transcription and screenshot reading each fail one at a time, in the log,
+  // with nothing on screen. Say it once, up front, with the fix.
+  if (!existsSync(PYTHON_BIN)) {
+    console.warn(
+      "\n⚠ The app's Python tools aren't set up (no .venv). Pinyin, " +
+        "Traditional/Simplified, transcription, screenshot reading and " +
+        "offline translation won't work, and URL import uses whatever " +
+        "yt-dlp is on PATH.\n  Fix: run `npm run sync`, then restart.\n",
+    );
+  }
 });
+
+startYtdlpUpdates({ isBusy: importInProgress, onUpdated: forgetHealth });
