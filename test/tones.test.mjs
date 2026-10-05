@@ -39,3 +39,12 @@ test("a phrase is wrapped syllable by syllable, and escaped", () => {
     '<span class="tone2">lái</span> <span class="tone2">cái</span> &lt;x>',
   );
 });
+
+test("punctuation stuck to a syllable stays outside its colour", () => {
+  const esc = (s) => s;
+  assert.equal(
+    tonedPinyinHtml("nǐ hǎo，", esc),
+    '<span class="tone3">nǐ</span> <span class="tone3">hǎo</span>，',
+  );
+  assert.equal(tonedPinyinHtml("“hǎo”", esc), '“<span class="tone3">hǎo</span>”');
+});

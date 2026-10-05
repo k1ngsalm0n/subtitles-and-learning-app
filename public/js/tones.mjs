@@ -49,13 +49,16 @@ export function pinyinTone(syllable) {
 // The whole reading of a word or phrase ("lái cái", "ni3 hao3") as HTML, each
 // syllable wrapped in its tone's class. `escape` is passed in so this module
 // stays free of the DOM helpers. Whitespace and anything unrecognised pass
-// through untouched.
+// through untouched. Punctuation stuck to a syllable ("hǎo，" in a card's
+// example pinyin) stays outside the span, so the syllable still gets its colour.
 export function tonedPinyinHtml(text, escape) {
   return String(text || "")
     .split(/(\s+)/)
     .map((part) => {
-      const tone = /\s/.test(part) ? 0 : pinyinTone(part);
-      return tone ? `<span class="tone${tone}">${escape(part)}</span>` : escape(part);
+      const m = part.match(/^(\P{L}*?)(\p{L}+[1-5]?)(\P{L}*)$/u);
+      const tone = m ? pinyinTone(m[2]) : 0;
+      if (!tone) return escape(part);
+      return `${escape(m[1])}<span class="tone${tone}">${escape(m[2])}</span>${escape(m[3])}`;
     })
     .join("");
 }

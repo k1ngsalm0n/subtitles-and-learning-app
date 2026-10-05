@@ -79,7 +79,7 @@ lifting — speech-to-text and offline translation — runs through Python.
 - **Pronunciation:** a romanization line shown above the source subtitles — pinyin (Chinese), romaji (Japanese), transliteration (other non-Latin scripts), nothing for Latin-script languages. `server/romanize.py` (pypinyin/pykakasi/unidecode), exposed at `POST /api/romanize`.
 - **Tone colours:** the pinyin over each character is coloured by tone
   (`tones.mjs`: 1 red, 2 orange, 3 green, 4 blue, neutral grey — Pleco's
-  order), and so is the pinyin in the word pop-up. Read from the tone marks
+  order), and so is the pinyin in the word pop-up and on flashcards (the Pronunciation and Example pronunciation fields). Read from the tone marks
   (or numbered pinyin); the marks stay, so colour is never the only signal.
   Chinese only — romaji's long vowels look like first-tone marks. The classes
   are always rendered; Settings → Appearance → "Pinyin tone colours" sets

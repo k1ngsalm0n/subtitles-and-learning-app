@@ -6,6 +6,11 @@ import { getField, fieldText } from "./carddata.mjs";
 import { ttsAvailable } from "./tts.mjs";
 import { createSpeakButtons } from "./speakbuttons.mjs";
 import { renderStrokeOrder, hasHan } from "./strokes.mjs";
+import { tonedPinyinHtml } from "./tones.mjs";
+import { escapeHtml } from "./util.mjs";
+
+// The fields that hold pinyin, coloured by tone like the transcript's reading.
+const PINYIN_FIELDS = new Set(["pinyin", "examplePinyin"]);
 
 // Render one face of a card into `el`.
 //   fieldKeys    which fields to show, in order
@@ -42,7 +47,13 @@ export function renderCardFace(el, card, fieldKeys, opts = {}) {
     if (!text && !placeholders) continue;
     const row = document.createElement("div");
     row.className = `cf cf-${key}${text ? "" : " cf-empty"}`;
-    row.textContent = text || "—";
+    // Chinese only: a Japanese card's pronunciation is romaji, whose long
+    // vowels look like first-tone marks. Escaped inside tonedPinyinHtml.
+    if (text && lang === "zh" && PINYIN_FIELDS.has(key)) {
+      row.innerHTML = tonedPinyinHtml(text, escapeHtml);
+    } else {
+      row.textContent = text || "—";
+    }
     el.appendChild(row);
     rendered++;
   }
