@@ -17,7 +17,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sendJson, readJsonBody } from "./util.mjs";
 import { readPrefs, writePrefs, ALLOWED } from "./prefs.mjs";
-import { importPlan, probeMachine } from "./device.mjs";
+import { importPlan, probeMachine, PYTHON_BIN } from "./device.mjs";
+import { ytdlpInfo, autoUpdateEnabled, STALE_AFTER_DAYS } from "./ytdlp.mjs";
 import { llmTranslationConfigured } from "./llmTranslate.mjs";
 import { llmStatus } from "./llmConfig.mjs";
 
@@ -42,6 +43,16 @@ async function exists(target) {
   } catch {
     return false;
   }
+}
+
+// yt-dlp finds a deno on PATH by itself, so one there counts as much as the
+// venv's copy — the row used to call deno missing on a machine that had it.
+async function denoAvailable() {
+  if (await exists(path.join(ROOT, ".venv", "bin", "deno"))) return true;
+  for (const dir of (process.env.PATH || "").split(path.delimiter)) {
+    if (dir && (await exists(path.join(dir, "deno")))) return true;
+  }
+  return false;
 }
 
 async function countVoices() {
@@ -86,17 +97,19 @@ export function forgetHealth() {
 // rows themselves so that each capability below is a plain function of facts —
 // no I/O, no order dependence, and testable without a venv.
 async function gatherFacts({ fresh = false } = {}) {
-  const [python, voices, strokes, ytdlp, deno, prefs, llm, llmConfig] = await Promise.all([
+  const [venv, python, voices, strokes, ytdlp, deno, prefs, llm, llmConfig] = await Promise.all([
+    exists(PYTHON_BIN),
     probePython({ fresh }),
     countVoices(),
     exists(path.join(ROOT, "data", "graphics.txt")),
-    exists(path.join(ROOT, ".venv", "bin", "yt-dlp")),
-    exists(path.join(ROOT, ".venv", "bin", "deno")),
+    ytdlpInfo(),
+    denoAvailable(),
     readPrefs(),
     llmTranslationConfigured(),
     llmStatus(),
   ]);
   return {
+    venv,
     has: (name) => Boolean(python.modules?.[name]),
     cuda: Boolean(python.cuda),
     // importPlan() reads exactly these two, and asks CTranslate2 rather than
@@ -110,6 +123,7 @@ async function gatherFacts({ fresh = false } = {}) {
     voices,
     strokes,
     ytdlp,
+    ytdlpAutoUpdate: autoUpdateEnabled(),
     deno,
     prefs,
   };
@@ -132,6 +146,27 @@ function twoStateCheck({ id, label, ok, missing = OFF, using, detail, fix, fixNo
     fix: ok ? null : fix,
     fixNote: ok ? null : fixNote,
   };
+}
+
+// --- The Python environment ----------------------------------------------
+//
+// Not one capability but the floor most of the others stand on. Without it
+// every row below goes red separately, each suggesting `uv sync`, which hides
+// that one command fixes all of them — and a machine that never ran the
+// bootstrap is exactly where nobody knows to run it.
+function pythonCheck({ venv }) {
+  return twoStateCheck({
+    id: "python",
+    label: "The app's Python tools",
+    ok: venv,
+    using: { yes: "set up, in .venv", no: "not set up — there is no .venv" },
+    detail: {
+      yes: "Pinyin, word boundaries, Traditional/Simplified, transcription, screenshot reading and the offline translator have what they need. The rows below say how well each one is running.",
+      no: "Pinyin, word boundaries, Traditional/Simplified, transcription, screenshot reading and the offline translator are all off, and URL import uses whatever yt-dlp the system has, which is usually out of date.",
+    },
+    fix: "npm run sync",
+    fixNote: "Sets up .venv with everything the app uses, and downloads the speech and translation models (several GB). Restart the app afterwards.",
+  });
 }
 
 // --- Listening -------------------------------------------------------------
@@ -400,34 +435,69 @@ function importPlanCheck({ whisperCuda, cores }) {
 
 // --- Importing from a URL --------------------------------------------------
 //
-// yt-dlp without a JS runtime still imports, which is why this isn't OFF —
-// it just hands back a video too small to read subtitles off.
-function importCheck({ ytdlp, deno }) {
-  let state;
-  if (!ytdlp) state = OFF;
-  else if (deno) state = BEST;
-  else state = FALLBACK;
+// Three ways to be worse than best, worst first: no yt-dlp, a yt-dlp the app
+// doesn't keep current (the system's, or the app's own once updating has
+// stopped working), and no JavaScript runtime. The middle one is what turns
+// into HTTP 403s, and it is invisible until it does.
+function importCheck({ ytdlp, ytdlpAutoUpdate = true, deno }) {
+  const { source, version, ageDays, confirmedCurrent = false } = ytdlp || {};
+  const age = ageDays == null ? "" : `, ${ageDays} day${ageDays === 1 ? "" : "s"} old`;
+  const row = { id: "import", label: "Importing from a URL" };
 
-  let using;
-  if (!ytdlp) using = "yt-dlp not installed";
-  else if (deno) using = "yt-dlp with deno";
-  else using = "yt-dlp without a JavaScript runtime";
-
-  let detail;
-  if (!ytdlp) detail = "Pasting a URL won't work; local files still do.";
-  else if (deno) detail = "Full-quality video.";
-  else
-    detail =
-      "YouTube extraction without a JS runtime is deprecated and falls back to low quality — often capped around 144p.";
-
+  if (!source) {
+    return {
+      ...row,
+      state: OFF,
+      using: "yt-dlp not installed",
+      detail: "Pasting a URL won't work; local files still do.",
+      fix: "npm run sync",
+      fixNote: null,
+    };
+  }
+  if (source === "system") {
+    return {
+      ...row,
+      state: FALLBACK,
+      using: `the system's yt-dlp ${version}${age} — not the app's own`,
+      detail:
+        "Nothing here keeps it up to date, and YouTube refuses old versions with HTTP 403. The app's own copy updates itself.",
+      fix: "npm run sync",
+      fixNote: "Gives the app its own yt-dlp. Restart the app afterwards.",
+    };
+  }
+  // Old but just confirmed as the newest there is: upstream is quiet, not us.
+  if (ageDays != null && ageDays > STALE_AFTER_DAYS && !confirmedCurrent) {
+    return {
+      ...row,
+      state: FALLBACK,
+      using: `yt-dlp ${version}${age}`,
+      detail: ytdlpAutoUpdate
+        ? "It should have updated itself by now, so updating is failing — the server log says why. YouTube refuses old versions with HTTP 403."
+        : "Automatic updates are off (STELE_YTDLP_AUTOUPDATE=off). YouTube refuses old versions with HTTP 403.",
+      fix: "npm run sync",
+      fixNote: null,
+    };
+  }
+  if (!deno) {
+    return {
+      ...row,
+      state: FALLBACK,
+      using: `yt-dlp ${version} without a JavaScript runtime`,
+      detail:
+        "YouTube extraction without a JS runtime is deprecated and falls back to low quality — often capped around 144p.",
+      fix: "npm run sync",
+      fixNote: "Installs deno into the venv.",
+    };
+  }
   return {
-    id: "import",
-    label: "Importing from a URL",
-    state,
-    using,
-    detail,
-    fix: ytdlp && deno ? null : "npm run sync",
-    fixNote: ytdlp && !deno ? "Installs deno into the venv." : null,
+    ...row,
+    state: BEST,
+    using: `yt-dlp ${version} with deno${confirmedCurrent ? " — the newest release" : ""}`,
+    detail: ytdlpAutoUpdate
+      ? "Full-quality video. yt-dlp updates itself once it is a week old, between imports."
+      : "Full-quality video. Automatic yt-dlp updates are off, so run npm run sync now and then.",
+    fix: null,
+    fixNote: null,
   };
 }
 
@@ -452,6 +522,7 @@ function strokesCheck({ strokes }) {
 // point of this page, and a list is harder to forget to extend than a
 // two-hundred-line function was.
 const CAPABILITIES = [
+  pythonCheck,
   speechCheck,
   llmCheck,
   segmentCheck,
