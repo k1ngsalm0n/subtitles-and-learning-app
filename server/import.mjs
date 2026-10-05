@@ -25,6 +25,7 @@ import { importPlan, probeMachine } from "./device.mjs";
 import { percentOf } from "../public/js/importstream.mjs";
 import { detectLanguage } from "../public/js/languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
+import { translateSrtWithLlm } from "./llmTranslate.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
   cleanCaptions,
@@ -1451,8 +1452,21 @@ async function transcribeWithWhisperCli(audioPath, workspace) {
   return { language, subtitles, translation };
 }
 
+// The chat model first, when one is configured and switched on — the same
+// order the translate bar uses (translate.mjs). Imports used to go straight to
+// the offline model, so a reader with a key still got its literal readings on
+// every import: 小英總統 as "the president of the camp", and an English word
+// inside a Chinese line ("非常非常 honoured") dropped. translateSrtWithLlm
+// returns null on any doubt (no key, switched off, over 400 lines, a bad
+// batch), and then the offline model runs as before.
 async function translateSrt(srtText, fromCode) {
   if (!fromCode || fromCode === "en") return "";
+  try {
+    const viaLlm = await translateSrtWithLlm(srtText, fromCode, "en");
+    if (viaLlm) return viaLlm;
+  } catch (err) {
+    console.warn(`Chat-model translation failed (${fromCode} -> en); using the offline model:`, err.message);
+  }
   try {
     // Shared worker keeps the model loaded between requests (see
     // translateWorker.mjs); the first call may still pause to download it.
