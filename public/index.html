@@ -630,7 +630,8 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
    Two colours because a data: URI can't read a custom property; these are
    --muted for each theme. */
 select,
-#templateTrigger {
+#templateTrigger,
+.combo > .combo-trigger {
   appearance: none;
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%20viewBox%3D%270%200%2012%208%27%3E%3Cpath%20d%3D%27M1%201.5%206%206.5%2011%201.5%27%20fill%3D%27none%27%20stroke%3D%27%238a8a94%27%20stroke-width%3D%271.8%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
@@ -640,7 +641,8 @@ select,
   padding-right: 34px;
 }
 :root[data-theme="light"] select,
-:root[data-theme="light"] #templateTrigger {
+:root[data-theme="light"] #templateTrigger,
+:root[data-theme="light"] .combo > .combo-trigger {
   background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%20viewBox%3D%270%200%2012%208%27%3E%3Cpath%20d%3D%27M1%201.5%206%206.5%2011%201.5%27%20fill%3D%27none%27%20stroke%3D%27%236b6b73%27%20stroke-width%3D%271.8%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E");
 }
 select::-ms-expand { display: none; }
@@ -1328,38 +1330,40 @@ rt {
    default dialog. Label left, small input right, so no row is mostly padding. */
 #llmSetupDialog { width: min(480px, calc(100vw - 32px)); padding: 14px 16px; }
 #llmSetupDialog .word-form { gap: 12px; }
+/* The title row's own margin stacked on the form's gap, and the 36px close
+   button made the row taller still, so the intro sat far below its heading. */
+#llmSetupDialog .section-title { margin-bottom: -4px; }
+#llmSetupDialog .icon-button { width: 28px; height: 28px; min-height: 28px; }
 .llm-intro { font-size: 13px; line-height: 1.5; }
 .llm-current { font-size: 12px; }
-.llm-options { display: grid; gap: 4px; }
-.word-form label.llm-option {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 10px;
-  align-items: start;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  cursor: pointer;
-}
-.llm-option:has(input:checked) { border-color: var(--accent); }
-.llm-option input { margin-top: 3px; }
-.llm-option > span { display: grid; gap: 1px; font-size: 13px; }
-.llm-option .muted { font-size: 12px; line-height: 1.4; }
-.llm-tag {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent);
-  vertical-align: middle;
-}
+.llm-provider-row { display: grid; gap: 6px; }
+/* Refresh sits beside the trigger, not the list, so opening the list doesn't
+   carry the button down with it. */
+.llm-model-field { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: start; }
+.llm-model-field .llm-field-name { grid-column: 1 / -1; }
+.llm-field-name { color: var(--muted); }
+.llm-blurb { font-size: 12px; line-height: 1.4; }
+.llm-blurb:empty { display: none; }
 .llm-fields { display: grid; gap: 8px; }
 .llm-fields[hidden] { display: none; }
-.llm-model-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: end; }
+.llm-model-row { display: grid; gap: 4px; }
 .llm-model-row[hidden] { display: none; }
-.llm-model-row select {
+.llm-refresh { height: 34px; padding: 0 10px; font-size: 12px; }
+.llm-model-note { font-size: 12px; }
+.llm-model-note:empty { display: none; }
+.llm-key-link { font-size: 12px; color: var(--accent); justify-self: start; }
+.llm-advanced { font-size: 12px; color: var(--muted); }
+.llm-advanced[open] { display: grid; gap: 8px; }
+.llm-advanced summary { cursor: pointer; }
+.llm-privacy { font-size: 11px; line-height: 1.4; }
+/* Searchable dropdown (combobox.mjs): the trigger wears the select styling.
+   Selectors are `.combo > …` so they outrank `button:hover`, whose
+   `background` shorthand would otherwise wipe the chevron. */
+.combo { min-width: 0; }
+.combo > .combo-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   width: 100%;
   height: 34px;
   padding: 0 34px 0 12px;
@@ -1369,16 +1373,62 @@ rt {
   background-color: var(--surface);
   color: var(--text);
   font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s;
 }
-.llm-model-row select:focus { border-color: var(--accent); outline: none; }
-.llm-refresh { height: 34px; padding: 0 10px; font-size: 12px; }
-.llm-model-note { grid-column: 1 / -1; font-size: 12px; }
-.llm-model-note:empty { display: none; }
-.llm-key-link { font-size: 12px; color: var(--accent); justify-self: start; }
-.llm-advanced { font-size: 12px; color: var(--muted); }
-.llm-advanced[open] { display: grid; gap: 8px; }
-.llm-advanced summary { cursor: pointer; }
-.llm-privacy { font-size: 11px; line-height: 1.4; }
+.combo > .combo-trigger:hover,
+.combo > .combo-trigger[aria-expanded="true"],
+.combo > .combo-trigger:focus-visible { border-color: var(--accent); background-color: var(--surface); outline: none; }
+.combo > .combo-trigger:disabled { opacity: 0.6; cursor: default; }
+.combo-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-current strong { font-weight: 600; }
+/* In the flow, not floating: a <dialog> clips what overflows it, so a floating
+   list near its bottom was cut off. This pushes the rest down instead. */
+.combo-panel {
+  margin-top: 4px;
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.combo-panel[hidden] { display: none; }
+.combo-search {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+}
+.combo-search:focus { border-color: var(--accent); outline: none; }
+.combo-list { max-height: 200px; overflow-y: auto; display: grid; gap: 1px; }
+.combo-option {
+  display: grid;
+  gap: 1px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.combo-option.active { background: var(--surface-2); }
+.combo-option[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.combo-option-name { font-weight: 600; }
+.combo-option-detail { font-size: 12px; line-height: 1.4; }
+.combo-empty { padding: 6px 10px; font-size: 12px; }
+.combo-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  vertical-align: middle;
+}
 #llmError:empty { display: none; }
 .health-action { justify-self: start; }
 #deckSettingsDialog { width: min(300px, calc(100vw - 32px)); padding: 14px 16px; }
@@ -2910,16 +2960,21 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         </div>
         <p class="llm-intro">When you click a word, a chat model picks the meaning that fits <em>this</em> sentence and explains it, and translates names and idioms properly. Without one you get the dictionary's whole list and a word-for-word translation.</p>
         <p id="llmCurrent" class="muted llm-current" hidden></p>
-        <div id="llmOptions" class="llm-options" role="radiogroup" aria-label="How to get meanings"></div>
+        <div class="llm-provider-row">
+          <span class="llm-field-name">Provider</span>
+          <div id="llmProvider"></div>
+          <p id="llmBlurb" class="muted llm-blurb"></p>
+        </div>
         <div id="llmFields" class="llm-fields">
           <label id="llmKeyRow">API key
             <input id="llmKey" type="password" autocomplete="off" spellcheck="false" />
           </label>
           <div id="llmModelRow" class="llm-model-row" hidden>
-            <label>Model
-              <select id="llmModelPick" aria-describedby="llmModelNote"></select>
-            </label>
-            <button id="llmModelRefresh" type="button" class="llm-refresh">Refresh</button>
+            <div class="llm-model-field">
+              <span class="llm-field-name">Model</span>
+              <div id="llmModelPick"></div>
+              <button id="llmModelRefresh" type="button" class="llm-refresh">Refresh</button>
+            </div>
             <p id="llmModelNote" class="muted llm-model-note" aria-live="polite"></p>
           </div>
           <a id="llmKeyLink" class="llm-key-link" target="_blank" rel="noopener noreferrer"></a>
