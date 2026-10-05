@@ -119,6 +119,7 @@ const els = {
   searchInput: document.querySelector("#searchInput"),
   loopLine: document.querySelector("#loopLine"),
   zhScriptToggle: document.querySelector("#zhScriptToggle"),
+  newWordCount: document.querySelector("#newWordCount"),
   zhSimp: document.querySelector("#zhSimp"),
   zhTrad: document.querySelector("#zhTrad"),
   saveLine: document.querySelector("#saveLine"),

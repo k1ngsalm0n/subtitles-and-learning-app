@@ -20,14 +20,14 @@ function isWord(seg) {
   return seg.isWordLike || _cjkRe.test(seg.segment);
 }
 
-// `savedWords` (a Set, built once per render) marks words that already have
-// a flashcard.
-export function tokenize(text, savedWords) {
+// `markOf(word)` (knownwords.mjs, built once per render) gives each word its
+// " saved" / " known" class.
+export function tokenize(text, markOf) {
   const segments = [..._segmenter.segment(text)];
   return segments
     .map((seg) => {
       if (isWord(seg)) {
-        const saved = savedWords?.has(seg.segment) ? " saved" : "";
+        const saved = markOf?.(seg.segment) || "";
         // role/tabindex: a word is an actual control, so it has to be
         // reachable and announced as one. -1 by default — exactly one word in
         // the transcript carries 0, see `setRovingFocus` in ui.mjs.

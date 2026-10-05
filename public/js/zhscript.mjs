@@ -149,6 +149,8 @@ function relevantTexts() {
   return [
     ...state.subtitles.map((line) => line.text),
     ...state.cards.map((card) => card.word),
+    // Known words need their other-script form too, to dim either spelling.
+    ...state.knownWords,
   ].filter(Boolean);
 }
 

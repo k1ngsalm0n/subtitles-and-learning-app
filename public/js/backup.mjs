@@ -26,6 +26,7 @@ function payload() {
     cards: state.cards,
     decks: state.decks,
     templates: state.templates,
+    knownWords: state.knownWords,
   });
 }
 

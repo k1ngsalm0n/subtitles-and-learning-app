@@ -742,6 +742,15 @@ select::-ms-expand { display: none; }
 }
 /* Words that already have a flashcard */
 .word.saved { border-bottom: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+/* Words the reader knows: dimmed, so the new ones are what the eye lands on.
+   Still clickable and still lit by hover and the karaoke sweep below. */
+.word.known { color: color-mix(in srgb, var(--text) 45%, transparent); }
+.word.known rt { color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.word.known.spoken,
+.word.known.spoken rt { color: var(--text); }
+.word.known:hover,
+.word.known:hover rt { color: var(--accent); }
+.new-word-count { flex: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .translation { margin-top: 4px; line-height: 1.5; color: var(--muted); font-size: 15px; }
 /* Pronunciation stacked over each character (ruby/furigana). */
 ruby { ruby-position: over; ruby-align: center; }
@@ -2495,6 +2504,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <section class="transcript-pane">
             <div class="toolbar-row">
               <div class="search-box"><input id="searchInput" type="search" placeholder="Search transcript" /></div>
+              <span id="newWordCount" class="new-word-count" aria-live="polite" hidden></span>
               <button id="zhScriptToggle" class="zh-toggle" type="button" hidden>
                 <span id="zhSimp" class="zh-opt" lang="zh-Hans">简</span>
                 <span id="zhTrad" class="zh-opt" lang="zh-Hant">繁</span>
@@ -2504,7 +2514,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             </div>
             <p id="provisionalNote" class="provisional-note" role="status" aria-live="polite" hidden></p>
             <div id="transcript" class="transcript" aria-label="Transcript"></div>
-            <p class="study-keys muted">Space to play · ←/→ to step a line · R to replay · S to save</p>
+            <p class="study-keys muted">Space to play · ←/→ to step a line · R to replay · S to save · K on a word to mark it known</p>
           </section>
         </div>
       </section>

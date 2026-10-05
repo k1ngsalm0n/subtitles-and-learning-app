@@ -314,6 +314,13 @@ plain strings for backward compatibility; each card carries its own
 `npm run sync` also downloads the Make Me a Hanzi `graphics.txt` (~30 MB,
 gitignored; `SKIP_STROKES=1` to skip; attribution in README).
 
+Known words: `knownwords.mjs` decides each transcript word's mark — dimmed when
+the reader has said they know it (`stele.knownWords`, set from the word pop-up
+or **K** on a focused word), underlined when it has a card, full strength when
+it's new — and the toolbar counts the new ones. Matching goes through
+`savedWordForms`, so knowing 头发 dims 頭髮. Known words ride along in Export
+and backups (`knownWords`, optional in a v2 file) and merge as a union.
+
 Spaced repetition: `scheduler.mjs` is a pure minimal SM-2 (grades
 Again/Hard/Good/Easy; injectable now/rng; learning steps keep Again cards in
 the session; `migrateSchedules` upgrades pre-SM-2 cards). The review queue,

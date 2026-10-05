@@ -1,7 +1,7 @@
 // Import/export logic, kept pure so it can be tested under Node.
 //
 // The JSON export is versioned and self-contained (decks + templates +
-// cards). Import merges instead of clobbering: existing ids are kept,
+// cards, plus the words marked as known). Import merges instead of clobbering: existing ids are kept,
 // incoming cards pointing at unknown decks/templates fall back to the
 // defaults, and the caller gets a report of what was added and skipped.
 
@@ -15,13 +15,16 @@ import { migrateSchedules } from "./scheduler.mjs";
 
 export const EXPORT_VERSION = 2;
 
-export function buildExport({ cards, decks, templates }) {
+// `knownWords` is optional and additive: a file without it is still version 2,
+// and an older Stele reading a newer file ignores the key.
+export function buildExport({ cards, decks, templates, knownWords = [] }) {
   return {
     version: EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
     decks,
     templates,
     cards,
+    knownWords,
   };
 }
 
@@ -29,13 +32,16 @@ export function buildExport({ cards, decks, templates }) {
 // old Export button produced).
 function normalizeImport(incoming) {
   if (Array.isArray(incoming)) {
-    return { decks: [], templates: [], cards: incoming };
+    return { decks: [], templates: [], cards: incoming, knownWords: [] };
   }
   if (incoming && typeof incoming === "object") {
     return {
       decks: Array.isArray(incoming.decks) ? incoming.decks : [],
       templates: Array.isArray(incoming.templates) ? incoming.templates : [],
       cards: Array.isArray(incoming.cards) ? incoming.cards : [],
+      knownWords: Array.isArray(incoming.knownWords)
+        ? incoming.knownWords.filter((w) => typeof w === "string" && w.trim())
+        : [],
     };
   }
   return null;
@@ -163,7 +169,13 @@ function mergeCards(existing, incoming, { decks, templates, deckRemap, templateR
 
 export function mergeImport(current, incoming) {
   const data = normalizeImport(incoming);
-  if (!data || (!data.cards.length && !data.decks.length && !data.templates.length)) {
+  if (
+    !data ||
+    (!data.cards.length &&
+      !data.decks.length &&
+      !data.templates.length &&
+      !data.knownWords.length)
+  ) {
     return { error: "This file doesn't look like a flashcard export." };
   }
 
@@ -171,6 +183,7 @@ export function mergeImport(current, incoming) {
     decks: { added: 0, skipped: 0 },
     templates: { added: 0, skipped: 0 },
     cards: { added: 0, skipped: 0 },
+    knownWords: { added: 0, skipped: 0 },
   };
 
   // Order matters: cards are placed against the decks and templates this
@@ -188,7 +201,21 @@ export function mergeImport(current, incoming) {
     report.cards,
   );
 
-  return { decks, templates, cards, report };
+  // A plain union: knowing a word on either side means knowing it.
+  const knownWords = [...(current.knownWords || [])];
+  const have = new Set(knownWords);
+  for (const raw of data.knownWords) {
+    const word = raw.trim().toLowerCase();
+    if (have.has(word)) {
+      report.knownWords.skipped++;
+    } else {
+      have.add(word);
+      knownWords.push(word);
+      report.knownWords.added++;
+    }
+  }
+
+  return { decks, templates, cards, knownWords, report };
 }
 
 // What the import button and "Restore from backup" both call: the text of a
@@ -221,7 +248,12 @@ export function describeReport(report) {
   const part = (label, r) =>
     r.added || r.skipped ? `${r.added} ${label} added (${r.skipped} skipped)` : "";
   return (
-    [part("cards", report.cards), part("decks", report.decks), part("templates", report.templates)]
+    [
+      part("cards", report.cards),
+      part("decks", report.decks),
+      part("templates", report.templates),
+      part("known words", report.knownWords || {}),
+    ]
       .filter(Boolean)
       .join(" · ") || "Nothing to import."
   );

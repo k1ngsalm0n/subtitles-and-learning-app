@@ -18,6 +18,7 @@ export const STORAGE_KEYS = {
   lastDeck: "stele.lastDeck",
   dailyStats: "stele.dailyStats",
   sources: "stele.sources",
+  knownWords: "stele.knownWords",
   theme: "stele.theme",
   accent: "stele.accent",
   // The accent *resolved to a colour*, cached so the pre-paint script in
@@ -120,6 +121,11 @@ export const state = {
     builtinTemplates(),
   ),
   sources: loadJson(STORAGE_KEYS.sources, []),
+  // Words the reader has said they already know. Dimmed in the transcript so
+  // what's new in a video stands out. Stored as knownKey() gives them.
+  knownWords: loadJson(STORAGE_KEYS.knownWords, []).filter(
+    (word) => typeof word === "string" && word,
+  ),
   activeIndex: 0,
   // Whether the transcript is currently showing the lines an image's own
   // interface contributed (clock, battery, "type a message"). Per-image, so
@@ -377,6 +383,33 @@ export function saveCards() {
 
 export function saveDecks() {
   storeString(STORAGE_KEYS.decks, JSON.stringify(state.decks));
+}
+
+// One spelling per word: case doesn't make an English word a different word.
+// Chinese has no case, so this leaves it alone; the two scripts are matched
+// at render time instead (savedWordForms), because that needs the converter.
+export function knownKey(word) {
+  return String(word || "").trim().toLowerCase();
+}
+
+export function isKnownWord(word) {
+  const key = knownKey(word);
+  return Boolean(key) && state.knownWords.includes(key);
+}
+
+export function setWordKnown(word, known) {
+  const key = knownKey(word);
+  if (!key) return;
+  const has = state.knownWords.includes(key);
+  if (known === has) return;
+  state.knownWords = known
+    ? [...state.knownWords, key]
+    : state.knownWords.filter((w) => w !== key);
+  saveKnownWords();
+}
+
+export function saveKnownWords() {
+  storeString(STORAGE_KEYS.knownWords, JSON.stringify(state.knownWords));
 }
 
 export function saveTemplates() {
