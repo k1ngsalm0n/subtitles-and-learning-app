@@ -3,9 +3,9 @@ import { translateViaWorker } from "./translateWorker.mjs";
 import { translateSrtWithLlm } from "./llmTranslate.mjs";
 
 // On-demand translation for the language bar: POST { srt, from, to } and get
-// back { translation } (an SRT string). Drives the same NLLB pipeline
-// (translate.py) that the URL-import flow uses, via a shared worker process
-// that keeps the model loaded between requests.
+// back { translation } (an SRT string). The chat model first when one is
+// configured, then the offline pipeline (translate.py, via a shared worker
+// that keeps the model loaded) — the same order URL imports use.
 export async function handleTranslate(req, res) {
   let body;
   try {
