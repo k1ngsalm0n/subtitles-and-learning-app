@@ -184,6 +184,26 @@ export function alignTranslationByTime(sourceSrt, translationSrt) {
   return toSrt(entries);
 }
 
+// The translation for a transcribed source when the uploader also shipped
+// their own English subtitles: their line wherever one lines up in time, the
+// machine translation for the cues it leaves blank. A transcript's cue
+// boundaries are Whisper's, not the uploader's, so some cues always miss; a
+// blank there would read as an untranslated line. Falls back to the machine
+// translation whole when nothing aligns. Output keeps the source's cues.
+export function preferHumanTranslation(sourceSrt, humanSrt, machineSrt = "") {
+  const aligned = parseCues(alignTranslationByTime(sourceSrt, humanSrt));
+  const human = aligned.map((c) => c.lines.join(" ").trim());
+  if (!human.some(Boolean)) return machineSrt;
+  const machine = parseCues(machineSrt).map((c) => c.lines.join(" ").trim());
+  return toSrt(
+    aligned.map((c, i) => ({
+      start: c.start,
+      end: c.end,
+      text: human[i] || machine[i] || "",
+    })),
+  );
+}
+
 // Real speech is never slower than this (CJK runs ~3–8 characters/second).
 // Whisper's silence hallucinations are the opposite shape: a few invented
 // characters stretched over tens of seconds ("中文字幕 李宗盛" across 23 s).

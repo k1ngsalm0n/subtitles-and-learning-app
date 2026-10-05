@@ -10,6 +10,8 @@
 // The key goes to the server (server/llmConfig.mjs), which tries it before
 // keeping it and never sends it back.
 
+import { createCombobox } from "./combobox.mjs";
+
 // Shown beside each option. The server owns the URLs and model names; this
 // owns the words a person choosing between them needs.
 const BLURBS = {
@@ -39,45 +41,25 @@ async function fetchStatus() {
 }
 
 function selected() {
-  return els.options.querySelector("input[name=llmProvider]:checked")?.value || "groq";
+  return els.provider.value || "groq";
 }
 
+// One dropdown rather than a card per provider: the list had grown to fill the
+// dialog. Searching matches the blurb too, so "free" finds every free one.
 function renderOptions() {
-  els.options.textContent = "";
-  for (const id of ORDER) {
-    const preset = status.providers[id];
-    const label = document.createElement("label");
-    label.className = "llm-option";
-
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "llmProvider";
-    input.value = id;
-
-    const text = document.createElement("span");
-    const name = document.createElement("strong");
-    name.textContent = id === "offline" ? "Offline only" : preset.label;
-    if (id === "groq") {
-      const tag = document.createElement("span");
-      tag.className = "llm-tag";
-      tag.textContent = "Recommended";
-      name.append(" ", tag);
-    }
-    const blurb = document.createElement("span");
-    blurb.className = "muted";
-    blurb.textContent = BLURBS[id];
-    text.append(name, blurb);
-
-    label.append(input, text);
-    els.options.append(label);
-    input.addEventListener("change", () => fillFields(id));
-  }
+  els.provider.setItems(ORDER.map((id) => ({
+    value: id,
+    label: id === "offline" ? "Offline only" : status.providers[id].label,
+    detail: BLURBS[id],
+    tag: id === "groq" ? "Recommended" : "",
+  })));
 }
 
 // Each provider brings its own address, model and "where do I get a key".
 function fillFields(id) {
   const preset = status.providers[id];
   const offline = id === "offline";
+  els.blurb.textContent = BLURBS[id] || "";
   els.fields.hidden = offline;
   els.error.textContent = "";
   els.save.textContent = offline ? "Use offline only" : "Check and save";
@@ -117,7 +99,7 @@ function note(text) {
 async function loadOllamaModels() {
   const ticket = ++listing;
   const pick = els.modelPick;
-  pick.textContent = "";
+  pick.setItems([]);
   pick.disabled = true;
   note("Looking for installed models…");
   let data = null;
@@ -143,12 +125,7 @@ async function loadOllamaModels() {
     return;
   }
 
-  for (const name of data.models) {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    pick.append(option);
-  }
+  pick.setItems(data.models.map((name) => ({ value: name, label: name })));
   // Keep the saved model if it's still there; otherwise prefer a Qwen, which
   // is strongest on Chinese, then whatever comes first.
   const wanted = els.model.value;
@@ -214,9 +191,8 @@ export async function openLlmSetup() {
   }
   renderOptions();
   const start = status.provider && status.provider !== "env" ? status.provider : "groq";
-  const radio = els.options.querySelector(`input[value="${start}"]`);
-  if (radio) radio.checked = true;
-  fillFields(start);
+  els.provider.value = ORDER.includes(start) ? start : "groq";
+  fillFields(selected());
   els.current.textContent = describeCurrent();
   els.current.hidden = !els.current.textContent;
   els.dialog.showModal();
@@ -227,7 +203,8 @@ export async function openLlmSetup() {
 export function setupLlmDialog({ onSaved } = {}) {
   els = {
     dialog: $("llmSetupDialog"),
-    options: $("llmOptions"),
+    provider: $("llmProvider"),
+    blurb: $("llmBlurb"),
     fields: $("llmFields"),
     keyRow: $("llmKeyRow"),
     key: $("llmKey"),
@@ -248,10 +225,23 @@ export function setupLlmDialog({ onSaved } = {}) {
     els = null;
     return;
   }
-  els.save.addEventListener("click", save);
-  els.modelPick.addEventListener("change", () => {
-    els.model.value = els.modelPick.value;
+  els.provider = createCombobox(els.provider, {
+    label: "Provider",
+    placeholder: "Search providers…",
+    onChange: fillFields,
   });
+  els.modelPick = createCombobox(els.modelPick, {
+    label: "Model",
+    placeholder: "Search installed models…",
+    onChange: (name) => {
+      els.model.value = name;
+    },
+  });
+  els.dialog.addEventListener("close", () => {
+    els.provider.close();
+    els.modelPick.close();
+  });
+  els.save.addEventListener("click", save);
   els.modelRefresh.addEventListener("click", loadOllamaModels);
   // A different address is a different Ollama, with different models.
   els.baseUrl.addEventListener("change", () => {

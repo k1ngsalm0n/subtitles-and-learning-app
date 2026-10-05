@@ -2,7 +2,22 @@ import { state } from "./state.mjs";
 import { renderAll } from "./ui.mjs";
 import { romanizeSubtitles } from "./romanize.mjs";
 
+// The sample is a Chinese lesson because the app starts out learning Chinese
+// (state.learningLang is "zh"): the speak buttons and word lookups use that
+// language, so an English sample had a Chinese voice reading English words.
 export const sampleOriginal = `1
+00:00:00,000 --> 00:00:03,200
+用真實對話學習，會讓詞彙更容易記住。
+
+2
+00:00:03,200 --> 00:00:06,800
+聽到有用短語時暫停，並把它保存成抽認卡。
+
+3
+00:00:06,800 --> 00:00:10,500
+每天簡短複習能幫助新詞變成主動語言。`;
+
+export const sampleTranslation = `1
 00:00:00,000 --> 00:00:03,200
 Learning with real conversations makes vocabulary easier to remember.
 
@@ -13,18 +28,6 @@ Pause when you hear a useful phrase and save it as a flashcard.
 3
 00:00:06,800 --> 00:00:10,500
 Short daily reviews help new words become active language.`;
-
-export const sampleTranslation = `1
-00:00:00,000 --> 00:00:03,200
-用真实对话学习，会让词汇更容易记住。
-
-2
-00:00:03,200 --> 00:00:06,800
-听到有用短语时暂停，并把它保存成抽认卡。
-
-3
-00:00:06,800 --> 00:00:10,500
-每天简短复习能帮助新词变成主动语言。`;
 
 export function loadSubtitles(originalText, translationText = "") {
   state.subtitles = alignTranslations(
