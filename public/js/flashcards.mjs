@@ -3,6 +3,7 @@ import {
   saveCards,
   saveDecks,
   saveTemplates,
+  saveKnownWords,
   getCurrentReviewCard,
   getTemplate,
   getDefaultTemplate,
@@ -334,6 +335,7 @@ export function exportCards() {
     cards: state.cards,
     decks: state.decks,
     templates: state.templates,
+    knownWords: state.knownWords,
   });
   download(
     "stele-flashcards.json",
@@ -354,16 +356,23 @@ export function exportAnkiTsv() {
 // Merge an exported file back in. Returns { report } or { error }.
 export function importCardsFromText(text) {
   const merged = importFromText(
-    { cards: state.cards, decks: state.decks, templates: state.templates },
+    {
+      cards: state.cards,
+      decks: state.decks,
+      templates: state.templates,
+      knownWords: state.knownWords,
+    },
     text,
   );
   if (merged.error) return merged;
   state.decks = merged.decks;
   state.templates = merged.templates;
   state.cards = merged.cards;
+  state.knownWords = merged.knownWords;
   saveDecks();
   saveCards();
   saveTemplates();
+  saveKnownWords();
   renderAll();
   return { report: merged.report };
 }

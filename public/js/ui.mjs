@@ -10,7 +10,15 @@ import {
   getDeck,
   getChildDecks,
   setSelectedDeck,
+  setWordKnown,
+  setWordsKnown,
 } from "./state.mjs";
+import {
+  buildWordMarks,
+  knownEntriesFor,
+  countNewWords,
+  newWordsIn,
+} from "./knownwords.mjs";
 import { previewIntervals, formatInterval } from "./scheduler.mjs";
 import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
@@ -61,15 +69,11 @@ export function setElements(els) {
 export function renderTranscript(els) {
   const e = els || _els;
   const query = e.searchInput.value.trim().toLowerCase();
-  // One Set per render, not a scan per word: every saved word gets a subtle
-  // mark in the transcript so it's obvious what's already in the deck.
-  const savedWords = new Set();
-  for (const card of state.cards) {
-    // Every script the word might be written in, so a card saved as 头发 still
-    // marks 頭髮 when the transcript is showing Traditional — otherwise you can
-    // quietly save the same word twice.
-    if (card.word) for (const form of savedWordForms(card.word)) savedWords.add(form);
-  }
+  // Built once per render, not a scan per word: saved words get a subtle
+  // underline and known ones are dimmed, so what's new in this video stands
+  // out. Matched in every script the word might be written in, so a card
+  // saved as 头发 still marks 頭髮 when the transcript is showing Traditional.
+  const markOf = currentWordMarks();
   // Lines the recogniser found but nobody came for — a phone's clock, its
   // battery, the "type a message" box. Folded away, never dropped: the toggle
   // below the transcript brings them back, so a wrong guess costs a click.
@@ -92,8 +96,8 @@ export function renderTranscript(els) {
       const tokens = displayTokens(line);
       const original =
         tokens && tokens.length
-          ? renderRubyTranscript(tokens, shown, savedWords, displayWords(line))
-          : tokenize(shown, savedWords);
+          ? renderRubyTranscript(tokens, shown, markOf, displayWords(line))
+          : tokenize(shown, markOf);
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${line.start == null ? "" : formatTime(line.start)}</span>
         <div>
@@ -115,11 +119,82 @@ export function renderTranscript(els) {
   e.transcript.innerHTML =
     (html || `<p class="muted">No matching subtitles.</p>`) + toggle;
   setRovingFocus(e);
+  showNewWordCount(e, markOf, query);
 
   // Keeps the Chinese script toggle (and Loop Line) in step with what is on
   // screen. Cheap unless something still needs converting, and the re-render it
   // asks for finds everything cached, so it can't loop.
   refreshScript(e, () => renderTranscript(e));
+}
+
+function currentWordMarks() {
+  return buildWordMarks({
+    cards: state.cards,
+    knownWords: state.knownWords,
+    formsOf: savedWordForms,
+  });
+}
+
+// "12 new words" beside the search box: how much this video has to teach, at
+// a glance. Counted from what's drawn, so it's hidden while a search is
+// narrowing the lines — a count of the matches would read as the video's.
+function showNewWordCount(e, markOf, query = "") {
+  const el = e.newWordCount;
+  if (!el) return;
+  const shown = words(e).map((w) => w.dataset.word);
+  if (query || !shown.length) {
+    el.hidden = true;
+    return;
+  }
+  const count = countNewWords(shown, markOf);
+  el.hidden = false;
+  el.textContent = count === 1 ? "1 new word" : `${count} new words`;
+}
+
+// Re-mark the words already on screen after a word is marked known or not.
+// Class changes only: a full render would replace the word the reader is on
+// (and the one the pop-up returns focus to) with a copy.
+export function refreshWordMarks(els) {
+  const e = els || _els;
+  const markOf = currentWordMarks();
+  for (const word of words(e)) {
+    const mark = markOf(word.dataset.word);
+    word.classList.toggle("known", mark === " known");
+    word.classList.toggle("saved", mark === " saved");
+  }
+  showNewWordCount(e, markOf, e.searchInput?.value.trim() || "");
+}
+
+export function wordIsKnown(word) {
+  return knownEntriesFor(word, state.knownWords, savedWordForms).length > 0;
+}
+
+// Flip a word between known and not. Returns whether it is known now.
+export function toggleWordKnown(word, els) {
+  const entries = knownEntriesFor(word, state.knownWords, savedWordForms);
+  if (entries.length) for (const entry of entries) setWordKnown(entry, false);
+  else setWordKnown(word, true);
+  refreshWordMarks(els);
+  return !entries.length;
+}
+
+// "Line Known": every new word in the active line, marked at once. Returns the
+// entries it added (for undo), [] when the line had nothing new, or null when
+// the line isn't on screen — a search can filter it out, and then there are no
+// drawn words to read the line's segmentation from.
+export function markActiveLineKnown(els) {
+  const e = els || _els;
+  const line = e.transcript.querySelector(`.line[data-index="${state.activeIndex}"]`);
+  if (!line) return null;
+  const lineWords = [...line.querySelectorAll(".word")].map((w) => w.dataset.word);
+  const added = setWordsKnown(newWordsIn(lineWords, currentWordMarks()), true);
+  if (added.length) refreshWordMarks(e);
+  return added;
+}
+
+export function forgetKnownWords(entries, els) {
+  setWordsKnown(entries, false);
+  refreshWordMarks(els);
 }
 
 // Turn the card over instead of swapping its face instantly. The content is
@@ -212,6 +287,12 @@ function handleTranscriptKeys(event, e) {
     case "ArrowUp": moveFocus(e, lineStep(e, at, -1)); break;
     case "Home": moveFocus(e, list.indexOf(inLine[0])); break;
     case "End": moveFocus(e, list.indexOf(inLine[inLine.length - 1])); break;
+    // K: "I know this" without opening the pop-up, so marking a line of
+    // familiar words is a key per word rather than three clicks.
+    case "k":
+    case "K":
+      toggleWordKnown(word.dataset.word, e);
+      break;
     case "Enter":
     case " ": {
       const lineEl = word.closest(".line");
@@ -350,13 +431,13 @@ function* wordsOf(text, words) {
   }
 }
 
-// Transcript: clickable words, pinyin stacked over each character. Words in
-// `savedWords` get a "saved" mark. data-len carries the base character count so
+// Transcript: clickable words, pinyin stacked over each character. `markOf`
+// gives each word its "saved" / "known" class (see knownwords.mjs). data-len carries the base character count so
 // the ruby annotation text inside <rt> doesn't inflate the count and skew the
 // karaoke highlight now running on the active transcript line, and data-start
 // says where the word begins so the picture can point at just that word.
-function renderRubyTranscript(tokens, text, savedWords, words) {
-  const savedClass = (word) => (savedWords?.has(word) ? " saved" : "");
+function renderRubyTranscript(tokens, text, markOf, words) {
+  const savedClass = (word) => markOf?.(word) || "";
   if (isCharAligned(tokens)) {
     const pron = pronByOffset(tokens);
     // Character index, not UTF-16 offset: the highlight indexes into the
@@ -1368,6 +1449,14 @@ function getBubble() {
   // Delegated, because the bubble replaces its own innerHTML when the lookup
   // arrives — a listener bound to the first button would die with it.
   _bubble.addEventListener("click", (event) => {
+    if (event.target.closest(".bubble-known")) {
+      // Marking closes the pop-up, so a run of familiar words goes click,
+      // click, click; the word dims as focus returns to it. Undo stays open.
+      const known = toggleWordKnown(_bubble.dataset.speakText || "");
+      if (known) dismissBubble();
+      else paintKnownButton(_bubble);
+      return;
+    }
     const button = event.target.closest(".speak-button");
     if (!button) return;
     speak(
@@ -1423,6 +1512,25 @@ function positionBubble(bubble) {
   bubble.hidden = false;
 }
 
+// "I know this" is there from the moment the pop-up opens — marking a word
+// shouldn't wait on looking it up. "+ Flashcard" arrives with the lookup,
+// since the card is prefilled from it.
+function bubbleActionsHtml(withSave) {
+  return `<div class="bubble-actions">
+      ${withSave ? `<button type="button" class="bubble-save">+ Flashcard</button>` : ""}
+      <button type="button" class="bubble-known" aria-pressed="false"></button>
+    </div>`;
+}
+
+function paintKnownButton(bubble) {
+  const button = bubble.querySelector(".bubble-known");
+  if (!button) return;
+  const known = wordIsKnown(bubble.dataset.speakText || "");
+  button.textContent = known ? "✓ Known · undo" : "I know this";
+  button.setAttribute("aria-pressed", String(known));
+  button.title = known ? "Show this word as new again" : "Dim this word wherever it appears (K)";
+}
+
 async function openWordBubble(anchor, context, els) {
   closeBubble();
   const word = anchor.dataset.word;
@@ -1432,8 +1540,10 @@ async function openWordBubble(anchor, context, els) {
   bubble.innerHTML = `
     <div class="bubble-word">${escapeHtml(word)}${speakButtonsHtml()}</div>
     <div class="bubble-pron muted">…</div>
-    <div class="bubble-meaning">Looking up…</div>`;
+    <div class="bubble-meaning">Looking up…</div>
+    ${bubbleActionsHtml(false)}`;
   bubble.dataset.speakText = word;
+  paintKnownButton(bubble);
   bubble.dataset.speakLang = lang || "";
   getBackdrop().hidden = false;
   positionBubble(bubble);
@@ -1479,9 +1589,8 @@ async function openWordBubble(anchor, context, els) {
     ${explanationHtml}
     ${defsHtml}
     ${posHtml}
-    <div class="bubble-actions">
-      <button type="button" class="bubble-save">+ Flashcard</button>
-    </div>`;
+    ${bubbleActionsHtml(true)}`;
+  paintKnownButton(bubble);
   positionBubble(bubble);
 
   // "+ Flashcard" opens the full add-card modal, where the template (Default /
