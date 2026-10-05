@@ -1054,8 +1054,12 @@ function practiceLinkButton(card) {
   return button;
 }
 
-// "▶ title · 0:42" — jumps back to the video moment a card came from.
+// "▶ Replay video · 0:42" — jumps back to the video moment a card came from.
 // Cards without a link (manual/local-file cards) simply get no control.
+// The chip used to carry the video's title, which runs to fifty characters on
+// YouTube and crowded the card while saying less than what the button does.
+// The title stays on hover and for screen readers, so which clip is still
+// one glance away.
 function sourceLinkButton(card) {
   if (!card.sourceId || !Number.isFinite(card.sourceTime)) return null;
   const source = state.sources.find((s) => s.id === card.sourceId);
@@ -1063,16 +1067,11 @@ function sourceLinkButton(card) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "card-source";
-  // The title is its own element so it alone can be truncated. A YouTube title
-  // runs to fifty characters and the chip never shrank to fit, so on a narrow
-  // window it ran past the card. Ellipsising the whole string instead would
-  // eat the timestamp off the end, which is the part worth reading.
-  button.append("▶ ");
-  const title = document.createElement("span");
-  title.className = "card-source-title";
-  title.textContent = source.title || "clip";
-  button.append(title, ` · ${formatTime(card.sourceTime)}`);
-  button.title = `Jump to ${formatTime(card.sourceTime)} in ${source.title || "this clip"}`;
+  const time = formatTime(card.sourceTime);
+  button.textContent = `▶ Replay video · ${time}`;
+  const where = `Replay ${source.title || "this clip"} from ${time}`;
+  button.title = where;
+  button.setAttribute("aria-label", where);
   button.addEventListener("click", () =>
     _sourceJumper?.(card.sourceId, card.sourceTime),
   );
