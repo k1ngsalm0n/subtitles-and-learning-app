@@ -1,5 +1,5 @@
 import { readdir, readFile, rm, stat, utimes } from "node:fs/promises";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -20,12 +20,14 @@ import { importPlan, probeMachine } from "./device.mjs";
 // the languages table already had to be rescued from (#32). The module is pure
 // JS — it touches no DOM — so importing it here is safe.
 import { percentOf } from "../public/js/importstream.mjs";
+import { detectLanguage } from "../public/js/languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
   cleanCaptions,
   alignTranslationByTime,
   dedupeContinuationLines,
+  preferHumanTranslation,
   dropUnreadableGlimpses,
   markUnintelligible,
   mergeCaptionSpeech,
@@ -280,6 +282,28 @@ async function ytdlpBase() {
   ];
 }
 
+// What to tell the reader when YouTube keeps answering 403. An out-of-date
+// yt-dlp is the usual cause of a 403 that doesn't go away, and no number of
+// retries or cookies fixes that — so when we can tell the copy in use is stale
+// (it isn't the venv's, or it warned about its own age), say so and name the
+// command that replaces it, rather than calling it temporary.
+export function ytdlp403Message(errText, usingVenv) {
+  const stale = !usingVenv || /older than \d+ days/i.test(errText || "");
+  if (stale) {
+    return (
+      "YouTube blocked the download (HTTP 403) because this app's copy of " +
+      "yt-dlp is out of date. Run `npm run sync` in the app's folder, then " +
+      "restart the server — that installs the current yt-dlp."
+    );
+  }
+  return (
+    "YouTube blocked the download (HTTP 403) after several tries. This is " +
+    "usually temporary — try again in a moment. If it keeps happening, run " +
+    "`npm run sync` in the app's folder to update yt-dlp and restart the " +
+    "server, or add your browser cookies in Settings."
+  );
+}
+
 // Run yt-dlp, retrying transient failures (chiefly YouTube's HTTP 403 on
 // stream/fragment URLs). Each retry re-extracts, so it gets a fresh URL —
 // which is what actually fixes the 403, not just hammering the same link.
@@ -296,11 +320,7 @@ async function runYtdlp(args, opts, attempts = 3) {
         err.message || "",
       );
       if (attempt === attempts && /403|forbidden/i.test(err.message || "")) {
-        throw new Error(
-          "YouTube blocked the download (HTTP 403) after several tries. " +
-            "This is usually temporary — try again in a moment. If it keeps " +
-            "happening, add your browser cookies in Settings.",
-        );
+        throw new Error(ytdlp403Message(err.message, YTDLP_BIN === VENV_YTDLP));
       }
       if (!transient || attempt === attempts) throw err;
       console.warn(`yt-dlp attempt ${attempt} failed (${err.message.split("\n")[0]}); retrying…`);
@@ -426,6 +446,16 @@ export async function handleImportUrl(req, res) {
       });
       return;
     }
+
+    // No usable source track — but the uploader may still have shipped English
+    // subtitles, which make a better translation than the machine one. Fetched
+    // alongside the transcription; a failure only costs that preference.
+    const uploaderTranslation = getUploaderTranslation(url.href, workspace, meta).catch(
+      (err) => {
+        console.warn(`Uploader subtitles skipped (${String(err.message || err).split("\n")[0]})`);
+        return "";
+      },
+    );
 
     // No subtitle track: read burned-in captions off the frames (news clips
     // often write their commentary on screen instead of speaking it). This
@@ -597,7 +627,11 @@ export async function handleImportUrl(req, res) {
         // re-timing on top would fabricate different boundaries again.
         const subtitles = await toTraditional(segmentsToSrt(segments, { refine: false }));
         report.stage("Translating\u2026");
-        const translation = await translateSrt(subtitles, "zh");
+        const translation = preferHumanTranslation(
+          subtitles,
+          await uploaderTranslation,
+          await translateSrt(subtitles, "zh"),
+        );
         report.done({
           title: meta.title,
           videoUrl,
@@ -636,7 +670,11 @@ export async function handleImportUrl(req, res) {
       source: "whisper",
       language: whisperResult.language,
       subtitles: whisperResult.subtitles,
-      translation: whisperResult.translation,
+      translation: preferHumanTranslation(
+        whisperResult.subtitles,
+        await uploaderTranslation,
+        whisperResult.translation,
+      ),
       // Absent on the openai-whisper CLI fallback, which reports no word
       // timings; the reader falls back to its own estimate then.
       words: whisperResult.words || [],
@@ -705,9 +743,14 @@ function langTagFromFile(file) {
 //   1. human-made subtitles in the original language (cleanest, most accurate);
 //   2. YouTube's genuine ASR original ("<base>-orig"), then a plain auto track;
 //   3. with no known original language, any "-orig" track marks the source,
-//      and a lone manual track is almost certainly the original.
+//      and a lone manual track is usually the original — unless the title is
+//      plainly in another language. A Chinese music video whose uploader
+//      added only English subtitles has one manual track, and it's the
+//      translation: taking it as the source showed the reader English lyrics
+//      for a Chinese song. detectLanguage abstains on titles it can't place,
+//      so this only overrides the track when the title says otherwise.
 // Returns { lang, manual } (the exact lang code to download) or null.
-function pickSourceTrack(meta, origBase) {
+export function pickSourceTrack(meta, origBase) {
   if (origBase) {
     const manual = meta.manual.find((k) => baseLang(k) === origBase);
     if (manual) return { lang: manual, manual: true };
@@ -721,7 +764,11 @@ function pickSourceTrack(meta, origBase) {
   }
   const orig = meta.auto.find((k) => /-orig$/i.test(k));
   if (orig) return { lang: orig, manual: false };
-  if (meta.manual.length === 1) return { lang: meta.manual[0], manual: true };
+  if (meta.manual.length === 1) {
+    const titleLang = detectLanguage(meta.title || "");
+    if (titleLang && titleLang !== baseLang(meta.manual[0])) return null;
+    return { lang: meta.manual[0], manual: true };
+  }
   return null;
 }
 
@@ -977,6 +1024,53 @@ export async function pruneVideoCache(keepId) {
   }
 }
 
+// Download the named subtitle tracks into `dir` and return a lookup from a
+// track's lang code to its file (undefined when that track didn't arrive).
+async function downloadSubTracks(url, dir, langs, { auto = true } = {}) {
+  const subs = await runCommand(
+    YTDLP_BIN,
+    [
+      ...(await ytdlpBase()),
+      "--skip-download",
+      "--write-subs",
+      ...(auto ? ["--write-auto-subs"] : []),
+      "--sub-langs",
+      langs.join(","),
+      // No --convert-subs: keep the native VTT so cleanCaptions() can see the
+      // word-timing tags that mark YouTube's rolling auto-captions and collapse
+      // them. It emits clean SRT regardless of the input format.
+      "-o",
+      path.join(dir, "%(id)s.%(ext)s"),
+      url,
+    ],
+    { timeoutMs: 90_000, allowFailure: true, env: YTDLP_ENV },
+  );
+  if (refusedPrivate(subs.stderr)) throw new Error(PRIVATE_REFUSED);
+
+  const files = (await listFiles(dir))
+    .filter((file) => /\.(srt|vtt)$/i.test(file))
+    .filter((file) => !/live_chat/i.test(file));
+  return (lang) =>
+    files.find((f) => langTagFromFile(f).toLowerCase() === lang.toLowerCase());
+}
+
+// The uploader's own English subtitles for a video we're about to transcribe,
+// as clean SRT, or "" when there are none. A video lands in transcription with
+// such a track when it was the only one and turned out to be the translation
+// (see pickSourceTrack) — a Chinese song with English lyrics. Their wording
+// beats machine-translating Whisper's reading of the song, so the caller lays
+// it over the transcript with preferHumanTranslation. Transcription is
+// Chinese-only for now (#65), hence "zh" as the source.
+async function getUploaderTranslation(url, workspace, meta) {
+  const lang = pickHumanTranslation(meta, "zh", "en");
+  if (!lang) return "";
+  // Its own folder: OCR and Whisper write files into the workspace too.
+  const dir = path.join(workspace, "uploader-subs");
+  await mkdir(dir, { recursive: true });
+  const file = (await downloadSubTracks(url, dir, [lang], { auto: false }))(lang);
+  return file ? cleanCaptions(await readFile(file, "utf8")) : "";
+}
+
 // Resolve the best existing subtitles for study. Returns the clean source text,
 // its language, and — when the creator shipped their own target-language
 // subtitles — a ready-made translation aligned to it. Returns null when there's
@@ -988,31 +1082,7 @@ async function getExistingSubtitle(url, workspace, meta, origBase) {
   const human = pickHumanTranslation(meta, sourceBase, "en");
 
   const want = [source.lang, ...(human ? [human] : [])];
-  const subs = await runCommand(
-    YTDLP_BIN,
-    [
-      ...(await ytdlpBase()),
-      "--skip-download",
-      "--write-subs",
-      "--write-auto-subs",
-      "--sub-langs",
-      want.join(","),
-      // No --convert-subs: keep the native VTT so cleanCaptions() can see the
-      // word-timing tags that mark YouTube's rolling auto-captions and collapse
-      // them. It emits clean SRT regardless of the input format.
-      "-o",
-      path.join(workspace, "%(id)s.%(ext)s"),
-      url,
-    ],
-    { timeoutMs: 90_000, allowFailure: true, env: YTDLP_ENV },
-  );
-  if (refusedPrivate(subs.stderr)) throw new Error(PRIVATE_REFUSED);
-
-  const files = (await listFiles(workspace))
-    .filter((file) => /\.(srt|vtt)$/i.test(file))
-    .filter((file) => !/live_chat/i.test(file));
-  const fileFor = (lang) =>
-    files.find((f) => langTagFromFile(f).toLowerCase() === lang.toLowerCase());
+  const fileFor = await downloadSubTracks(url, workspace, want);
 
   const sourceFile = fileFor(source.lang);
   if (!sourceFile) return null;
