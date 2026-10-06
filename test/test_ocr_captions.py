@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 
 from ocr_captions import (  # noqa: E402
     _is_caption_line,
+    _read_lines,
     cjk_ratio,
     filter_furniture,
     is_similar,
@@ -576,6 +577,159 @@ class FilterFurnitureTest(unittest.TestCase):
         samples = filter_furniture(self.frames(10, lines_at), 1.0)
         texts = {s[1] for s in samples if s[1]}
         self.assertEqual(texts, {"短片字幕"})
+
+
+class SidebarAndSceneryTest(unittest.TestCase):
+    """Boxes measured off 三立 iNEWS (7LBmgP_AWh8): a heat-warning panel at the
+    right, the headline strip with a rotating teaser beside it, and props."""
+
+    HEAT_LABEL = (0.75, 0.62, 0.83, 0.66)   # 高溫預警, up the whole clip
+    HEAT_CITY = (0.83, 0.61, 0.95, 0.66)    # 嘉義35.3℃, a new city every 5 s
+    HEADLINE = (0.21, 0.77, 0.96, 0.89)     # the headline strip
+    TEASER = (0.03, 0.78, 0.22, 0.88)       # 鐵路殺警今起訴, beside it
+    CAPTION = (0.32, 0.79, 0.86, 0.90)
+    LABEL = (0.05, 0.70, 0.20, 0.74)        # a speaker label, its own size
+
+    def frames(self, seconds, lines_at):
+        return [(float(t), lines_at.get(t, [])) for t in range(seconds)]
+
+    def line(self, text, box, score=0.99):
+        return (box[1] * 360, text, score, box)
+
+    def test_a_rotating_reading_beside_a_furniture_label_is_dropped(self):
+        cities = ["嘉義35.3℃", "台南33.1℃", "高雄36.3℃", "台中35.4℃"]
+        lines_at = {}
+        for t in range(40):
+            lines_at[t] = [
+                self.line("高溫預警", self.HEAT_LABEL),
+                self.line(cities[(t // 5) % 4] + str(t // 20), self.HEAT_CITY),
+            ]
+        for t in range(10, 14):
+            lines_at[t] = lines_at[t] + [self.line("我沒影射任何人", self.CAPTION)]
+        samples = filter_furniture(self.frames(40, lines_at), 1.0)
+        texts = {s[1] for s in samples if s[1]}
+        self.assertEqual(texts, {"我沒影射任何人"})
+
+    def test_a_teaser_beside_the_headline_strip_is_dropped(self):
+        teasers = ["鐵路殺警今起訴", "韓妻農舍買主曝", "擦撞砂石輾斷腿", "錢莊討債轟餐廳"]
+        lines_at = {
+            t: [
+                self.line("演講脫口中英夾雜蔡英文笑我沒影射誰", self.HEADLINE),
+                self.line(teasers[(t // 6) % 4], self.TEASER),
+            ]
+            for t in range(48)
+        }
+        samples = filter_furniture(self.frames(48, lines_at), 1.0)
+        self.assertEqual({s[1] for s in samples if s[1]}, set())
+
+    def test_a_caption_near_a_label_but_not_on_its_row_stays(self):
+        # A speaker label above-left of the caption, set in its own size: not
+        # one panel, so the caption is not part of it.
+        lines_at = {t: [self.line("三立新聞", self.LABEL)] for t in range(40)}
+        for t in range(10, 14):
+            lines_at[t] = lines_at[t] + [self.line("街道上汽車都被沖走", self.CAPTION)]
+        samples = filter_furniture(self.frames(40, lines_at), 1.0)
+        self.assertIn("街道上汽車都被沖走", "".join(s[1] for s in samples))
+
+    def test_latin_props_leave_a_chinese_video_but_mixed_lines_stay(self):
+        lines_at = {}
+        for t in range(0, 4):
+            lines_at[t] = [
+                self.line("要持續注意防曬", self.CAPTION),
+                self.line("WeekendTaipei", (0.25, 0.62, 0.34, 0.66)),
+            ]
+        for t in range(6, 10):
+            lines_at[t] = [self.line("我會覺得非常 honoured", self.CAPTION)]
+        samples = filter_furniture(self.frames(12, lines_at), 1.0)
+        joined = "".join(s[1] for s in samples)
+        self.assertNotIn("WeekendTaipei", joined)
+        self.assertIn("要持續注意防曬", joined)
+        self.assertIn("我會覺得非常 honoured", joined)
+
+    def test_one_misread_with_a_chinese_character_does_not_save_a_prop(self):
+        lines_at = {t: [self.line("要持續注意防曬", self.CAPTION)] for t in range(0, 8)}
+        wall = (0.27, 0.42, 0.32, 0.46)
+        for t in range(2, 6):
+            lines_at[t] = lines_at[t] + [self.line("BAGGAGE", wall)]
+        # Close enough to group with BAGGAGE (as 有GAGE was, via OGAGE and GAGE).
+        lines_at[6] = lines_at[6] + [self.line("BAGGAG有", wall)]
+        samples = filter_furniture(self.frames(10, lines_at), 1.0)
+        self.assertNotIn("GAGE", "".join(s[1] for s in samples))
+
+    def test_latin_lines_stay_when_the_video_is_not_chinese(self):
+        lines_at = {t: [self.line("BREAKING NEWS TONIGHT", self.CAPTION)] for t in range(0, 4)}
+        samples = filter_furniture(self.frames(6, lines_at), 1.0)
+        self.assertIn("BREAKING NEWS TONIGHT", "".join(s[1] for s in samples))
+
+
+class VerticalTextTest(unittest.TestCase):
+    class _Out:
+        def __init__(self, items):
+            self.boxes = [b for b, _t, _s in items]
+            self.txts = [t for _b, t, _s in items]
+            self.scores = [s for _b, _t, s in items]
+
+    class _Frame:
+        shape = (540, 960, 3)
+
+    def read(self, items):
+        lines = _read_lines(lambda _img: self._Out(items), self._Frame())
+        return {text: vertical for _y, text, _s, _b, vertical in lines}
+
+    @staticmethod
+    def rect(x0, y0, x1, y1):
+        return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+    def test_a_weather_crawl_reads_as_vertical_a_caption_does_not(self):
+        lines = self.read([
+            (self.rect(29, 49, 67, 421), "目前已通過菲律賓進入", 1.0),   # h/w ≈ 9.8
+            (self.rect(310, 427, 826, 486), "我沒影射任何人", 0.99),       # caption
+        ])
+        self.assertEqual(lines, {"目前已通過菲律賓進入": True, "我沒影射任何人": False})
+
+    def test_short_words_are_judged_by_shape_not_length(self):
+        # 烏來, two characters across (h/w ≈ 0.6), is horizontal; 意防曬, three
+        # characters of the crawl caught mid-scroll (h/w ≈ 2.3), is not.
+        lines = self.read([
+            (self.rect(845, 70, 922, 119), "烏來", 0.95),
+            (self.rect(19, 0, 77, 133), "意防曬", 1.0),
+        ])
+        self.assertEqual(lines, {"烏來": False, "意防曬": True})
+
+    def test_big_stacked_display_text_is_not_a_sidebar(self):
+        # 因果 stacked in characters a sixth of the frame wide, in a music
+        # video: vertical, but display text, not a sidebar strip.
+        lines = self.read([(self.rect(96, 92, 259, 454), "因果", 0.98)])
+        self.assertEqual(lines, {"因果": False})
+
+    def frames(self, seconds, lines_at):
+        return [(float(t), lines_at.get(t, [])) for t in range(seconds)]
+
+    # Two teaser columns side by side under one category tag, as on 三立.
+    OUTER = (0.92, 0.21, 0.96, 0.57)    # 神鬼樓管詐櫃姐
+    INNER = (0.88, 0.24, 0.92, 0.60)    # 出庭踩精品鞋
+    TAG = (0.88, 0.13, 0.96, 0.22)      # 囂張, across the top of both
+    CAPTION = (0.32, 0.79, 0.86, 0.90)
+
+    def test_vertical_text_is_furniture_and_takes_its_tag_with_it(self):
+        teasers = [
+            ("神鬼樓管詐櫃姐", "出庭踩精品鞋", "囂張"),
+            ("白宮連署網站驚見", "美國買下台灣提案", "奇想"),
+            ("小孩哭司機拒開車", "媽媽無奈只好下車", "爭議"),
+        ]
+        lines_at = {}
+        for t in range(30):
+            outer, inner, tag = teasers[(t // 4) % 3]
+            n = str(t // 12)
+            lines_at[t] = [
+                (self.TAG[1] * 540, tag + n, 0.99, self.TAG),
+                (self.OUTER[1] * 540, outer + n, 0.99, self.OUTER, True),
+                (self.INNER[1] * 540, inner + n, 0.99, self.INNER, True),
+            ]
+        for t in range(10, 14):
+            lines_at[t] = lines_at[t] + [(self.CAPTION[1] * 540, "我沒影射任何人", 0.99, self.CAPTION)]
+        samples = filter_furniture(self.frames(30, lines_at), 1.0)
+        self.assertEqual({s[1] for s in samples if s[1]}, {"我沒影射任何人"})
 
 
 class CaptionLineFilterTest(unittest.TestCase):
