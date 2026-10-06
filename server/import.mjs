@@ -35,6 +35,7 @@ import {
   regridToHuman,
   cuesToSrt,
   srtTexts,
+  splitBilingual,
   dropUnreadableGlimpses,
   markUnintelligible,
   mergeCaptionSpeech,
@@ -422,7 +423,7 @@ export async function handleImportUrl(req, res) {
     await waitForYtdlpUpdate();
     report.stage("Reading the link\u2026");
     const meta = await getMediaMeta(url.href);
-    const origBase = baseLang(meta.language);
+    let origBase = baseLang(meta.language);
     report.stage("Downloading the video\u2026");
     const videoPath = await downloadVideo(url.href, {
       // Says so rather than narrating a download that isn't happening \u2014 the
@@ -433,6 +434,19 @@ export async function handleImportUrl(req, res) {
         report.stage("Couldn\u2019t fetch a fresh copy \u2014 using the one already downloaded\u2026"),
     });
     const videoUrl = videoPath ? `/videos/${path.basename(videoPath)}` : "";
+
+    // No language in the metadata, and a human-made track that might be the
+    // original or a translation: listen instead of guessing from the title.
+    // A confident "zh" also spares transcription its own detection pass.
+    let spokenZh = false;
+    if (needsListening(meta) && videoPath) {
+      report.stage("Listening for the language\u2026");
+      const detection = await detectSpokenLanguage(url.href, videoPath);
+      origBase = studyBase(detection, meta);
+      // Only when it was really heard as Chinese: studying a Chinese track over
+      // English audio says nothing about what Whisper would be transcribing.
+      spokenZh = spokenBase(detection) === "zh";
+    }
 
     // A subtitle track from the platform is the best source when it exists —
     // human-made, correctly timed, and free. Everything below is fallback.
@@ -564,6 +578,7 @@ export async function handleImportUrl(req, res) {
           audioPath,
           onSpeechProgress,
           onSpeechSegment,
+          spokenZh ? "zh" : null,
         );
         // Awaited later by whichever path consumes it; without this a
         // rejection during the OCR pass would surface as unhandled.
@@ -678,6 +693,7 @@ export async function handleImportUrl(req, res) {
       report,
       onSpeechProgress,
       onSpeechSegment,
+      spokenZh ? "zh" : null,
     );
     const { subtitles, translation } = await withUploaderTranslation(
       whisperResult.subtitles,
@@ -772,7 +788,12 @@ export function pickSourceTrack(meta, origBase) {
   if (origBase) {
     const manual = meta.manual.find((k) => baseLang(k) === origBase);
     if (manual) return { lang: manual, manual: true };
-    const autos = meta.auto.filter((k) => baseLang(k) === origBase);
+    // Never a machine translation: zh-Hans-en is the English track run through
+    // a translator, and studying it would mean studying a translation of a
+    // translation.
+    const autos = meta.auto.filter(
+      (k) => baseLang(k) === origBase && !isTranslatedTrack(k, meta.auto),
+    );
     const chosen =
       autos.find((k) => /-orig$/i.test(k)) ||
       autos.find((k) => k.toLowerCase() === origBase) ||
@@ -788,6 +809,103 @@ export function pickSourceTrack(meta, origBase) {
     return { lang: meta.manual[0], manual: true };
   }
   return null;
+}
+
+// YouTube's auto-translated tracks are named "<target>-<source>": zh-Hans-en
+// is the en track translated into Simplified Chinese. A tag is one of those
+// when it ends in "-<source>" and that source is itself a track (en, or the
+// en-orig speech recognition). zh-Hans or pt-BR alone are one language.
+export function isTranslatedTrack(tag, autos) {
+  const lower = String(tag).toLowerCase();
+  return autos.some((other) => {
+    const source = String(other).toLowerCase().replace(/-orig$/, "");
+    return source && source !== lower && lower.endsWith(`-${source}`) && lower.length > source.length + 1;
+  });
+}
+
+// Whether the import should listen for the language before choosing a track:
+// the metadata names none, there's a human-made track whose role is in doubt,
+// and no speech-recognition "-orig" track already says what was spoken.
+export function needsListening(meta) {
+  return (
+    !baseLang(meta.language) &&
+    meta.manual.length > 0 &&
+    !meta.auto.some((k) => /-orig$/i.test(k))
+  );
+}
+
+// Below this, Whisper's vote is a guess, and a guess must not choose the
+// track: storm noise votes "en" at 0.28. Measured: a Chinese song 0.64, a
+// Chinese news clip 0.99.
+const SPOKEN_CONFIDENT = 0.5;
+
+// The base language code a detection result settles on, or "" to abstain
+// (unsure, or no answer), leaving the title check in pickSourceTrack to decide
+// as before. Cantonese counts as Chinese: its tracks are zh-HK / zh-Hant.
+export function spokenBase(detection) {
+  if (!detection || !(detection.probability >= SPOKEN_CONFIDENT)) return "";
+  const code = String(detection.language || "").toLowerCase();
+  return code === "yue" ? "zh" : baseLang(code);
+}
+
+// The language to study, given what was heard. Normally the spoken one — but
+// this app teaches Chinese (#65), so an English song or talk that carries
+// uploaded Chinese subtitles is studied in Chinese, with its English track (if
+// any) as the translation. Studying the original there meant either English
+// text with no Chinese in it, or "Only Chinese is supported" once the audio
+// went to Whisper; a learner wants the Chinese lyrics. "" abstains.
+export function studyBase(detection, meta) {
+  const spoken = spokenBase(detection);
+  if (spoken && spoken !== "zh" && meta.manual.some((k) => baseLang(k) === "zh")) {
+    return "zh";
+  }
+  return spoken;
+}
+
+// How purely Chinese a subtitle text is: the share of its letters that are
+// Han characters. A channel's "zh" track can carry pinyin and English on every
+// line (zhè shì wǒ de bàba. 這是我的爸爸。 and this is Daddy Pig.) while its
+// zh-Hant sibling is the Chinese alone; this picks the sibling.
+export function chineseShare(text) {
+  const letters = String(text || "").match(/\p{L}/gu) || [];
+  if (!letters.length) return 0;
+  return letters.filter((ch) => /\p{Script=Han}/u.test(ch)).length / letters.length;
+}
+
+// Of several Chinese tracks, the most purely Chinese — and among those that
+// tie, the shortest: Peppa Pig's zh-HK holds both scripts on every line
+// (这是我的爸爸。 這是我的爸爸。), equally "pure", but twice the text, and once
+// normalised to Traditional it reads as every line said twice.
+const SHARE_TIE = 0.02;
+export function pickCleanestTrack(texts) {
+  const scored = texts.map((text) => ({ text, share: chineseShare(text) }));
+  if (!scored.length) return "";
+  const top = Math.max(...scored.map((s) => s.share));
+  return scored
+    .filter((s) => s.share >= top - SHARE_TIE)
+    .sort((a, b) => a.text.length - b.text.length)[0].text;
+}
+
+// What Whisper hears in the first minutes of a file: { language, probability }
+// or null. Remembered per URL for the life of the server, so re-importing a
+// video doesn't listen again.
+const heard = new Map();
+async function detectSpokenLanguage(url, mediaPath) {
+  if (heard.has(url)) return heard.get(url);
+  let detection = null;
+  try {
+    const result = await runCommand(PYTHON_BIN, [TRANSCRIBE_SCRIPT, "--detect", mediaPath], {
+      timeoutMs: 3 * 60_000,
+    });
+    const line = result.stdout.trim().split("\n").filter(Boolean).at(-1);
+    detection = line ? JSON.parse(line) : null;
+  } catch (err) {
+    // No faster-whisper, an unreadable file: abstain, and the import carries
+    // on exactly as it did before listening existed.
+    console.warn(`Language detection skipped (${String(err.message || err).split("\n")[0]})`);
+  }
+  heard.set(url, detection);
+  return detection;
 }
 
 // A creator-provided translation in the target language, if one exists. Only
@@ -1129,13 +1247,33 @@ async function getExistingSubtitle(url, workspace, meta, origBase) {
   const sourceBase = baseLang(source.lang);
   const human = pickHumanTranslation(meta, sourceBase, "en");
 
-  const want = [source.lang, ...(human ? [human] : [])];
+  // Several human-made Chinese tracks: fetch them all (they're small) and keep
+  // the most purely Chinese, rather than whichever is listed first.
+  const siblings =
+    source.manual && sourceBase === "zh"
+      ? meta.manual.filter((k) => baseLang(k) === "zh")
+      : [source.lang];
+  const want = [...siblings, ...(human ? [human] : [])];
   const fileFor = await downloadSubTracks(url, workspace, want);
 
-  const sourceFile = fileFor(source.lang);
-  if (!sourceFile) return null;
-  const text = cleanCaptions(await readFile(sourceFile, "utf8"));
+  const candidates = [];
+  for (const lang of siblings) {
+    const file = fileFor(lang);
+    if (!file) continue;
+    const candidate = cleanCaptions(await readFile(file, "utf8"));
+    if (candidate.trim()) candidates.push(candidate);
+  }
+  let text = pickCleanestTrack(candidates);
   if (!text.trim()) return null;
+
+  // One track holding the English line and its Chinese side by side: study the
+  // Chinese, and keep the English as the translation if nothing better comes.
+  let bilingualEnglish = null;
+  if (sourceBase === "zh") {
+    const split = splitBilingual(text);
+    text = split.chinese;
+    bilingualEnglish = split.english;
+  }
 
   let translation = null;
   const humanFile = human && fileFor(human);
@@ -1144,6 +1282,7 @@ async function getExistingSubtitle(url, workspace, meta, origBase) {
     const aligned = cleaned ? alignTranslationByTime(text, cleaned) : "";
     if (aligned.trim()) translation = aligned;
   }
+  if (!translation && bilingualEnglish) translation = bilingualEnglish;
 
   return {
     source: source.manual ? "subtitles" : "auto-subtitles",
@@ -1229,12 +1368,13 @@ async function transcribeWithWhisper(
   report = null,
   onProgress = null,
   onSegment = null,
+  knownLanguage = null,
 ) {
   try {
     // The callbacks only apply when we start the transcription here. A promise
     // handed in was spawned with its own already attached.
     const speech = await (speechPromise ||
-      transcribeFastSegments(audioPath, onProgress, onSegment));
+      transcribeFastSegments(audioPath, onProgress, onSegment, knownLanguage));
     return await finishFastTranscription(speech, report);
   } catch (err) {
     // Don't fall back to the CLI for a non-Chinese video — that would just
@@ -1336,8 +1476,11 @@ async function ocrCaptions(videoPath, onProgress = null) {
 // so the Traditional-Chinese prompt is applied without a second pass), JSON out.
 // Returns the raw timed segments; used directly by the OCR hybrid, which needs
 // them pre-SRT to interleave with caption segments.
-async function transcribeFastSegments(audioPath, onProgress = null, onSegment = null) {
-  const result = await runCommand(PYTHON_BIN, [TRANSCRIBE_SCRIPT, audioPath], {
+// `knownLanguage` "zh" skips transcribe.py's own detection: the import already
+// listened and was confident (spokenBase).
+async function transcribeFastSegments(audioPath, onProgress = null, onSegment = null, knownLanguage = null) {
+  const args = [TRANSCRIBE_SCRIPT, audioPath, ...(knownLanguage ? ["--language", knownLanguage] : [])];
+  const result = await runCommand(PYTHON_BIN, args, {
     timeoutMs: 30 * 60_000,
     onStderrLine:
       onProgress || onSegment ? readTaggedLine({ onProgress, onSegment }) : null,
