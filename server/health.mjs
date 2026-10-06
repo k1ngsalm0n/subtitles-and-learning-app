@@ -115,6 +115,8 @@ async function gatherFacts({ fresh = false } = {}) {
     // importPlan() reads exactly these two, and asks CTranslate2 rather than
     // torch about the GPU — see device.mjs.
     whisperCuda: Boolean(python.whisperCuda),
+    whisperModel: python.whisperModel || "",
+    whisperMusicModel: python.whisperMusicModel || "",
     cores: python.cores || 0,
     llm,
     llmProvider:
@@ -368,7 +370,7 @@ function openccCheck({ has }) {
 //
 // Not a yes/no: installed-but-on-the-CPU is the common case, and it is a real
 // degradation (slow enough that a smaller, less accurate model gets picked).
-function whisperCheck({ has, cuda }) {
+function whisperCheck({ has, cuda, whisperModel = "", whisperMusicModel = "" }) {
   const installed = has("faster_whisper") || has("whisper");
   const engine = has("faster_whisper") ? "faster-whisper" : "openai-whisper";
 
@@ -382,14 +384,23 @@ function whisperCheck({ has, cuda }) {
   else if (cuda)
     detail =
       "Transcription runs on the graphics card, which is much faster and allows a larger, more accurate model.";
+  else if (whisperMusicModel && whisperMusicModel !== whisperModel)
+    // Apple Silicon (transcribe.py's _resolve_model): medium runs about as
+    // fast as small there and is more accurate on songs; speech keeps small.
+    detail = `Transcription works but is slow, and picks a smaller model to stay usable. Songs (YouTube's Music category) get ${whisperMusicModel}: this processor runs it about as fast, and it catches far more of the lyrics.`;
   else detail = "Transcription works but is slow, and picks a smaller model to stay usable.";
 
   const onCpu = installed && !cuda;
+  const model = !whisperModel
+    ? ""
+    : whisperMusicModel && whisperMusicModel !== whisperModel
+      ? ` (${whisperModel}; ${whisperMusicModel} for music)`
+      : ` (${whisperModel})`;
   return {
     id: "whisper",
     label: "Transcribing video without subtitles",
     state,
-    using: installed ? `${engine} on ${cuda ? "the GPU" : "the CPU"}` : "not installed",
+    using: installed ? `${engine}${model} on ${cuda ? "the GPU" : "the CPU"}` : "not installed",
     detail,
     fix: installed ? (onCpu ? "See the GPU section of CLAUDE.md" : null) : "npm run sync",
     fixNote: onCpu

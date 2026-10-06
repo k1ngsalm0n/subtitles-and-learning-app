@@ -71,7 +71,7 @@ export async function probeMachine({ fresh = false } = {}) {
   } catch {
     // No venv at all. Report everything missing rather than failing whatever
     // asked — an import that can't probe should still run.
-    answer = { modules: {}, cuda: false, whisperCuda: false, cores: 0 };
+    answer = { modules: {}, cuda: false, whisperCuda: false, cores: 0, whisperModel: "", whisperMusicModel: "" };
   }
   probed = {
     modules: answer.modules || {},
@@ -80,6 +80,10 @@ export async function probeMachine({ fresh = false } = {}) {
     // back to torch's answer when the key is absent (an older health.py).
     whisperCuda: Boolean(answer.whisperCuda ?? answer.cuda),
     cores: answer.cores || os.cpus().length || 1,
+    // The model transcribe.py will load on this machine (its _resolve_model),
+    // or "" when it couldn't be asked.
+    whisperModel: answer.whisperModel || "",
+    whisperMusicModel: answer.whisperMusicModel || "",
   };
   return probed;
 }
