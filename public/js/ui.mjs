@@ -299,7 +299,7 @@ function handleTranscriptKeys(event, e) {
       const lineEl = word.closest(".line");
       const subtitle = state.subtitles[Number(lineEl?.dataset.index)];
       highlightWord(word, subtitle, e);
-      openWordBubble(word, subtitle?.text || "", e);
+      openWordBubble(word, subtitle ? displayText(subtitle) : "", e);
       break;
     }
     default: return;
@@ -330,7 +330,7 @@ export function setupTranscriptDelegation(els) {
       if (!lineEl) return;
       const line = state.subtitles[Number(lineEl.dataset.index)];
       highlightWord(wordEl, line, e);
-      openWordBubble(wordEl, line?.text || "", e);
+      openWordBubble(wordEl, line ? displayText(line) : "", e);
       return;
     }
 
@@ -345,7 +345,7 @@ export function setupTranscriptDelegation(els) {
         if (!lineEl) return;
         const line = state.subtitles[Number(lineEl.dataset.index)];
         highlightWord(nearestWord, line, e);
-        openWordBubble(nearestWord, line?.text || "", e);
+        openWordBubble(nearestWord, line ? displayText(line) : "", e);
         return;
       }
     }
@@ -1545,6 +1545,9 @@ function paintKnownButton(bubble) {
   button.title = known ? "Show this word as new again" : "Dim this word wherever it appears (K)";
 }
 
+// `context` is the line as shown on screen — the script the reader picked —
+// so the card's example sentence is made of the same glyphs as its word, and
+// a fill-in-the-blank card can find the word inside it.
 async function openWordBubble(anchor, context, els) {
   closeBubble();
   const word = anchor.dataset.word;

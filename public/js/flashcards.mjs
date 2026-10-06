@@ -15,6 +15,7 @@ import {
 import {
   createCard,
   syncFlattened,
+  cardProblem,
   moveById,
   childDecks,
   validateNesting,
@@ -48,6 +49,8 @@ export function addCard(values) {
         "This template would produce an empty card face — fill in the fields it uses.",
     };
   }
+  const problem = cardProblem(card);
+  if (problem) return { error: problem };
   state.cards.unshift(card);
   setLastDeck(card.deckId);
   saveCards();
@@ -60,6 +63,10 @@ export function addCard(values) {
 export function updateCard(id, changes) {
   const card = state.cards.find((c) => c.id === id);
   if (!card) return { error: "That card no longer exists." };
+  // Checked on the edited copy first, so a refused edit leaves the card as it
+  // was rather than half-applied in memory.
+  const problem = cardProblem({ ...card, ...changes });
+  if (problem) return { error: problem };
   Object.assign(card, changes);
   syncFlattened(card);
   if (!card.front || !card.back) {

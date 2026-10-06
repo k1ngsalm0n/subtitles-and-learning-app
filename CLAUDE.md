@@ -332,7 +332,13 @@ built-in templates/decks, flattening, legacy migration — tested under Node),
 it), `cardmodal.mjs` the add/edit modal, `templates.mjs` template CRUD +
 editor, `portability.mjs` versioned JSON import/export + Anki TSV,
 `strokes.mjs` (frontend) the stroke chart/animation renderer, `tts.mjs`
-speechSynthesis feature detection. Cards keep `front`/`back` as flattened
+speechSynthesis feature detection. A built-in **Fill in the blank** card type
+hides the word in its own example sentence (`cloze` field, via `blankOut`: one
+＿ per Chinese character) with the sentence's translation as a hint, and marks
+it on the back (`clozeAnswer`, drawn by cardface). `cardProblem` refuses one
+whose word isn't in its example, and the picker hides it once word and example
+are known not to match. For that to work the example is saved as shown on
+screen (`displayText`), the same glyphs as the clicked word. Cards keep `front`/`back` as flattened
 plain strings for backward compatibility; each card carries its own
 `frontFields`/`backFields` copies so template edits never rewrite cards.
 `npm run sync` also downloads the Make Me a Hanzi `graphics.txt` (~30 MB,

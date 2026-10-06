@@ -2,7 +2,7 @@
 // and the card list all call this — never their own markup — so what you
 // preview is exactly what you review.
 
-import { getField, fieldText } from "./carddata.mjs";
+import { getField, fieldText, markWord } from "./carddata.mjs";
 import { ttsAvailable } from "./tts.mjs";
 import { createSpeakButtons } from "./speakbuttons.mjs";
 import { renderStrokeOrder, hasHan } from "./strokes.mjs";
@@ -51,6 +51,18 @@ export function renderCardFace(el, card, fieldKeys, opts = {}) {
     // vowels look like first-tone marks. Escaped inside tonedPinyinHtml.
     if (text && lang === "zh" && PINYIN_FIELDS.has(key)) {
       row.innerHTML = tonedPinyinHtml(text, escapeHtml);
+    } else if (text && key === "clozeAnswer") {
+      // The answer, marked where the blank was on the front.
+      for (const part of markWord(card.example, card.word)) {
+        if (part.mark) {
+          const mark = document.createElement("mark");
+          mark.className = "cf-answer";
+          mark.textContent = part.text;
+          row.append(mark);
+        } else {
+          row.append(part.text);
+        }
+      }
     } else {
       row.textContent = text || "—";
     }

@@ -96,8 +96,9 @@ export function setupCardModal(els) {
     _dirty.add(key);
     _draft[key] = event.target.value;
     // The word's script decides whether stroke-order templates make sense,
-    // so the picker follows word edits.
-    if (key === "word") renderTemplatePicker();
+    // and the word and example together whether fill-in-the-blank does, so
+    // the picker follows edits to either.
+    if (key === "word" || key === "example") renderTemplatePicker();
     renderPreview();
   });
 
@@ -349,7 +350,7 @@ function describeTemplate(template) {
 
 function renderTemplatePicker() {
   const els = _els;
-  const templates = templatesForWord(state.templates, _draft?.word || "");
+  const templates = templatesForWord(state.templates, _draft?.word || "", _draft?.example || "");
   // The current template can drop out of the list (e.g. word changed to a
   // non-Han script while a stroke template was selected) — fall back to the
   // first available one.
