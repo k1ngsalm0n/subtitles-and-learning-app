@@ -104,6 +104,27 @@ lifting — speech-to-text and offline translation — runs through Python.
   the moment it is read, so identity-matching lost the pinyin whenever
   translation won that race.
 
+**Listening for the language.** Choosing a subtitle track means knowing which
+one is the original, and YouTube's metadata often names no language (music
+videos, older uploads). When it doesn't, the video has human-made tracks, and
+there's no `-orig` speech-recognition track to go by (`needsListening`), the
+import runs `transcribe.py --detect` on the downloaded video: the same
+three-window vote, on the same small model, that transcription uses. ~10s on
+CPU, remembered per URL for the server's life. `spokenBase` trusts a vote of
+0.5 or more (measured: a Chinese song 0.64, a news clip 0.99, storm noise
+voting "en" at 0.28) and otherwise abstains, leaving #131's title check to
+decide. A confident "zh" is passed on as `--language zh`, so transcription
+skips its own vote. `pickSourceTrack` never takes an auto-translated track
+(`isTranslatedTrack`: `zh-Hans-en` beside `en`) as an original — with the
+language now known as zh, the music video's machine-translated Chinese would
+otherwise have been studied as its source. Heard as something other than
+Chinese, a video with an uploaded Chinese track is studied *in Chinese*
+(`studyBase`) with its English track as the translation — an English song with
+Chinese lyrics is Chinese study material, and the alternative was "Only Chinese
+is supported". With several human Chinese tracks, all are fetched and the most
+purely Chinese one wins (`chineseShare`): a channel's bare `zh` track can carry
+pinyin and English on every line.
+
 **The uploader's English over a transcript.** A video with no usable source
 track is transcribed, but it may still carry human-made English subtitles (a
 Chinese song with the uploader's translated lyrics). Those are fetched beside

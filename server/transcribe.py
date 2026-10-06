@@ -226,7 +226,7 @@ def _detect_language(model, audio):
     return best, totals[best] / n, totals.get("zh", 0.0) / n, zh_max
 
 
-def _transcribe_on(device, audio):
+def _transcribe_on(device, audio, known_language=None):
     from faster_whisper import WhisperModel
 
     # Resolve "auto" against the *actual* device, so a GPU->CPU OOM retry also
@@ -241,18 +241,24 @@ def _transcribe_on(device, audio):
     detector = WhisperModel(
         DETECT_MODEL, device=device, compute_type=_compute_type(),
         cpu_threads=_cpu_threads(),
-    )
-    language, prob, zh_avg, zh_max = _detect_language(detector, audio)
-    sys.stderr.write(
-        f"language vote: {language} p={prob:.2f} "
-        f"(zh avg={zh_avg:.2f} max={zh_max:.2f})\n"
-    )
-    sys.stderr.flush()
+    ) if model_name == DETECT_MODEL or known_language != "zh" else None
+    if known_language == "zh":
+        # The import already listened (detect(), above) and was confident; the
+        # same vote over the same windows would only say it again.
+        sys.stderr.write("language: zh (already detected by the import)\n")
+        sys.stderr.flush()
+    else:
+        language, prob, zh_avg, zh_max = _detect_language(detector, audio)
+        sys.stderr.write(
+            f"language vote: {language} p={prob:.2f} "
+            f"(zh avg={zh_avg:.2f} max={zh_max:.2f})\n"
+        )
+        sys.stderr.flush()
 
-    # CHINESE-ONLY (temporary): reject non-Chinese audio so we don't emit a
-    # garbage transcript in a language we aren't focusing on yet. See issue #65.
-    if language != "zh" and zh_avg < ZH_ACCEPT_PROB and zh_max < ZH_WINDOW_PROB:
-        raise UnsupportedLanguage(language)
+        # CHINESE-ONLY (temporary): reject non-Chinese audio so we don't emit a
+        # garbage transcript in a language we aren't focusing on yet. See #65.
+        if language != "zh" and zh_avg < ZH_ACCEPT_PROB and zh_max < ZH_WINDOW_PROB:
+            raise UnsupportedLanguage(language)
     model = (
         detector
         if model_name == DETECT_MODEL
@@ -366,12 +372,44 @@ def _transcribe_on(device, audio):
     return {"language": info.language, "segments": segs}
 
 
-def transcribe(audio_path):
+def _detect_on(device, audio):
+    from faster_whisper import WhisperModel
+
+    detector = WhisperModel(
+        DETECT_MODEL, device=device, compute_type=_compute_type(),
+        cpu_threads=_cpu_threads(),
+    )
+    language, prob, zh_avg, zh_max = _detect_language(detector, audio)
+    return {
+        "language": language,
+        "probability": round(prob, 3),
+        "zhAvg": round(zh_avg, 3),
+        "zhMax": round(zh_max, 3),
+    }
+
+
+def detect(audio_path):
+    """Only the language vote, not the transcript: what the import asks when a
+    video's metadata names no language and it has to tell the original
+    subtitle track from a translation. The same windows and the same small
+    model transcription itself votes with, so the two can't disagree."""
     audio = _decode_audio(audio_path)
     device = _select_device()
     if device != "cpu":
         try:
-            return _transcribe_on(device, audio)
+            return _detect_on(device, audio)
+        except Exception as exc:  # OOM / driver — CPU still works
+            sys.stderr.write(f"language detection on {device} failed ({exc}); retrying on CPU.\n")
+            sys.stderr.flush()
+    return _detect_on("cpu", audio)
+
+
+def transcribe(audio_path, known_language=None):
+    audio = _decode_audio(audio_path)
+    device = _select_device()
+    if device != "cpu":
+        try:
+            return _transcribe_on(device, audio, known_language)
         except UnsupportedLanguage:
             raise  # not a device problem — CPU wouldn't help, and #65 gates it
         except Exception as exc:  # OOM / driver — CPU still works
@@ -379,15 +417,28 @@ def transcribe(audio_path):
                 f"faster-whisper on {device} failed ({exc}); retrying on CPU.\n"
             )
             sys.stderr.flush()
-    return _transcribe_on("cpu", audio)
+    return _transcribe_on("cpu", audio, known_language)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", help="path to an audio file")
+    ap.add_argument(
+        "--detect", action="store_true",
+        help="only report the spoken language: {language, probability, zhAvg, zhMax}",
+    )
+    ap.add_argument(
+        "--language",
+        help="skip detection: the caller already knows the audio is this language "
+        "(only 'zh' is acted on, since that's all the Chinese-only gate lets through)",
+    )
     args = ap.parse_args()
+    if args.detect:
+        json.dump(detect(args.audio), sys.stdout)
+        sys.stdout.write("\n")
+        return
     try:
-        result = transcribe(args.audio)
+        result = transcribe(args.audio, args.language)
     except UnsupportedLanguage as exc:
         # Structured, machine-readable signal for server/import.mjs (see #65).
         json.dump(

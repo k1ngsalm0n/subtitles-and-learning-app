@@ -427,6 +427,59 @@ export function regridToHuman(sourceSrt, humanSrt, words = []) {
   return cues;
 }
 
+// Lyric and talk channels often upload one "Chinese" track that is really two:
+// the English line and its Chinese translation side by side ("We barely
+// understood 我們卻不曾真正明瞭"). Studied as is, half of every line is English.
+// When most cues have a whole English sentence (BILINGUAL_MIN_WORDS words or
+// more, no Chinese in it) at the start or end of a line that also has
+// Chinese, that run is split off. A Chinese line using an English word or two
+// ("非常非常 honoured", "這個TED的演講") is untouched. Returns { chinese, english }
+// as SRT, english null when the track isn't bilingual; english keeps the cue
+// timings, so it can stand in as the translation.
+const BILINGUAL_MIN_WORDS = 3;
+const BILINGUAL_SHARE = 0.6;
+
+function splitLine(text) {
+  const han = /\p{Script=Han}/u;
+  if (!han.test(text)) return null;
+  const first = text.search(han);
+  let last = -1;
+  for (let i = text.length - 1; i >= 0; i--) {
+    if (han.test(text[i])) { last = i; break; }
+  }
+  const head = text.slice(0, first);
+  const tail = text.slice(last + 1);
+  const isSentence = (run) =>
+    (run.match(/[A-Za-z]+(?:['’][A-Za-z]+)?/g) || []).length >= BILINGUAL_MIN_WORDS;
+  const english = [isSentence(head) ? head : "", isSentence(tail) ? tail : ""]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(" ");
+  if (!english) return null;
+  const chinese = text
+    .slice(isSentence(head) ? first : 0, isSentence(tail) ? last + 1 : text.length)
+    .trim();
+  return { chinese, english };
+}
+
+export function splitBilingual(srt) {
+  const cues = parseCues(srt).map((c) => ({
+    start: c.start,
+    end: c.end,
+    text: c.lines.map(normalizeLine).filter(Boolean).join(" ").trim(),
+  }));
+  const splits = cues.map((c) => splitLine(c.text));
+  const withChinese = cues.filter((c) => /\p{Script=Han}/u.test(c.text)).length;
+  const bilingual = splits.filter(Boolean).length;
+  if (!withChinese || bilingual / withChinese < BILINGUAL_SHARE) {
+    return { chinese: srt, english: null };
+  }
+  return {
+    chinese: toSrt(cues.map((c, i) => ({ ...c, text: splits[i] ? splits[i].chinese : c.text }))),
+    english: toSrt(cues.map((c, i) => ({ ...c, text: splits[i] ? splits[i].english : "" }))),
+  };
+}
+
 export function cuesToSrt(cues) {
   return toSrt(cues);
 }
