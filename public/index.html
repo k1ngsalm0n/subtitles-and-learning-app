@@ -1863,15 +1863,29 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .card-face .cf-example { font-size: 15px; line-height: 1.5; }
 .card-face .cf-examplePinyin, .card-face .cf-exampleTranslation { color: var(--muted); font-size: 13px; }
 .card-face .cf-empty { color: var(--muted); opacity: 0.6; }
+/* Fill in the blank: the sentence is the card, so it reads at word size on the
+   front, and the answer is marked in the accent on the back. */
+.card-face .cf-cloze,
+.card-face .cf-clozeAnswer { font-size: 20px; line-height: 1.6; }
+.review-card .card-face .cf-cloze,
+.review-card .card-face .cf-clozeAnswer { font-size: 28px; }
+.card-face .cf-answer {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0 2px;
+}
 .card-face .cf-strokes { justify-self: center; }
 .card-face-compact { justify-items: start; text-align: left; gap: 1px; }
 .card-face-compact .cf-word { font-size: 15px; }
 .card-face-compact .cf-translation { font-size: 12px; }
 .card-face-compact .cf-pinyin { font-size: 11px; }
-.card-face-compact .cf-example, .card-face-compact .cf-examplePinyin, .card-face-compact .cf-exampleTranslation { font-size: 11px; }
+.card-face-compact .cf-example, .card-face-compact .cf-cloze, .card-face-compact .cf-clozeAnswer, .card-face-compact .cf-examplePinyin, .card-face-compact .cf-exampleTranslation { font-size: 11px; }
 /* Example sentences would otherwise wrap to three lines and dominate the row;
    one clipped line is enough to recognise the card. */
 .card-face-compact .cf-example,
+.card-face-compact .cf-cloze,
+.card-face-compact .cf-clozeAnswer,
 .card-face-compact .cf-examplePinyin,
 .card-face-compact .cf-exampleTranslation {
   max-width: 100%;

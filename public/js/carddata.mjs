@@ -12,7 +12,83 @@ export const BUILTIN_TEMPLATE_IDS = {
   default: "tpl-default",
   reverse: "tpl-reverse",
   strokes: "tpl-strokes",
+  cloze: "tpl-cloze",
 };
+
+// ---- Fill in the blank ------------------------------------------------------
+// A cloze card hides the word inside its own example sentence, so it tests the
+// word in use rather than in isolation. Both helpers work on the sentence as
+// saved; the word is found case-insensitively (English) and every occurrence
+// counts, since a sentence that says it twice gives it away twice.
+
+const HAN = /\p{Script=Han}/u;
+
+function occurrences(sentence, word) {
+  const text = String(sentence || "");
+  const needle = String(word || "").trim();
+  if (!text || !needle) return [];
+  const hay = text.toLowerCase();
+  const find = needle.toLowerCase();
+  const spans = [];
+  for (let at = hay.indexOf(find); at !== -1; at = hay.indexOf(find, at + find.length)) {
+    spans.push([at, at + find.length]);
+  }
+  return spans;
+}
+
+// The sentence with the word blanked out — one ＿ per Chinese character, one _
+// per letter otherwise, so the blank is as long as the answer — or "" when the
+// word isn't in the sentence and there is nothing to blank.
+export function blankOut(sentence, word) {
+  const spans = occurrences(sentence, word);
+  if (!spans.length) return "";
+  const text = String(sentence);
+  let out = "";
+  let from = 0;
+  for (const [start, end] of spans) {
+    out += text.slice(from, start);
+    out += [...text.slice(start, end)].map((ch) => (HAN.test(ch) ? "＿" : /\s/.test(ch) ? " " : "_")).join("");
+    from = end;
+  }
+  return out + text.slice(from);
+}
+
+// The sentence cut into [{ text, mark }] pieces, the word's occurrences
+// marked — what the back of a cloze card highlights. [] when it isn't there.
+export function markWord(sentence, word) {
+  const spans = occurrences(sentence, word);
+  if (!spans.length) return [];
+  const text = String(sentence);
+  const parts = [];
+  let from = 0;
+  for (const [start, end] of spans) {
+    if (start > from) parts.push({ text: text.slice(from, start), mark: false });
+    parts.push({ text: text.slice(start, end), mark: true });
+    from = end;
+  }
+  if (from < text.length) parts.push({ text: text.slice(from), mark: false });
+  return parts;
+}
+
+const CLOZE_FIELDS = new Set(["cloze", "clozeAnswer"]);
+
+export function usesCloze(template) {
+  return [...(template?.frontFields || []), ...(template?.backFields || [])].some((key) =>
+    CLOZE_FIELDS.has(key),
+  );
+}
+
+// Why a card can't be saved as it stands, or null. Today that's only a cloze
+// card whose word isn't in its example: its front would still show the hint
+// (the sentence's translation), so the empty-face check wouldn't catch it.
+export function cardProblem(card) {
+  if (usesCloze(card) && !blankOut(card.example, card.word)) {
+    return card.example
+      ? `Fill in the blank needs “${card.word}” to appear in the example sentence.`
+      : "Fill in the blank needs an example sentence that contains the word.";
+  }
+  return null;
+}
 
 // Every field a template can place on a card face. `text` extracts the plain
 // text for flattening/preview; audio fields have `speak` instead — they render
@@ -33,6 +109,17 @@ export const CARD_FIELDS = [
     key: "exampleTranslation",
     label: "Example translation",
     text: (card) => card.exampleTranslation,
+  },
+  {
+    key: "cloze",
+    label: "Example, word blanked",
+    text: (card) => blankOut(card.example, card.word),
+  },
+  {
+    key: "clozeAnswer",
+    label: "Example, word highlighted",
+    // Plain text here (flattening, export); cardface.mjs draws the highlight.
+    text: (card) => (blankOut(card.example, card.word) ? card.example : ""),
   },
 ];
 
@@ -73,6 +160,16 @@ export function builtinTemplates() {
       frontFields: ["word"],
       backFields: ["word", "pinyin", "translation"],
       showStrokes: true,
+      builtIn: true,
+    },
+    {
+      // The sentence's translation sits on the front as a hint to the meaning:
+      // the card asks for the word, not for the sentence's sense.
+      id: BUILTIN_TEMPLATE_IDS.cloze,
+      name: "Fill in the blank",
+      frontFields: ["cloze", "exampleTranslation"],
+      backFields: ["clozeAnswer", "examplePinyin", "word", "pinyin", "translation"],
+      showStrokes: false,
       builtIn: true,
     },
   ];
@@ -252,10 +349,16 @@ export function syncFlattened(card) {
 // New Card, the built-in "Stroke order" included. Creating one there looked
 // like it had failed: it saved, vanished from the picker, and left "Default"
 // selected.
-export function templatesForWord(templates, word) {
+//
+// Fill in the blank follows the same rule: hidden only once there is both a
+// word and an example to judge, and the word isn't in it — a blank New Card
+// still offers it.
+export function templatesForWord(templates, word, example = "") {
   const strokeless = Boolean(word) && !hasHan(word);
+  const unclozeable = Boolean(word) && Boolean(example) && !blankOut(example, word);
   return (templates || []).filter(
-    (template) => !(template.showStrokes && strokeless),
+    (template) =>
+      !(template.showStrokes && strokeless) && !(unclozeable && usesCloze(template)),
   );
 }
 
