@@ -22,7 +22,9 @@ import {
   setBackupEnabled,
   setBackupInterval,
   storageUsage,
+  saveCards,
 } from "./state.mjs";
+import { locateCards, groupByVideo } from "./cardlocate.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import {
   flipReviewCard,
@@ -211,6 +213,7 @@ const els = {
   nestDeckError: document.querySelector("#nestDeckError"),
   nestDeckSave: document.querySelector("#nestDeckSave"),
   restoreBackup: document.querySelector("#restoreBackup"),
+  locateWords: document.querySelector("#locateWords"),
   backupList: document.querySelector("#backupList"),
   restoreDir: document.querySelector("#restoreDir"),
   backupNow: document.querySelector("#backupNow"),
@@ -405,6 +408,7 @@ function bindEvents() {
     switchView("settings");
     settingsPages?.selectById("backups");
   });
+  els.locateWords.addEventListener("click", locateAllWords);
   els.backupEnabled.addEventListener("change", () => {
     setBackupEnabled(els.backupEnabled.checked);
     renderDataPanel();
@@ -1279,6 +1283,69 @@ function persistPlaybackTime() {
 
 // Jump back to the moment a card came from: seek if the source is already
 // loaded, otherwise reload its downloaded video first.
+// "Find each word in its video": every card with a stored video, placed by
+// listening to it (cardlocate.mjs). A video heard before answers at once; one
+// that hasn't been takes about as long as transcribing it, so say how far in.
+let locating = false;
+async function locateAllWords() {
+  if (locating) return;
+  const groups = groupByVideo(state.cards, state.sources);
+  const cards = [...groups.values()].flat();
+  if (!cards.length) {
+    showToast("No cards have a stored video to listen to.");
+    return;
+  }
+  locating = true;
+  els.locateWords.disabled = true;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  try {
+    const totals = await locateCards(cards, state.sources, {
+      onVideo: (done, total) =>
+        showToast(
+          done < total
+            ? `Finding words — listening to video ${done + 1} of ${total}. The first listen to a video takes a minute or two.`
+            : "Finding words…",
+          { duration: 600_000 },
+        ),
+    });
+    saveCards();
+    renderAll(els);
+    const parts = [`Found ${plural(totals.found, "word", "words")} in their videos`];
+    if (totals.missed) parts.push(`${plural(totals.missed, "card", "cards")} not found — kept their time`);
+    if (totals.gone) parts.push(`${plural(totals.gone, "card's video is", "cards' videos are")} no longer stored`);
+    if (totals.failed) parts.push(`${plural(totals.failed, "card", "cards")} couldn't be checked`);
+    showToast(parts.join(" · ") + ".");
+  } finally {
+    locating = false;
+    els.locateWords.disabled = false;
+  }
+}
+
+// On startup: cards that have never been checked — every card made before
+// locating existed, many with the wrong line's time — are placed quietly, so
+// Replay lands on the word without the reader having to ask. Each card is
+// checked once (locatedAt); a video already heard answers at once, one that
+// hasn't is listened to in the background, one at a time.
+async function locateUncheckedCards() {
+  const unchecked = state.cards.filter((card) => !card.locatedAt);
+  if (!unchecked.length || locating) return;
+  locating = true;
+  try {
+    const { found } = await locateCards(unchecked, state.sources);
+    saveCards();
+    if (found) {
+      renderAll(els);
+      showToast(
+        found === 1
+          ? "Found 1 card's word in its video — Replay now lands on it."
+          : `Found ${found} cards' words in their videos — Replay now lands on them.`,
+      );
+    }
+  } finally {
+    locating = false;
+  }
+}
+
 function jumpToSource(sourceId, time) {
   const source = state.sources.find((s) => s.id === sourceId);
   if (!source) {
@@ -1557,3 +1624,4 @@ async function saveCookieSettings() {
 // ESTIMATED_QUOTA below had been evaluated, which threw and left the rest of
 // init — including the first-paint cleanup — unrun.
 init();
+setTimeout(locateUncheckedCards, 2000);

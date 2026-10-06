@@ -1509,10 +1509,6 @@ rt {
    centered column — left-aligning these two chips broke that line. Spacing
    comes from the card's grid gap, so the old margin would double up. */
 .review-card .card-source { justify-self: center; }
-/* The card's original audio sits with the other source controls. */
-.review-card .clip-row { justify-self: center; }
-.clip-row.clip-gone { opacity: 0.5; cursor: help; }
-.clip-row .clip-button:disabled { cursor: help; }
 .card-move {
   height: 30px;
   border: 1px solid var(--border);
@@ -2661,6 +2657,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                     <button id="exportCards" type="button" title="Export cards, decks, and templates as JSON">Export (JSON)</button>
                     <button id="exportAnki" type="button" title="Export a tab-separated file for Anki">Export for Anki</button>
                     <label class="file-button" title="Import a previously exported JSON file">Import…<input id="importFile" type="file" accept=".json,application/json" /></label>
+                    <button id="locateWords" type="button" title="Listen to each card's video and find exactly where its word is said">Find each word in its video</button>
                     <button id="restoreBackup" type="button" title="Storage, backups and restoring a snapshot — in Settings">Data &amp; backups (Settings)</button>
                     <hr class="overflow-sep" />
                     <button id="emptyCards" type="button" class="danger" title="Delete every card listed below — the selected deck, narrowed by the search box">Empty this list…</button>

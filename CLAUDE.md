@@ -365,17 +365,28 @@ plain strings for backward compatibility; each card carries its own
 `npm run sync` also downloads the Make Me a Hanzi `graphics.txt` (~30 MB,
 gitignored; `SKIP_STROKES=1` to skip; attribution in README).
 
-**A card's original audio.** `clip.mjs` plays the few seconds of the video a
-card came from — the real voice — with the listen buttons' two speeds ("slow"
-is the recording at 0.75×, pitch kept). The window is the line's own start and
-`sourceEnd` (saved since this was added; older cards estimate the end from the
-sentence's length), plus a breath either side. It stops when the *audio*
-reaches the end, polled per frame: a clock started at `play()` spent the first
-seek's buffering and cut the clip a third of a second in. A video pruned from
-the cache (20 videos, 30 days) disables the buttons with a reason. The word
-pop-up takes the *clicked* line for a card's text and time — it used to read
-the active line's time, which sent "Replay video" to the wrong sentence
-whenever a word was clicked outside the line playing.
+**Finding a card's word in its video.** `server/locate.py` (`POST
+/api/locate`) listens to a card's stored video once — word-timed segments
+from `transcribe.py`, cached in `~/.local/share/stele/locate` keyed by file
+name, size and mtime, so later lookups are instant — and finds each card's
+word *inside its example sentence*: every occurrence scored by how well its
+surroundings match the sentence (a word sung five times is the one in the
+right line), ties to the time the card had; a misheard word is placed by
+finding the sentence instead; neither convincing returns null and the card
+keeps its time. Chinese is compared in Simplified on both sides. Cards get
+`wordStart`/`wordEnd` and their line corrected (`cardlocate.mjs`), which also
+repairs cards saved before #143 with the playing line's time. Replay lands a
+second before the word. (Buttons that played the card's sentence and word
+from the video, #143 and after, were tried and removed at the reader's
+request: Replay is the one control.) The word pop-up takes the *clicked*
+line for a card's text and time — it used to read the active line's time,
+which sent Replay to the wrong sentence whenever a word was clicked outside
+the line playing. Cards that have never been checked are placed quietly two
+seconds after startup (`locatedAt` marks them done). New cards are
+placed in the background on save; "Find each word in its video" in the card
+menu does every card. The endpoint takes only a stored video's file name
+(`/videos/<name>.<ext>`) — the page hands it the path — and runs one
+listening job at a time.
 
 Known words: `knownwords.mjs` decides each transcript word's mark — dimmed when
 the reader has said they know it (`stele.knownWords`, set from the word pop-up
