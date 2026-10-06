@@ -29,7 +29,6 @@ import { spokenProgress } from "./karaoke.mjs";
 import { paintHighlight } from "./imagehighlight.mjs";
 import { speak } from "./tts.mjs";
 import { speakButtonsHtml } from "./speakbuttons.mjs";
-import { createClipButtons } from "./clip.mjs";
 import {
   displayText,
   displayTokens,
@@ -1156,13 +1155,6 @@ function practiceLinkButton(card) {
 // YouTube and crowded the card while saying less than what the button does.
 // The title stays on hover and for screen readers, so which clip is still
 // one glance away.
-// The card's own few seconds of the video, played in place (clip.mjs). Null
-// for cards made by hand, or whose source never had a video stored.
-function clipButtons(card) {
-  const source = state.sources.find((s) => s.id === card.sourceId);
-  return createClipButtons(card, source?.videoUrl || "");
-}
-
 function sourceLinkButton(card) {
   if (!card.sourceId || !Number.isFinite(card.sourceTime)) return null;
   const source = state.sources.find((s) => s.id === card.sourceId);
@@ -1170,14 +1162,15 @@ function sourceLinkButton(card) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "card-source";
-  const time = formatTime(card.sourceTime);
+  // Once the word has been placed in its video, land a second before it, so
+  // the reader hears it arrive; until then, the start of its line.
+  const at = Number.isFinite(card.wordStart) ? Math.max(0, card.wordStart - 1) : card.sourceTime;
+  const time = formatTime(at);
   button.textContent = `▶ Replay video · ${time}`;
   const where = `Replay ${source.title || "this clip"} from ${time}`;
   button.title = where;
   button.setAttribute("aria-label", where);
-  button.addEventListener("click", () =>
-    _sourceJumper?.(card.sourceId, card.sourceTime),
-  );
+  button.addEventListener("click", () => _sourceJumper?.(card.sourceId, at));
   return button;
 }
 
@@ -1256,8 +1249,6 @@ function cardListItem(card, e) {
     body.prepend(chip);
   }
 
-  const clip = clipButtons(card);
-  if (clip) body.appendChild(clip);
   const sourceButton = sourceLinkButton(card);
   if (sourceButton) body.appendChild(sourceButton);
 
@@ -1424,10 +1415,6 @@ export function renderReviewCard(els) {
   hint.textContent = state.showingBack ? "" : "Flip to check the answer";
   e.reviewCard.textContent = "";
   e.reviewCard.append(face, hint);
-  // Both faces: on a fill-in-the-blank card, hearing the sentence before
-  // answering is the listening version of the question.
-  const clip = clipButtons(card);
-  if (clip) e.reviewCard.appendChild(clip);
   const sourceButton = sourceLinkButton(card);
   if (sourceButton) e.reviewCard.appendChild(sourceButton);
   const practiceButton = practiceLinkButton(card);
@@ -1564,8 +1551,8 @@ function paintKnownButton(bubble) {
 // example is made of the same glyphs as its word and a fill-in-the-blank card
 // can find the word inside it. Its timing is the card's: this used to read the
 // *active* line's, which is a different one whenever the reader clicks a word
-// in a line other than the one playing, and sent "Replay video" (and now the
-// card's clip) to the wrong sentence.
+// in a line other than the one playing, and sent "Replay video" to the wrong
+// sentence.
 async function openWordBubble(anchor, line, els) {
   const context = line ? displayText(line) : "";
   closeBubble();

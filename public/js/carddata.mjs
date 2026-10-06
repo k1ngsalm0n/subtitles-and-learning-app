@@ -405,7 +405,7 @@ export function createCard(values, template, deckId) {
     exampleTranslation: (values.exampleTranslation || "").trim(),
     sourceId: values.sourceId || null,
     sourceTime: Number.isFinite(values.sourceTime) ? values.sourceTime : null,
-    // Where the line ends, so the card can play exactly its clip (clip.mjs).
+    // Where the line ends; the line's span, beside sourceTime.
     sourceEnd: Number.isFinite(values.sourceEnd) ? values.sourceEnd : null,
     state: "new",
     step: 0,

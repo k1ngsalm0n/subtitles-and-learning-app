@@ -24,6 +24,7 @@ import {
 } from "./carddata.mjs";
 import { schedule } from "./scheduler.mjs";
 import { buildExport, importFromText, buildAnkiTsv } from "./portability.mjs";
+import { locateCards } from "./cardlocate.mjs";
 import {
   renderAll,
   renderCardList,
@@ -56,6 +57,16 @@ export function addCard(values) {
   saveCards();
   // Full re-render: the transcript marks saved words, so it must refresh too.
   renderAll();
+  // Find the word in its video in the background, so the card's Replay lands
+  // on it and its Word button appears. Instant once the video has been heard;
+  // otherwise it waits behind any other listening and changes nothing if the
+  // word can't be found.
+  locateCards([card], state.sources).then(({ found }) => {
+    if (found) {
+      saveCards();
+      renderAll();
+    }
+  });
   return { card };
 }
 

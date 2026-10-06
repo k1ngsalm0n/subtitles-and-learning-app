@@ -15,6 +15,7 @@ import { handleSpeak, handleVoices } from "./speak.mjs";
 import { handleHealth, handlePrefs, forgetHealth } from "./health.mjs";
 import { handleLlm } from "./llmConfig.mjs";
 import { handleStrokes } from "./strokes.mjs";
+import { handleLocate } from "./locate.mjs";
 import {
   handleSaveBackup,
   handleListBackups,
@@ -54,6 +55,10 @@ createServer(async (req, res) => {
     }
     if (req.method === "GET" && req.url.startsWith("/api/lookup")) {
       await handleLookup(req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/locate") {
+      await handleLocate(req, res);
       return;
     }
     if (req.method === "POST" && req.url === "/api/translate") {
