@@ -122,6 +122,7 @@ export function saveActiveLine(els) {
     example: line.text,
     sourceId: state.currentSourceId,
     sourceTime: line.start,
+    sourceEnd: line.end,
   });
   showToast(
     result.error ? result.error : `Saved the line to ${deckName(result.card.deckId)}.`,

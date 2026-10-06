@@ -596,7 +596,7 @@ async function prefetch(draft) {
 }
 
 // Open the modal. Either { card } to edit an existing card, or
-// { word, example, prefill, sourceId, sourceTime } for a new one.
+// { word, example, prefill, sourceId, sourceTime, sourceEnd } for a new one.
 export function openCardModal(options = {}) {
   const els = _els;
   _opener = document.activeElement;
@@ -622,6 +622,7 @@ export function openCardModal(options = {}) {
       deckId: state.lastDeckId,
       sourceId: options.sourceId ?? null,
       sourceTime: options.sourceTime ?? null,
+      sourceEnd: options.sourceEnd ?? null,
     };
   }
 

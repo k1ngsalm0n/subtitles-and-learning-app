@@ -29,6 +29,7 @@ import { spokenProgress } from "./karaoke.mjs";
 import { paintHighlight } from "./imagehighlight.mjs";
 import { speak } from "./tts.mjs";
 import { speakButtonsHtml } from "./speakbuttons.mjs";
+import { createClipButtons } from "./clip.mjs";
 import {
   displayText,
   displayTokens,
@@ -299,7 +300,7 @@ function handleTranscriptKeys(event, e) {
       const lineEl = word.closest(".line");
       const subtitle = state.subtitles[Number(lineEl?.dataset.index)];
       highlightWord(word, subtitle, e);
-      openWordBubble(word, subtitle ? displayText(subtitle) : "", e);
+      openWordBubble(word, subtitle, e);
       break;
     }
     default: return;
@@ -330,7 +331,7 @@ export function setupTranscriptDelegation(els) {
       if (!lineEl) return;
       const line = state.subtitles[Number(lineEl.dataset.index)];
       highlightWord(wordEl, line, e);
-      openWordBubble(wordEl, line ? displayText(line) : "", e);
+      openWordBubble(wordEl, line, e);
       return;
     }
 
@@ -345,7 +346,7 @@ export function setupTranscriptDelegation(els) {
         if (!lineEl) return;
         const line = state.subtitles[Number(lineEl.dataset.index)];
         highlightWord(nearestWord, line, e);
-        openWordBubble(nearestWord, line ? displayText(line) : "", e);
+        openWordBubble(nearestWord, line, e);
         return;
       }
     }
@@ -1155,6 +1156,13 @@ function practiceLinkButton(card) {
 // YouTube and crowded the card while saying less than what the button does.
 // The title stays on hover and for screen readers, so which clip is still
 // one glance away.
+// The card's own few seconds of the video, played in place (clip.mjs). Null
+// for cards made by hand, or whose source never had a video stored.
+function clipButtons(card) {
+  const source = state.sources.find((s) => s.id === card.sourceId);
+  return createClipButtons(card, source?.videoUrl || "");
+}
+
 function sourceLinkButton(card) {
   if (!card.sourceId || !Number.isFinite(card.sourceTime)) return null;
   const source = state.sources.find((s) => s.id === card.sourceId);
@@ -1248,6 +1256,8 @@ function cardListItem(card, e) {
     body.prepend(chip);
   }
 
+  const clip = clipButtons(card);
+  if (clip) body.appendChild(clip);
   const sourceButton = sourceLinkButton(card);
   if (sourceButton) body.appendChild(sourceButton);
 
@@ -1414,6 +1424,10 @@ export function renderReviewCard(els) {
   hint.textContent = state.showingBack ? "" : "Flip to check the answer";
   e.reviewCard.textContent = "";
   e.reviewCard.append(face, hint);
+  // Both faces: on a fill-in-the-blank card, hearing the sentence before
+  // answering is the listening version of the question.
+  const clip = clipButtons(card);
+  if (clip) e.reviewCard.appendChild(clip);
   const sourceButton = sourceLinkButton(card);
   if (sourceButton) e.reviewCard.appendChild(sourceButton);
   const practiceButton = practiceLinkButton(card);
@@ -1545,10 +1559,15 @@ function paintKnownButton(bubble) {
   button.title = known ? "Show this word as new again" : "Dim this word wherever it appears (K)";
 }
 
-// `context` is the line as shown on screen — the script the reader picked —
-// so the card's example sentence is made of the same glyphs as its word, and
-// a fill-in-the-blank card can find the word inside it.
-async function openWordBubble(anchor, context, els) {
+// `line` is the subtitle the word was clicked in. Its text as shown on screen —
+// the script the reader picked — is the context and the card's example, so the
+// example is made of the same glyphs as its word and a fill-in-the-blank card
+// can find the word inside it. Its timing is the card's: this used to read the
+// *active* line's, which is a different one whenever the reader clicks a word
+// in a line other than the one playing, and sent "Replay video" (and now the
+// card's clip) to the wrong sentence.
+async function openWordBubble(anchor, line, els) {
+  const context = line ? displayText(line) : "";
   closeBubble();
   const word = anchor.dataset.word;
   const bubble = getBubble();
@@ -1619,7 +1638,6 @@ async function openWordBubble(anchor, context, els) {
   // (Default or a new one) are chosen before saving.
   bubble.querySelector(".bubble-save").addEventListener("click", () => {
     dismissBubble();
-    const line = state.subtitles[state.activeIndex];
     openCardModal({
       word,
       example: context,
@@ -1629,6 +1647,7 @@ async function openWordBubble(anchor, context, els) {
       },
       sourceId: state.currentSourceId,
       sourceTime: line?.start ?? null,
+      sourceEnd: line?.end ?? null,
     });
   });
 }
