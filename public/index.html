@@ -1509,6 +1509,10 @@ rt {
    centered column — left-aligning these two chips broke that line. Spacing
    comes from the card's grid gap, so the old margin would double up. */
 .review-card .card-source { justify-self: center; }
+/* The card's original audio sits with the other source controls. */
+.review-card .clip-row { justify-self: center; }
+.clip-row.clip-gone { opacity: 0.5; cursor: help; }
+.clip-row .clip-button:disabled { cursor: help; }
 .card-move {
   height: 30px;
   border: 1px solid var(--border);

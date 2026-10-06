@@ -10,7 +10,7 @@ import { speak } from "./tts.mjs";
 // Drawn rather than typed: an emoji is a different glyph on every platform and
 // can't take the accent colour, and ▸ said "play" when the thing on offer is
 // sound. currentColor so it inherits whatever it sits on.
-const SPEAKER = `<svg class="speak-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+export const SPEAKER = `<svg class="speak-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
   <path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z" fill="currentColor" />
   <path d="M15.4 9.2a4 4 0 0 1 0 5.6" fill="none" stroke="currentColor"
         stroke-width="1.7" stroke-linecap="round" />

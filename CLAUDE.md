@@ -365,6 +365,18 @@ plain strings for backward compatibility; each card carries its own
 `npm run sync` also downloads the Make Me a Hanzi `graphics.txt` (~30 MB,
 gitignored; `SKIP_STROKES=1` to skip; attribution in README).
 
+**A card's original audio.** `clip.mjs` plays the few seconds of the video a
+card came from — the real voice — with the listen buttons' two speeds ("slow"
+is the recording at 0.75×, pitch kept). The window is the line's own start and
+`sourceEnd` (saved since this was added; older cards estimate the end from the
+sentence's length), plus a breath either side. It stops when the *audio*
+reaches the end, polled per frame: a clock started at `play()` spent the first
+seek's buffering and cut the clip a third of a second in. A video pruned from
+the cache (20 videos, 30 days) disables the buttons with a reason. The word
+pop-up takes the *clicked* line for a card's text and time — it used to read
+the active line's time, which sent "Replay video" to the wrong sentence
+whenever a word was clicked outside the line playing.
+
 Known words: `knownwords.mjs` decides each transcript word's mark — dimmed when
 the reader has said they know it (`stele.knownWords`, set from the word pop-up
 or **K** on a focused word), underlined when it has a card, full strength when
