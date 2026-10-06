@@ -20,7 +20,16 @@ so screen furniture can be told apart from captions:
     a fresh credit or location pin, however briefly it shows. A slot counts
     only where furniture outnumbers the other lines ever seen in it.
   * Attached furniture: a line that, every time it shows, touches known
-    furniture and sits within its width (a logo's tagline) is part of it.
+    furniture and sits within its width (a logo's tagline), or sits on the
+    same row flush against its side (a city and reading beside a 高溫預警
+    label, a rotating headline beside the headline strip), is part of it.
+  * Vertical text: subtitles are set horizontally. A line read off a thin box
+    taller than it is wide is a sidebar (a scrolling weather crawl, a column
+    of teasers) and counts as proven furniture — so a horizontal tag set on
+    top of the column (the 囂張/爭議 category label) goes with it as attached.
+  * Latin-only lines in a Chinese video: scenery and props (a GOOD IDEAS
+    wall, a TEDx microphone cube), dropped from the output after every rule
+    above has seen them — they glued onto real lines read in the same frame.
   * One-frame noise: a line read in a single frame with low confidence is a
     flickering watermark, not a caption.
   * Captions (speech subtitles, title cards) live for a few seconds each —
@@ -113,6 +122,19 @@ SLOT_TOLERANCE = 0.03
 # shown once and fits no other rule.
 ATTACH_GAP = 0.02
 ATTACH_WITHIN = 0.8
+# Vertical text: a line whose box, in pixels, is at least this many times
+# taller than it is wide. Measured on 三立 iNEWS: the weather crawl and the
+# teaser column read at 2.3-8.9; every horizontal line, captions included, at
+# 0.7 or less. 1.5 sits between with room either side.
+VERTICAL_MIN_RATIO = 1.5
+# …and at most this fraction of the frame wide. Sidebars are small type in a
+# thin strip (0.03-0.07 on 三立); a music video's stacked title — 因果 sung and
+# shown in characters a sixth of the frame wide (0.16-0.18) — is display text
+# meant to be read, and goes through the ordinary rules.
+VERTICAL_MAX_WIDTH = 0.10
+# A video is Chinese, for the Latin-only rule, when at least this share of the
+# line readings carry Chinese characters.
+CHINESE_LINE_SHARE = 0.5
 # Samples this far apart still belong to one on-screen run: OCR failing to
 # read a line for a single frame must not split its run — a split run loses
 # its equal-span partners and can be misclassified as a tag. Two consecutive
@@ -178,10 +200,12 @@ def _is_caption_line(text):
 
 
 def _read_lines(engine, img):
-    """OCR one frame; returns text lines as [(y, text, score, box)], top first.
+    """OCR one frame; returns text lines as [(y, text, score, box, vertical)],
+    top first.
 
     `box` is (x0, y0, x1, y1) as fractions of the frame, so furniture slots
-    compare across videos of any resolution.
+    compare across videos of any resolution. `vertical` says the box is set
+    top to bottom (VERTICAL_MIN_RATIO): never a subtitle, always furniture.
     """
     out = engine(img)
     if not out.txts:
@@ -193,9 +217,38 @@ def _read_lines(engine, img):
         if text and score >= MIN_SCORE and _is_caption_line(text):
             xs = [float(p[0]) for p in box]
             ys = [float(p[1]) for p in box]
+            vertical = (
+                max(ys) - min(ys) >= VERTICAL_MIN_RATIO * max(max(xs) - min(xs), 1.0)
+                and (max(xs) - min(xs)) / width <= VERTICAL_MAX_WIDTH
+            )
             norm = (min(xs) / width, min(ys) / height, max(xs) / width, max(ys) / height)
-            lines.append((min(ys), text, score, norm))
+            lines.append((min(ys), text, score, norm, vertical))
     return sorted(lines)
+
+
+def _join_columns(boxes):
+    """Merge boxes that stand side by side (overlapping in height, at most
+    ATTACH_GAP apart across) into their bounding boxes."""
+    merged = [list(b) for b in boxes]
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(merged)):
+            for j in range(i + 1, len(merged)):
+                a, b = merged[i], merged[j]
+                across = max(a[0] - b[2], b[0] - a[2])
+                if across <= ATTACH_GAP and min(a[3], b[3]) > max(a[1], b[1]):
+                    merged[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+                    del merged[j]
+                    changed = True
+                    break
+            if changed:
+                break
+    return [tuple(b) for b in merged]
+
+
+def _has_cjk(text):
+    return any("㐀" <= ch <= "鿿" for ch in text)
 
 
 def is_similar(a, b, threshold=SIMILARITY):
@@ -254,6 +307,7 @@ def filter_furniture(raw, interval):
         for line in lines:
             y, text, score = line[:3]
             box = line[3] if len(line) > 3 else None
+            vertical = len(line) > 4 and bool(line[4])
             index = next(
                 (
                     i
@@ -268,13 +322,15 @@ def filter_furniture(raw, interval):
             if index is None:
                 index = len(clusters)
                 clusters.append(
-                    {"rep": text, "texts": [text], "times": [], "scores": [], "boxes": []}
+                    {"rep": text, "texts": [text], "times": [], "scores": [], "boxes": [],
+                     "vertical": False}
                 )
             cluster = clusters[index]
             if text not in cluster["texts"] and len(cluster["texts"]) < 5:
                 cluster["texts"].append(text)
             cluster["times"].append(time)
             cluster["scores"].append(score)
+            cluster["vertical"] = cluster["vertical"] or vertical
             if box is not None:
                 cluster["boxes"].append(box)
             row.append((y, text, score, index, box))
@@ -540,7 +596,30 @@ def filter_furniture(raw, interval):
             return False
         width = box[2] - box[0]
         overlap = min(box[2], furniture_box[2]) - max(box[0], furniture_box[0])
-        return width > 0 and overlap / width >= ATTACH_WITHIN
+        if width > 0 and overlap / width >= ATTACH_WITHIN:
+            return True
+        # Beside it: the same row exactly (top and bottom both within the
+        # slot tolerance — one panel, not a caption next to a label, which is
+        # set in its own size) and flush against its left or right side.
+        side_gap = max(box[0] - furniture_box[2], furniture_box[0] - box[2])
+        return (
+            abs(box[1] - furniture_box[1]) <= SLOT_TOLERANCE
+            and abs(box[3] - furniture_box[3]) <= SLOT_TOLERANCE
+            and side_gap <= ATTACH_GAP
+        )
+
+    # Vertical text is furniture outright. Added after the slot rule, so a
+    # sidebar column never teaches a slot to the captions, and before the
+    # attachment rule, so a tag set on top of the column goes with it.
+    vertical = {
+        i for i, c in enumerate(clusters) if c["vertical"] and i not in banned
+    }
+    if vertical:
+        names = sorted(clusters[i]["rep"] for i in vertical)
+        more = f" (+{len(names) - 20} more)" if len(names) > 20 else ""
+        dropped = ", ".join(repr(t) for t in names[:20])
+        sys.stderr.write(f"OCR: dropped vertical text: {dropped}{more}\n")
+        banned |= vertical
 
     # Attached to dwell furniture only — the most certain kind — and placed
     # after the slot rule so what it drops can never teach a slot.
@@ -548,6 +627,11 @@ def filter_furniture(raw, interval):
     appearances = {}  # cluster -> [attached in that frame?]
     for _time, row in assigned:
         on_screen = [(ci, b) for _y, _t, _s, ci, b in row if ci in proven_now]
+        # Vertical columns standing side by side are one sidebar: a tag set
+        # across the top of two teaser columns sits within the pair, not
+        # within either column.
+        columns = [b for ci, b in on_screen if b is not None and clusters[ci]["vertical"]]
+        on_screen += [(-1, b) for b in _join_columns(columns) if b not in columns]
         for _y, _t, _s, ci, b in row:
             if ci in banned:
                 continue
@@ -561,6 +645,27 @@ def filter_furniture(raw, interval):
         banned |= attached
 
     banned |= noise
+
+    # Latin-only lines in a Chinese video: scenery and props. Left in for every
+    # rule above (a wall slogan sitting through captions is still evidence of
+    # what's a tag) and only kept out of the joined text, where they glued onto
+    # whatever real line shared their frame ("…注意防 TED' WeekendTaipe").
+    # By the majority of a line's readings, not any one of them: BAGGAGE read
+    # once as 有GAGE must not pass as Chinese on that one misread.
+    readings = [(ci, _has_cjk(text)) for _time, row in assigned for _y, text, _s, ci, _b in row]
+    if readings and sum(1 for _ci, cjk in readings if cjk) / len(readings) >= CHINESE_LINE_SHARE:
+        cjk_reads = {}
+        for ci, cjk in readings:
+            yes, total = cjk_reads.get(ci, (0, 0))
+            cjk_reads[ci] = (yes + cjk, total + 1)
+        latin = {
+            i for i, (yes, total) in cjk_reads.items()
+            if i not in banned and yes * 2 < total
+        }
+        if latin:
+            dropped = ", ".join(repr(clusters[i]["rep"]) for i in sorted(latin))
+            sys.stderr.write(f"OCR: dropped Latin-only lines: {dropped}\n")
+            banned |= latin
 
     def is_tagged(ci, time):
         return any(
