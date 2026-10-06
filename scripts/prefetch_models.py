@@ -82,13 +82,28 @@ def whisper_detect_model() -> str:
     return m.group(1) if m else "small"
 
 
+def transcription_model(music: bool = False) -> str:
+    """The model transcribe.py will actually load on this machine. This used
+    to default to "base", which transcription never loads — "auto" resolves to
+    small, and to medium for songs on Apple Silicon — so the up-front download
+    fetched a model nothing used and the real one downloaded on first import.
+    `music` asks for the model used on songs."""
+    requested = os.getenv("WHISPER_MODEL", "auto")
+    if requested and requested != "auto":
+        return requested
+    sys.path.insert(0, os.path.join(HERE, "..", "server"))
+    import transcribe
+
+    return transcribe._resolve_model(transcribe._select_device(), music=music)
+
+
 def fetch_faster_whisper() -> None:
     """Prefetch the faster-whisper models (the primary transcription engine).
 
     Two models: the transcription model, and the (usually smaller) one
     transcribe.py uses for language detection.
     """
-    models = {os.getenv("WHISPER_MODEL", "base"), whisper_detect_model()}
+    models = {transcription_model(), transcription_model(music=True), whisper_detect_model()}
     try:
         from faster_whisper import WhisperModel
     except ImportError:

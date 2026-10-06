@@ -8,6 +8,7 @@ import {
   spokenBase,
   studyBase,
   chineseShare,
+  isMusic,
 } from "../server/import.mjs";
 
 const CHINESE_MV =
@@ -103,4 +104,12 @@ test("the cleanest Chinese track wins over one carrying pinyin and English", () 
   assert.ok(chineseShare(pure) > chineseShare(mixed));
   assert.equal(chineseShare(pure), 1);
   assert.equal(chineseShare(""), 0);
+});
+
+test("YouTube's Music category marks a song; speech categories don't", () => {
+  assert.equal(isMusic({ categories: ["Music"] }), true);
+  for (const c of ["News & Politics", "Education", "Travel & Events"]) {
+    assert.equal(isMusic({ categories: [c] }), false, c);
+  }
+  assert.equal(isMusic({}), false, "no categories in the metadata");
 });

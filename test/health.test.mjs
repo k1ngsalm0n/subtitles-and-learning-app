@@ -249,6 +249,19 @@ test("Whisper on the CPU works, so it is a fallback and not off", () => {
   assert.equal(row(NOTHING, "whisper").state, "off");
 });
 
+test("the transcriber names its models, and Apple Silicon's medium for music", () => {
+  const mac = row(
+    { ...EVERYTHING, cuda: false, whisperModel: "small", whisperMusicModel: "medium" },
+    "whisper",
+  );
+  assert.match(mac.using, /faster-whisper \(small; medium for music\) on the CPU/);
+  assert.match(mac.detail, /Songs .* get medium/);
+  assert.equal(mac.state, "fallback", "speech still runs the small model on the CPU");
+  const pc = row({ ...EVERYTHING, cuda: false, whisperModel: "small", whisperMusicModel: "small" }, "whisper");
+  assert.match(pc.using, /\(small\) on the CPU/);
+  assert.doesNotMatch(pc.detail, /Songs/);
+});
+
 test("the transcriber names the engine that is actually installed", () => {
   assert.match(row({ ...EVERYTHING, has: only("whisper") }, "whisper").using, /openai-whisper/);
   assert.match(

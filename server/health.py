@@ -65,11 +65,26 @@ def main():
     except Exception:  # noqa: BLE001
         whisper_cuda = False
 
+    # The model transcription will load here, asked of transcribe.py itself so
+    # the page can't describe a different rule from the one that runs.
+    whisper_model = ""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import transcribe
+
+        device = "cuda" if whisper_cuda else "cpu"
+        whisper_model = transcribe._resolve_model(device)
+        whisper_music_model = transcribe._resolve_model(device, music=True)
+    except Exception:  # noqa: BLE001
+        whisper_model = whisper_music_model = ""
+
     json.dump(
         {
             "modules": modules,
             "cuda": cuda,
             "whisperCuda": whisper_cuda,
+            "whisperModel": whisper_model,
+            "whisperMusicModel": whisper_music_model,
             "cores": os.cpu_count() or 0,
         },
         sys.stdout,

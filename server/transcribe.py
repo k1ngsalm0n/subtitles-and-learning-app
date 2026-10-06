@@ -13,6 +13,7 @@ Prints one line of JSON to stdout: {"language": str, "segments": [{"start",
 import argparse
 import json
 import os
+import platform
 import sys
 
 import happy_eyeballs  # noqa: F401 — RFC 8305 connect race (see module docstring)
@@ -86,12 +87,26 @@ def _free_vram_mib():
         return None
 
 
-def _resolve_model(device):
+def _apple_silicon():
+    return platform.system() == "Darwin" and platform.machine() == "arm64"
+
+
+def _resolve_model(device, music=False):
     """Resolve the model name, expanding "auto" to fit the actual device.
 
     The goal is a good experience on any machine without manual tuning:
       * CPU-only  -> "small": light (~0.5 GB) and quick enough to be usable;
-                     bigger models are punishingly slow without a GPU.
+                     bigger models are punishingly slow without a GPU…
+      * Apple Silicon, for music -> "medium". CTranslate2 runs on Apple's
+                     Accelerate there, and on an M1 medium transcribed four
+                     songs in 65-88 s against small's ~85 s while cutting the
+                     character error rate against their real lyrics from 0.28
+                     to 0.22 on average (better on all four), and getting 10 of
+                     15 known lines of a rap track right against 3. Only for
+                     music: on both news clips audited, medium dropped whole
+                     passages of speech (it wrote 字幕由 Amara.org 提供 over 16 s
+                     of narration), so speech keeps small. Other CPUs weren't
+                     measured and keep small for both.
       * GPU       -> "large-v3" when there's VRAM for it (best accuracy, and the
                      GPU keeps it fast), stepping down to medium/small on smaller
                      cards. VRAM is checked live so a busy GPU doesn't OOM.
@@ -101,7 +116,7 @@ def _resolve_model(device):
     if requested and requested != "auto":
         return requested
     if device != "cuda":
-        return "small"
+        return "medium" if music and _apple_silicon() else "small"
     free = _free_vram_mib()
     if free is None:
         return "medium"  # GPU present but VRAM unknown: safe middle ground
@@ -226,12 +241,12 @@ def _detect_language(model, audio):
     return best, totals[best] / n, totals.get("zh", 0.0) / n, zh_max
 
 
-def _transcribe_on(device, audio, known_language=None):
+def _transcribe_on(device, audio, known_language=None, music=False):
     from faster_whisper import WhisperModel
 
     # Resolve "auto" against the *actual* device, so a GPU->CPU OOM retry also
     # drops to a CPU-appropriate (smaller) model instead of re-loading the big one.
-    model_name = _resolve_model(device)
+    model_name = _resolve_model(device, music)
     sys.stderr.write(f"transcribing with model={model_name} on {device}\n")
     sys.stderr.flush()
     # Detect the language up front so we can transcribe ONCE with the right
@@ -404,12 +419,12 @@ def detect(audio_path):
     return _detect_on("cpu", audio)
 
 
-def transcribe(audio_path, known_language=None):
+def transcribe(audio_path, known_language=None, music=False):
     audio = _decode_audio(audio_path)
     device = _select_device()
     if device != "cpu":
         try:
-            return _transcribe_on(device, audio, known_language)
+            return _transcribe_on(device, audio, known_language, music)
         except UnsupportedLanguage:
             raise  # not a device problem — CPU wouldn't help, and #65 gates it
         except Exception as exc:  # OOM / driver — CPU still works
@@ -417,7 +432,7 @@ def transcribe(audio_path, known_language=None):
                 f"faster-whisper on {device} failed ({exc}); retrying on CPU.\n"
             )
             sys.stderr.flush()
-    return _transcribe_on("cpu", audio, known_language)
+    return _transcribe_on("cpu", audio, known_language, music)
 
 
 def main():
@@ -426,6 +441,10 @@ def main():
     ap.add_argument(
         "--detect", action="store_true",
         help="only report the spoken language: {language, probability, zhAvg, zhMax}",
+    )
+    ap.add_argument(
+        "--music", action="store_true",
+        help="the audio is a song (the import's YouTube category): may pick a bigger model",
     )
     ap.add_argument(
         "--language",
@@ -438,7 +457,7 @@ def main():
         sys.stdout.write("\n")
         return
     try:
-        result = transcribe(args.audio, args.language)
+        result = transcribe(args.audio, args.language, args.music)
     except UnsupportedLanguage as exc:
         # Structured, machine-readable signal for server/import.mjs (see #65).
         json.dump(

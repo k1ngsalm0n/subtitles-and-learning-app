@@ -578,7 +578,7 @@ export async function handleImportUrl(req, res) {
           audioPath,
           onSpeechProgress,
           onSpeechSegment,
-          spokenZh ? "zh" : null,
+          { language: spokenZh ? "zh" : null, music: isMusic(meta) },
         );
         // Awaited later by whichever path consumes it; without this a
         // rejection during the OCR pass would surface as unhandled.
@@ -693,7 +693,7 @@ export async function handleImportUrl(req, res) {
       report,
       onSpeechProgress,
       onSpeechSegment,
-      spokenZh ? "zh" : null,
+      { language: spokenZh ? "zh" : null, music: isMusic(meta) },
     );
     const { subtitles, translation } = await withUploaderTranslation(
       whisperResult.subtitles,
@@ -746,7 +746,7 @@ async function getMediaMeta(url) {
   try {
     info = JSON.parse(result.stdout.trim());
   } catch {
-    return { title: "Imported media", language: "", manual: [], auto: [] };
+    return { title: "Imported media", language: "", manual: [], auto: [], categories: [] };
   }
   let language = String(info.language || "").toLowerCase();
   if (/^(na|none|null)$/i.test(language)) language = "";
@@ -755,7 +755,16 @@ async function getMediaMeta(url) {
     language,
     manual: Object.keys(info.subtitles || {}),
     auto: Object.keys(info.automatic_captions || {}),
+    categories: Array.isArray(info.categories) ? info.categories : [],
   };
+}
+
+// YouTube's own category. "Music" is what decides the bigger Whisper model on
+// Apple Silicon (transcribe.py --music): it separated every song tested from
+// every speech video (News & Politics, Education, Travel & Events), and medium
+// won on all the songs while dropping passages of speech in both news clips.
+export function isMusic(meta) {
+  return (meta.categories || []).some((c) => String(c).toLowerCase() === "music");
 }
 
 // Reduce a BCP-47-ish tag to its primary subtag: "ko-orig" -> "ko",
@@ -1368,13 +1377,13 @@ async function transcribeWithWhisper(
   report = null,
   onProgress = null,
   onSegment = null,
-  knownLanguage = null,
+  hints = {},
 ) {
   try {
     // The callbacks only apply when we start the transcription here. A promise
     // handed in was spawned with its own already attached.
     const speech = await (speechPromise ||
-      transcribeFastSegments(audioPath, onProgress, onSegment, knownLanguage));
+      transcribeFastSegments(audioPath, onProgress, onSegment, hints));
     return await finishFastTranscription(speech, report);
   } catch (err) {
     // Don't fall back to the CLI for a non-Chinese video — that would just
@@ -1476,10 +1485,16 @@ async function ocrCaptions(videoPath, onProgress = null) {
 // so the Traditional-Chinese prompt is applied without a second pass), JSON out.
 // Returns the raw timed segments; used directly by the OCR hybrid, which needs
 // them pre-SRT to interleave with caption segments.
-// `knownLanguage` "zh" skips transcribe.py's own detection: the import already
-// listened and was confident (spokenBase).
-async function transcribeFastSegments(audioPath, onProgress = null, onSegment = null, knownLanguage = null) {
-  const args = [TRANSCRIBE_SCRIPT, audioPath, ...(knownLanguage ? ["--language", knownLanguage] : [])];
+// `hints.language` "zh" skips transcribe.py's own detection: the import already
+// listened and was confident (spokenBase). `hints.music` lets it pick the
+// model it uses for songs (isMusic).
+async function transcribeFastSegments(audioPath, onProgress = null, onSegment = null, hints = {}) {
+  const args = [
+    TRANSCRIBE_SCRIPT,
+    audioPath,
+    ...(hints.language ? ["--language", hints.language] : []),
+    ...(hints.music ? ["--music"] : []),
+  ];
   const result = await runCommand(PYTHON_BIN, args, {
     timeoutMs: 30 * 60_000,
     onStderrLine:

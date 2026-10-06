@@ -138,3 +138,33 @@ class DetectLanguageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolveModelTest(unittest.TestCase):
+    """Which model "auto" loads. Apple Silicon gets medium on the CPU for music
+    only (as fast as small there, more accurate on every song tested); speech
+    keeps small, since medium dropped passages of both news clips audited."""
+
+    def resolve(self, system, machine, music=False, env=None):
+        from unittest import mock
+        import transcribe
+
+        with mock.patch("platform.system", return_value=system), \
+             mock.patch("platform.machine", return_value=machine), \
+             mock.patch.dict(os.environ, env or {}, clear=False):
+            if env is None:
+                os.environ.pop("WHISPER_MODEL", None)
+            return transcribe._resolve_model("cpu", music)
+
+    def test_apple_silicon_gets_medium_for_music_only(self):
+        self.assertEqual(self.resolve("Darwin", "arm64", music=True), "medium")
+        self.assertEqual(self.resolve("Darwin", "arm64", music=False), "small")
+
+    def test_other_cpus_keep_small_even_for_music(self):
+        self.assertEqual(self.resolve("Linux", "x86_64", music=True), "small")
+        self.assertEqual(self.resolve("Darwin", "x86_64", music=True), "small", "an Intel Mac")
+        self.assertEqual(self.resolve("Windows", "AMD64", music=True), "small")
+
+    def test_a_chosen_model_always_wins(self):
+        self.assertEqual(self.resolve("Darwin", "arm64", music=True, env={"WHISPER_MODEL": "small"}), "small")
+        self.assertEqual(self.resolve("Linux", "x86_64", env={"WHISPER_MODEL": "medium"}), "medium")

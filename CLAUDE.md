@@ -472,6 +472,22 @@ archs** (min sm_75); a GTX 10-series (Pascal, sm_61) needs the **cu126** wheel,
 whose bundled PTX JIT-compiles to sm_61 at runtime — verified working on a GTX
 1060. Check with `python -c "import torch; print(torch.cuda.is_available())"`.
 
+**Songs get the medium model on Apple Silicon.** "auto" picks small on a CPU
+because bigger models are slow there — but on Apple Silicon CTranslate2 runs
+on Accelerate, and on an M1 medium transcribed four songs in 65–88 s against
+small's ~85 s while cutting the character error rate against their real lyrics
+from 0.28 to 0.22 (better on all four; 10 of 15 known lines of a rap track
+against 3). **Music only**: the subtitle audit caught medium dropping whole
+passages of speech in both news clips (it wrote 字幕由 Amara.org 提供 over 16 s
+of narration), so speech keeps small everywhere. The import passes `--music`
+when YouTube's category is "Music" (`isMusic`), which separated every song
+tested from every speech video. Other CPUs weren't measured and keep small for
+both. `health.py` asks `transcribe._resolve_model` which models will load (both
+are shown), and `prefetch_models.py` downloads them — it used to fetch `base`,
+which nothing loads. Vocal separation was measured too and dropped: a band-pass
+filter and Demucs (htdemucs) each won one song and lost others, averaging worse
+than the plain audio (0.30 and 0.33 against 0.28).
+
 `npm install` is effectively a no-op (no third-party deps), but harmless to run.
 
 The two Python pieces are independent: install only yt-dlp if you just want URL
