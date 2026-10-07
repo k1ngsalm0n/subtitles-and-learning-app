@@ -84,7 +84,9 @@ lifting — speech-to-text and offline translation — runs through Python.
   Chinese only — romaji's long vowels look like first-tone marks. The classes
   are always rendered; Settings → Appearance → "Pinyin tone colours" sets
   `html[data-tones="off"]` (stored in `stele.toneColours`, applied in the
-  pre-paint script), so switching needs no re-render.
+  pre-paint script), so switching needs no re-render. Hovering a word, and the
+  karaoke sweep, keep its reading's tone colours — only the characters and
+  the box take the highlight.
 - **Word boundaries:** the same endpoint returns `words` beside `tokens` — the
   line cut into *clickable* units, which for Chinese is a different boundary
   from the per-character pinyin. jieba does the cutting, because the browser's
