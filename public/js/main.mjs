@@ -72,7 +72,7 @@ import {
   togglePlayback,
 } from "./player.mjs";
 import { studyAction } from "./shortcuts.mjs";
-import { percentOf, readImportStream } from "./importstream.mjs";
+import { setupVideos, enqueue, renderVideos, storedId } from "./videos.mjs";
 import {
   populateLanguageSelects,
   syncTranslateLangs,
@@ -113,8 +113,11 @@ const els = {
   videoBrowse: document.querySelector("#videoBrowse"),
   sourceUrl: document.querySelector("#sourceUrl"),
   queueUrl: document.querySelector("#queueUrl"),
+  videoList: document.querySelector("#videoList"),
+  videoListHead: document.querySelector("#videoListHead"),
+  videoSelectAll: document.querySelector("#videoSelectAll"),
+  videoDeleteSelected: document.querySelector("#videoDeleteSelected"),
   sourceStatus: document.querySelector("#sourceStatus"),
-  sourceElapsed: document.querySelector("#sourceElapsed"),
   transcript: document.querySelector("#transcript"),
   provisionalNote: document.querySelector("#provisionalNote"),
   subtitleCount: document.querySelector("#subtitleCount"),
@@ -148,8 +151,6 @@ const els = {
   cookiesTxt: document.querySelector("#cookiesTxt"),
   saveCookies: document.querySelector("#saveCookies"),
   cookieStatus: document.querySelector("#cookieStatus"),
-  progressWrap: document.querySelector("#progressWrap"),
-  progressFill: document.querySelector("#progressFill"),
   cardModal: document.querySelector("#cardModal"),
   cardModalTitle: document.querySelector("#cardModalTitle"),
   templateTrigger: document.querySelector("#templateTrigger"),
@@ -304,6 +305,19 @@ function init() {
   bindEvents();
   populateLanguageSelects(els);
   restoreSession();
+  // After the session, so the list knows which video is open.
+  setupVideos({
+    state,
+    saveSources,
+    els,
+    onOpen: (source) => openSource(source),
+    onDelete: (sources) => deleteSources(sources),
+    onReady: (source) =>
+      showToast(`“${source.title}” is ready.`, {
+        actions: [{ label: "Open", onClick: () => openSource(source) }],
+        duration: 15_000,
+      }),
+  });
   restoreUiState();
   renderAll(els);
   setupTranscriptDelegation(els);
@@ -370,8 +384,8 @@ function bindEvents() {
   });
   els.swapLangs.addEventListener("click", () => swapLanguages(els));
   els.translateButton.addEventListener("click", () => runTranslation(els));
-  els.queueUrl.addEventListener("click", () => importSourceUrl());
-  els.sourceUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") importSourceUrl(); });
+  els.queueUrl.addEventListener("click", addLinks);
+  els.sourceUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") addLinks(); });
   els.newCardButton.addEventListener("click", () => openCardModal());
   bindDeckEvents();
   els.flipCard.addEventListener("click", () => flipWithTurn(flipReviewCard));
@@ -1194,6 +1208,7 @@ function handleVideoInput(event) {
   state.wordTimings = [];
   // A local file isn't a library source; cards made from it carry no link.
   state.currentSourceId = null;
+  renderVideos();
   // A blob video can't be brought back after a reload, so drop any saved
   // import session — otherwise a refresh would resurrect the old imported
   // transcript over this local video.
@@ -1275,14 +1290,145 @@ function restoreSession() {
 // rather than on every timeupdate, to avoid hammering localStorage. Only the
 // currently loaded import owns the saved session, so guard on the source id.
 function persistPlaybackTime() {
+  rememberPosition();
   const session = loadSession();
   if (!session || session.sourceId !== state.currentSourceId) return;
   session.time = els.video.currentTime || 0;
   saveSession(session);
 }
 
-// Jump back to the moment a card came from: seek if the source is already
-// loaded, otherwise reload its downloaded video first.
+// Where the open video is, kept on its entry in the Videos list, so switching
+// back to it resumes there.
+function rememberPosition() {
+  const source = state.sources.find((s) => s.id === state.currentSourceId);
+  if (!source || !els.video.getAttribute("src")) return;
+  source.lastTime = els.video.currentTime || 0;
+  saveSources();
+}
+
+// Paste box → queue (videos.mjs). One link or many.
+function addLinks() {
+  const added = enqueue(els.sourceUrl.value);
+  if (!added) {
+    setSourceStatus("Paste a link that starts with http:// or https://.", els);
+    return;
+  }
+  els.sourceUrl.value = "";
+  setSourceStatus(
+    added === 1 ? "Added to the queue." : `Added ${added} videos to the queue.`,
+    els,
+  );
+}
+
+// Delete videos from the Videos list — one from its row's button, or every
+// ticked one at once: each one's entry, saved subtitles and downloaded video.
+// Cards made from them stay — words, meanings, review history — and only lose
+// their Replay, which the one confirmation says before anything goes. A video
+// the server couldn't delete stays in the list (and stays ticked), and the
+// rest still go.
+async function deleteSources(sources) {
+  const many = sources.length > 1;
+  const ids = new Set(sources.map((s) => s.id));
+  const cards = state.cards.filter((card) => ids.has(card.sourceId)).length;
+  const what = many ? `${sources.length} videos` : `“${sources[0].title || sources[0].url}”`;
+  const note = cards
+    ? `\n\n${cards === 1 ? "1 flashcard comes" : `${cards} flashcards come`} from ${many ? "them" : "it"}. ${cards === 1 ? "It stays" : "They stay"}, but without “Replay video”.`
+    : "";
+  if (!confirm(`Delete ${what}?\n\n${many ? "Their" : "Its"} saved subtitles and downloaded ${many ? "videos are" : "video is"} removed from this computer.${note}`)) {
+    return;
+  }
+  const deleted = [];
+  for (const source of sources) {
+    const id = storedId(source);
+    if (id) {
+      const res = await fetch(`/api/library/${id}`, { method: "DELETE" }).catch(() => null);
+      if (!res?.ok) continue;
+    }
+    deleted.push(source);
+  }
+  if (deleted.some((s) => s.id === state.currentSourceId)) {
+    // It was on screen: clear the player and go back to the sample lesson,
+    // and forget it as the session a reload would bring back.
+    state.currentSourceId = null;
+    els.video.removeAttribute("src");
+    els.video.load();
+    els.emptyPlayer.classList.remove("hidden");
+    state.wordTimings = [];
+    clearSession();
+    loadSubtitles(sampleOriginal, sampleTranslation);
+  }
+  const gone = new Set(deleted);
+  state.sources = state.sources.filter((s) => !gone.has(s));
+  saveSources();
+  renderVideos();
+  renderAll(els);
+  const failed = sources.length - deleted.length;
+  if (!deleted.length) {
+    showToast("Couldn't delete — the server didn't answer. Nothing was removed.");
+  } else if (failed) {
+    showToast(`Deleted ${deleted.length} of ${sources.length} videos. The server didn't answer for the rest, which are still in the list.`);
+  } else {
+    showToast(many ? `Deleted ${deleted.length} videos.` : `Deleted “${deleted[0].title || deleted[0].url}”.`);
+  }
+}
+
+// Open a video from the Videos list: its stored video in the player and its
+// saved transcript (server/library.mjs), resuming where it was left — or at
+// `at`, for a card's Replay. Nothing is imported again.
+async function openSource(source, { at = null, play = false } = {}) {
+  if (!source?.libraryId) return false;
+  rememberPosition();
+  let entry;
+  try {
+    const res = await fetch(`/api/library/${source.libraryId}`);
+    entry = await res.json();
+    if (!res.ok) throw new Error(entry.error || "Couldn't open that video.");
+  } catch (err) {
+    showToast(err.message);
+    return false;
+  }
+  switchView("study");
+  enterImagesMode?.(false);
+  const start = at ?? source.lastTime ?? 0;
+  if (entry.videoUrl) {
+    els.video.src = entry.videoUrl;
+    els.emptyPlayer.classList.add("hidden");
+    els.video.addEventListener(
+      "loadedmetadata",
+      () => {
+        els.video.currentTime = start;
+        if (play) els.video.play();
+      },
+      { once: true },
+    );
+    els.video.addEventListener(
+      "error",
+      () => showToast("This video is no longer stored — import it again to watch it. Its subtitles are still here."),
+      { once: true },
+    );
+  }
+  state.currentSourceId = source.id;
+  setProvisional(false);
+  loadSubtitles(entry.subtitles || "", entry.translation || "");
+  state.wordTimings = Array.isArray(entry.words) ? entry.words : [];
+  if (entry.language) {
+    const lang = entry.language.toLowerCase();
+    state.learningLang = lang === "chinese" ? "zh" : lang;
+    syncTranslateLangs(els);
+  }
+  // The session is what a reload brings back (restoreSession).
+  saveSession({
+    sourceId: source.id,
+    original: entry.subtitles || "",
+    translation: entry.translation || "",
+    learningLang: state.learningLang,
+    words: state.wordTimings.length <= MAX_REMEMBERED_WORDS ? state.wordTimings : [],
+    time: start,
+  });
+  renderVideos();
+  return true;
+}
+
 // "Find each word in its video": every card with a stored video, placed by
 // listening to it (cardlocate.mjs). A video heard before answers at once; one
 // that hasn't been takes about as long as transcribing it, so say how far in.
@@ -1346,6 +1492,8 @@ async function locateUncheckedCards() {
   }
 }
 
+// Jump back to the moment a card came from: seek if the source is already
+// open, otherwise open it from the library — video and subtitles — first.
 function jumpToSource(sourceId, time) {
   const source = state.sources.find((s) => s.id === sourceId);
   if (!source) {
@@ -1359,6 +1507,11 @@ function jumpToSource(sourceId, time) {
   };
   if (state.currentSourceId === sourceId && els.video.src) {
     seek();
+    return;
+  }
+  // A video in the library opens with its subtitles, at the card's moment.
+  if (source.libraryId) {
+    openSource(source, { at: time || 0, play: true });
     return;
   }
   if (source.videoUrl) {
@@ -1382,18 +1535,6 @@ function jumpToSource(sourceId, time) {
 
 
 
-function showProgress(message, percent) {
-  els.progressWrap.classList.add("visible");
-  setSourceStatus(message, els);
-  if (percent === undefined) {
-    els.progressFill.style.width = "";
-    els.progressFill.classList.add("indeterminate");
-  } else {
-    els.progressFill.classList.remove("indeterminate");
-    els.progressFill.style.width = `${percent}%`;
-  }
-}
-
 // Mark the transcript as still-being-decoded, or clear the mark.
 //
 // These lines are real Whisper output, but they have not been merged with the
@@ -1407,172 +1548,6 @@ function setProvisional(on, note = "Still transcribing — these lines aren't fi
   if (on) els.provisionalNote.textContent = note;
 }
 
-function hideProgress() {
-  els.progressFill.classList.remove("indeterminate");
-  els.progressWrap.classList.remove("visible");
-  els.sourceElapsed.textContent = "";
-}
-
-async function importSourceUrl() {
-  const url = els.sourceUrl.value.trim();
-  if (!url) return;
-
-  const source = {
-    id: crypto.randomUUID(),
-    url,
-    status: "importing",
-    createdAt: Date.now(),
-  };
-  state.sources.unshift(source);
-  saveSources();
-  els.queueUrl.disabled = true;
-  // A previous import that failed mid-decode leaves its mark up; this one owns
-  // the transcript from here.
-  setProvisional(false);
-
-  // The server streams its real stages as newline-delimited JSON (#15). This
-  // used to be a row of setTimeouts guessing at them — "Extracting
-  // subtitles..." after 4s, "Downloading audio..." after 8s — which on a slow
-  // import cheerfully said "Almost done" while Whisper still had minutes left.
-  //
-  // The percentages went with them, on the grounds that there was no honest
-  // one: the work is dominated by transcription, whose length wasn't known
-  // until it finished. That objection has since been answered for the steps
-  // that actually take the time, so a percentage is back \u2014 but only where the
-  // server sends a real denominator with it.
-  //
-  // The two long steps each count something exact: OCR knows it is on frame
-  // 212 of 541 (the frames are extracted before any are read), and Whisper
-  // knows how many seconds of audio it has decoded. Neither is a prediction of
-  // remaining *time* \u2014 a Whisper window that retries at a hotter temperature
-  // costs more than a clean one \u2014 so the bar tracks work done, and the elapsed
-  // clock stays next to it. Every other step still sends no numbers and still
-  // gets the indeterminate bar, which is the honest answer for a download of
-  // unknown size or a translation batch.
-  const startedAt = Date.now();
-  let stage = "Starting\u2026";
-  let progress = null;
-  const elapsed = () => {
-    const secs = Math.floor((Date.now() - startedAt) / 1000);
-    return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
-  };
-  const paint = () => {
-    // undefined, not null: showProgress treats only undefined as "no number",
-    // and 0% is a real reading that must draw an empty bar rather than revert
-    // to the indeterminate sweep.
-    showProgress(stage, progress === null ? undefined : percentOf(progress));
-    els.sourceElapsed.textContent = elapsed();
-  };
-  paint();
-  const ticker = setInterval(paint, 1000);
-  const clearProgressTimers = () => clearInterval(ticker);
-
-  try {
-    const response = await fetch("/api/import-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-
-    // A failure before the stream opens is still a plain JSON error response.
-    if (!response.ok) {
-      const failed = await response.json().catch(() => ({}));
-      throw new Error(failed.error || "Import failed.");
-    }
-
-    const result = await readImportStream(
-      response,
-      (message, stageProgress) => {
-        stage = message;
-        progress = stageProgress;
-        paint();
-      },
-      (subtitles) => {
-        // Provisional, so no translation and no session save: this transcript
-        // is going to be replaced, and persisting it would survive a reload
-        // that the real result never reached.
-        setProvisional(true);
-        loadSubtitles(subtitles, "");
-      },
-    );
-
-    clearProgressTimers();
-    showProgress("Loading results\u2026");
-    els.sourceElapsed.textContent = elapsed();
-
-    if (result.videoUrl) {
-      els.video.src = result.videoUrl;
-      els.emptyPlayer.classList.add("hidden");
-      // Persisted so a card's "jump back" control can reload the video later.
-      source.videoUrl = result.videoUrl;
-    }
-
-    // New cards link back to this source + the moment they were made.
-    state.currentSourceId = source.id;
-
-    // The authoritative transcript: merged, refined, script-converted and
-    // translated. It replaces any provisional lines wholesale, so the mark
-    // comes off here and nowhere earlier.
-    setProvisional(false);
-    loadSubtitles(result.subtitles || "", result.translation || "");
-    state.wordTimings = result.words || [];
-    if (result.language) {
-      // Drive word lookups off the imported video's language. Whisper may
-      // report "chinese"; normalize it to the "zh" code the dictionary uses.
-      const lang = result.language.toLowerCase();
-      state.learningLang = lang === "chinese" ? "zh" : lang;
-      syncTranslateLangs(els);
-    }
-    // Remember this loaded video + transcript so a reload restores it instead
-    // of the sample (see restoreSession).
-    saveSession({
-      sourceId: source.id,
-      original: result.subtitles || "",
-      translation: result.translation || "",
-      learningLang: state.learningLang,
-      // Kept with the session rather than the source list: it is one video's
-      // worth, and the sources list holds every video ever imported.
-      words:
-        state.wordTimings.length <= MAX_REMEMBERED_WORDS ? state.wordTimings : [],
-    });
-    source.status =
-      result.source === "whisper"
-        ? "transcribed"
-        : result.source?.startsWith("ocr")
-          ? "on-screen captions read"
-          : "captions loaded";
-    source.title = result.title || "";
-    els.sourceUrl.value = "";
-    showProgress("", 100);
-    const langNote = result.language ? ` (${result.language})` : "";
-    setSourceStatus(
-      result.source === "whisper"
-        ? `Transcribed with Whisper${langNote}.`
-        : result.source === "ocr+whisper"
-          ? "Read the on-screen captions and transcribed the speech between them."
-          : result.source === "ocr"
-            ? "Read the on-screen captions with OCR."
-            : "Loaded existing subtitles.",
-      els,
-    );
-    setTimeout(hideProgress, 2000);
-  } catch (error) {
-    clearProgressTimers();
-    source.status = "error";
-    source.error = error.message;
-    setSourceStatus(error.message, els);
-    hideProgress();
-    // Any provisional lines already on screen outlive the failure. They stay —
-    // a partial transcript is still worth reading — but the mark stays too,
-    // and says why, rather than letting unfinished output pass for the result.
-    if (state.subtitles.length && els.provisionalNote.hidden === false) {
-      setProvisional(true, "Import didn't finish — these lines are unverified.");
-    }
-  } finally {
-    els.queueUrl.disabled = false;
-    saveSources();
-    }
-}
 
 function setCookieMode(mode) {
   els.cookieModeNone.classList.toggle("active", mode === "none");

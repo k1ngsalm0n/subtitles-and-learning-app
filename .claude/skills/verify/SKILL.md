@@ -15,9 +15,11 @@ npm run sandbox    # → http://localhost:3100
 visitor: the page's backup scheduler posts whatever cards the test seeded into
 `~/.local/share/stele/backups`, only twenty snapshots are kept, and test junk
 once pushed real backups out. The sandbox (`scripts/sandbox.mjs`) runs on its
-own port with backups, settings and the chat-model key in a throwaway folder,
-deleted on exit, and shares only the big caches (videos, word timings, models).
-It has no chat-model key, so mock `/api/lookup` where a meaning matters.
+own port with backups, settings, the chat-model key and the Videos library in a
+throwaway folder, deleted on exit. The reader's videos are linked in (deleting
+one in a test removes only the link); word timings and models are shared.
+"Offline only" is pre-chosen, so there's no first-visit dialog — and no
+chat-model key, so mock `/api/lookup` where a meaning matters.
 
 Belt and braces in every Playwright script, even against the sandbox:
 

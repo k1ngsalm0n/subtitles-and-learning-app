@@ -17,6 +17,7 @@ import { ytdlpCookieArgs } from "./cookies.mjs";
 // VENV_YTDLP is for #131's 403 message, which asks whether the venv's copy is
 // the one in use; it lived in this file before ytdlp.mjs took it over.
 import { YTDLP_BIN, VENV_YTDLP, waitForYtdlpUpdate } from "./ytdlp.mjs";
+import { saveToLibrary } from "./library.mjs";
 import { importPlan, probeMachine } from "./device.mjs";
 // The browser owns this protocol's parsing, and percentOf is part of it. Shared
 // rather than copied: a second definition is the "keep in sync" comment that
@@ -396,6 +397,33 @@ function progressStream(res) {
   };
 }
 
+// A finished import's library entry: the result plus the video's length, read
+// off the stored file (null when there is none or ffprobe can't say).
+async function remember(url, result) {
+  let duration = null;
+  const file = result.videoUrl ? path.join(VIDEO_DIR, path.basename(result.videoUrl)) : "";
+  if (file) {
+    const probe = await runCommand(
+      "ffprobe",
+      ["-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", file],
+      { timeoutMs: 30_000, allowFailure: true },
+    );
+    const seconds = Number.parseFloat(probe.stdout);
+    if (Number.isFinite(seconds)) duration = Math.round(seconds);
+  }
+  return saveToLibrary(videoCacheId(url), {
+    url,
+    title: result.title || "",
+    videoUrl: result.videoUrl || "",
+    subtitles: result.subtitles || "",
+    translation: result.translation || "",
+    words: result.words || [],
+    language: result.language || "",
+    source: result.source || "",
+    duration,
+  });
+}
+
 // Imports in flight, so the yt-dlp updater can hold off while one is running.
 let importsRunning = 0;
 export function importInProgress() {
@@ -409,6 +437,18 @@ export async function handleImportUrl(req, res) {
 
   const workspace = await mkdtemp(path.join(tmpdir(), "stele-import-"));
   const report = progressStream(res);
+  // Every finished import goes into the library (library.mjs), so the Videos
+  // list can open it again without importing it again. The reply waits for the
+  // save and names the entry; a failed save still sends the result.
+  const send = report.done;
+  report.done = (result) => {
+    remember(url.href, result)
+      .then((saved) => send(saved ? { ...result, libraryId: saved.id, duration: saved.duration } : result))
+      .catch((err) => {
+        console.warn(`Couldn't save the import to the library (${err.message})`);
+        send(result);
+      });
+  };
   importsRunning++;
   try {
     await ensureCommand(

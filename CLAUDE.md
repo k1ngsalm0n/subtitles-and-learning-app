@@ -106,6 +106,36 @@ lifting — speech-to-text and offline translation — runs through Python.
   the moment it is read, so identity-matching lost the pinyin whenever
   translation won that race.
 
+**The Videos list: an import queue and a library.** Under the player
+(`videos.mjs`). Pasting one link or several (a multi-line paste lands in the
+one-line box glued together, so `parseUrls` splits on each `http`) queues
+them; they import **one at a time in the background** — each is a full
+download and transcription — with no provisional lines, because the
+transcript on screen belongs to whatever the reader is studying. A finished
+import waits in the list with an "Open" toast instead of replacing the
+screen. Every finished import is saved by the server (`library.mjs`,
+`~/.local/share/stele/library/<videoCacheId>.json`: subtitles, translation,
+word timings, title, duration), so opening a row brings back player and
+transcript without importing again, and a card's Replay opens its video *with*
+its subtitles. Each entry remembers where playback stopped (`lastTime`). The
+queue lives in `state.sources` (statuses `waiting|importing|ready|failed`); an
+import cut short by a reload is waiting again on the next load. Sources from
+before the list have no saved transcript and offer "Import again", keeping
+their id so their cards still point at them. The sandbox gets its own library.
+Every deletable row also has a checkbox: tick several (shift-click for a range,
+or the select-all box in the list's header) and "Delete selected (N)" removes
+them together, under one confirmation; one the server can't delete stays listed
+and ticked while the rest go. **Delete** (always shown — hiding it until hover
+made it unfindable) removes a finished video's
+entry, its library file and its downloaded video (`DELETE /api/library/<id>`:
+only files named `<id>.*`, the id checked first). Its cards stay — words,
+meanings, review history — and lose only Replay; the confirmation says how
+many. One still importing can't be deleted (the server can't stop halfway);
+waiting and failed ones are just removed from the queue.
+After changing anything under `server/`, the reader's running app has to be
+*restarted*: a page reload picks up new page code, but the old server keeps
+answering, so a new endpoint just returns 405 ("the server didn't answer").
+
 **Listening for the language.** Choosing a subtitle track means knowing which
 one is the original, and YouTube's metadata often names no language (music
 videos, older uploads). When it doesn't, the video has human-made tracks, and
@@ -534,9 +564,12 @@ to pause while it happens.
 ## Testing against a running app: the sandbox
 
 `npm run sandbox` (`scripts/sandbox.mjs`) runs the app on port 3100 with
-backups, settings and the chat-model key in a throwaway folder (deleted on
-exit), sharing only the big caches — videos, word timings, models — and with
-yt-dlp's self-update off. **Browser tests and audits go there, never to the
+backups, settings, the chat-model key ("Offline only" pre-chosen, so the
+first-visit dialog stays shut) and the Videos list's library in a throwaway
+folder (deleted on exit), with yt-dlp's self-update off. The reader's
+downloaded videos are *linked* into the sandbox's own video folder — the same
+files, no copying — so the Videos list's Delete in a test removes only the
+link. Word timings and models are shared; a test only adds to them. **Browser tests and audits go there, never to the
 reader's app on 3000**: a test browser is a real visitor, its backup scheduler
 posted seeded cards into the reader's backup folder, and with twenty snapshots
 kept, the junk pushed real ones out. Block `/api/backup` in test scripts

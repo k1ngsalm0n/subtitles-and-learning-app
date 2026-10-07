@@ -7,20 +7,35 @@
 //
 //   * port 3100 (SANDBOX_PORT), so the reader's app keeps running, and a test
 //     browser's localStorage belongs to a different origin from theirs;
-//   * personal data — backups, settings, the chat-model key (llm.json) — in a
+//   * personal data — backups, settings, the chat-model key (llm.json), the
+//     Videos list's saved imports — in a
 //     throwaway folder, empty at start and deleted on exit (SANDBOX_KEEP=1 to
 //     keep it, SANDBOX_DIR to reuse one);
-//   * the big caches shared — downloaded videos, word timings, voices, models —
-//     so a test doesn't download everything again, and anything it fetches is
-//     there for the reader too;
+//   * the reader's downloaded videos *linked* into the sandbox's own video
+//     folder — hard links where possible, symlinks otherwise — so a test has
+//     them without downloading again, but deleting one in the sandbox (the
+//     Videos list's Delete) removes only the link, never the reader's file, and
+//     anything a test downloads stays in the sandbox and goes with it;
+//   * the other big caches shared — word timings, voices, models — which a test
+//     only ever adds to;
 //   * yt-dlp's self-update off, so a test never replaces the reader's copy.
 //
-// With no chat-model key, word lookups use the offline dictionary; mock
+// With no chat-model key ("Offline only" is pre-chosen, so the first-visit
+// dialog stays shut), word lookups use the offline dictionary; mock
 // /api/lookup in tests that need a meaning.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  existsSync,
+  linkSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,6 +48,39 @@ const prefs = path.join(dir, "prefs");
 mkdirSync(backups, { recursive: true });
 mkdirSync(prefs, { recursive: true });
 
+// The reader's videos, linked in.
+const videos = path.join(dir, "videos");
+mkdirSync(videos, { recursive: true });
+const realVideos =
+  process.env.STELE_VIDEO_DIR ||
+  path.join(process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "stele", "videos");
+let names = [];
+try {
+  names = readdirSync(realVideos);
+} catch {
+  // no videos yet
+}
+for (const name of names) {
+  const from = path.join(realVideos, name);
+  const to = path.join(videos, name);
+  if (existsSync(to)) continue;
+  try {
+    linkSync(from, to);
+  } catch {
+    try {
+      symlinkSync(from, to);
+    } catch {
+      // can't link this one: the sandbox downloads it again if a test needs it
+    }
+  }
+}
+// "Offline only", already chosen: a fresh sandbox has no chat-model key, and
+// without a saved choice the app opens its "Get clear word meanings" dialog on
+// first visit — over the page every test is trying to click. Tests of the
+// dialog itself open it directly.
+const llm = path.join(prefs, "llm.json");
+if (!existsSync(llm)) writeFileSync(llm, JSON.stringify({ provider: "offline" }));
+
 const server = spawn(process.execPath, [path.join(ROOT, "server", "index.mjs")], {
   cwd: ROOT,
   stdio: "inherit",
@@ -42,6 +90,8 @@ const server = spawn(process.execPath, [path.join(ROOT, "server", "index.mjs")],
     STELE_SANDBOX: "1",
     STELE_BACKUP_DIR: backups,
     STELE_PREFS_DIR: prefs,
+    STELE_LIBRARY_DIR: path.join(dir, "library"),
+    STELE_VIDEO_DIR: videos,
     STELE_YTDLP_AUTOUPDATE: "off",
   },
 });
