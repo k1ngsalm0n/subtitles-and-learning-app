@@ -127,6 +127,12 @@ is supported". With several human Chinese tracks, all are fetched and the most
 purely Chinese one wins (`chineseShare`): a channel's bare `zh` track can carry
 pinyin and English on every line.
 
+**The title is not a hint.** Putting the video's title in Whisper's prompt
+(`本片標題：…`) was measured and dropped: on the four lyric-checked songs the
+character error rate went from 0.22 to 0.25 (one better, two worse), and on a
+news clip titled 「小英受邀演講…」 it still wrote 蔣英, while losing a line and an
+English word. It only helped where the title *is* the chorus (八方來財).
+
 **The uploader's English over a transcript.** A video with no usable source
 track is transcribed, but it may still carry human-made English subtitles (a
 Chinese song with the uploader's translated lyrics). Those are fetched beside
@@ -524,6 +530,17 @@ The models (~2.4 GB NLLB + a Whisper model) live in `~/.cache/huggingface` and
 the Whisper cache. `npm run sync` prefetches them up front; if you skipped that,
 the first translation/transcription downloads them instead and the app appears
 to pause while it happens.
+
+## Testing against a running app: the sandbox
+
+`npm run sandbox` (`scripts/sandbox.mjs`) runs the app on port 3100 with
+backups, settings and the chat-model key in a throwaway folder (deleted on
+exit), sharing only the big caches — videos, word timings, models — and with
+yt-dlp's self-update off. **Browser tests and audits go there, never to the
+reader's app on 3000**: a test browser is a real visitor, its backup scheduler
+posted seeded cards into the reader's backup folder, and with twenty snapshots
+kept, the junk pushed real ones out. Block `/api/backup` in test scripts
+anyway. `.claude/skills/verify/SKILL.md` has the recipe.
 
 ## Tests
 

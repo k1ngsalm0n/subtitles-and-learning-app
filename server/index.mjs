@@ -151,6 +151,14 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, "127.0.0.1", () => {
   console.log(`Stele running at http://localhost:${PORT}`);
+  // scripts/sandbox.mjs: say so, and where its throwaway data lives, so a
+  // test run can never be mistaken for the reader's app.
+  if (process.env.STELE_SANDBOX === "1") {
+    console.log(
+      `SANDBOX — backups and settings in ${path.dirname(process.env.STELE_BACKUP_DIR || "")}; ` +
+        "the reader's own data is not touched.",
+    );
+  }
   // Without the venv the app still opens, and pinyin, Traditional/Simplified,
   // transcription and screenshot reading each fail one at a time, in the log,
   // with nothing on screen. Say it once, up front, with the fix.
