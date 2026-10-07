@@ -794,6 +794,16 @@ rt {
 :where(:root[data-tones="off"]) .tone3,
 :where(:root[data-tones="off"]) .tone4,
 :where(:root[data-tones="off"]) .tone5 { color: var(--muted); }
+/* Hovering a word, or the karaoke sweep reaching it, still lights it up — the
+   tint, the outline, the characters — but the reading keeps each syllable's
+   tone colour: the colour is the point of the reading, and both used to wash
+   it to one colour. Only while tone colours are on; off, they take the reading
+   as before. */
+:root:not([data-tones="off"]) :is(.word:hover, .word.spoken) rt.tone1 { color: var(--tone1); }
+:root:not([data-tones="off"]) :is(.word:hover, .word.spoken) rt.tone2 { color: var(--tone2); }
+:root:not([data-tones="off"]) :is(.word:hover, .word.spoken) rt.tone3 { color: var(--tone3); }
+:root:not([data-tones="off"]) :is(.word:hover, .word.spoken) rt.tone4 { color: var(--tone4); }
+:root:not([data-tones="off"]) :is(.word:hover, .word.spoken) rt.tone5 { color: var(--tone5); }
 
 /* Cards view */
 /* Review is the main event here, so it takes the wider flexible column and the
