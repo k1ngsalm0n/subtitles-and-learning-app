@@ -545,35 +545,82 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .url-row input, .search-box { flex: 1 1 180px; min-width: 0; }
 .source-status-row { flex: 1 1 100%; display: flex; align-items: baseline; gap: 8px; }
 .source-status { flex: 1 1 auto; color: var(--muted); min-height: 18px; font-size: 13px; }
-/* tabular-nums so the width doesn't twitch as the digits change — a clock that
-   jiggles the layout once a second is worse than no clock. */
-.source-elapsed {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+/* The Videos list (videos.mjs): the import queue and every imported video. */
+.video-list {
+  flex: 1 1 100%;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
 }
-.progress-wrap { flex: 1 1 100%; display: none; }
-.progress-wrap.visible { display: block; }
-.progress-bar {
-  height: 6px;
-  border-radius: 3px;
+.video-list[hidden] { display: none; }
+.video-list-head {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.video-list-head[hidden] { display: none; }
+.video-select-all { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.video-delete-selected { height: 26px; padding: 0 10px; font-size: 12px; }
+.video-delete-selected:not(:disabled):hover { color: var(--danger); border-color: var(--danger); }
+.video-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px 12px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.video-row.video-ready { color: var(--text); cursor: pointer; }
+.video-row.video-ready:hover,
+.video-row.video-ready:focus-visible { background: var(--surface-2); outline: none; }
+.video-row.current { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.video-mark { color: var(--accent); font-size: 10px; }
+.video-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-status { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+.video-failed .video-status { color: var(--danger); }
+.video-actions { display: flex; gap: 4px; }
+.video-delete:hover { color: var(--danger); border-color: var(--danger); }
+.video-actions:empty { display: none; }
+.video-action {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+/* A hairline under the row being imported, its width the work done. */
+.video-select,
+.video-select-all input { margin: 0; width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
+/* Ticked stays tinted under the pointer too, so it's clear what will go. */
+.video-row.selected,
+.video-row.selected:hover { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.video-progress {
+  grid-column: 3 / -1;
+  height: 3px;
+  border-radius: 2px;
   background: var(--surface-3);
   overflow: hidden;
-  margin-top: 6px;
 }
-.progress-bar-fill {
+.video-progress::after {
+  content: "";
+  display: block;
   height: 100%;
-  border-radius: 3px;
+  width: var(--done, 0%);
   background: var(--accent);
-  width: 0%;
   transition: width 0.4s ease;
 }
-.progress-bar-fill.indeterminate {
-  width: 40%;
-  animation: indeterminate 1.4s ease-in-out infinite;
-}
+.video-progress.indeterminate::after { width: 40%; animation: indeterminate 1.4s ease-in-out infinite; }
 @keyframes indeterminate {
   0% { transform: translateX(-100%); }
   50% { transform: translateX(180%); }
@@ -2576,7 +2623,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <input id="videoInput" type="file" accept="video/*" hidden />
             </div>
             <div class="url-row">
-              <input id="sourceUrl" type="url" placeholder="Paste a media URL" />
+              <input id="sourceUrl" type="text" inputmode="url" placeholder="Paste one or more video links" />
               <button id="videoBrowse" class="icon-only" type="button"
                       title="Open a video from your files"
                       aria-label="Open a video from your files">
@@ -2585,20 +2632,21 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                   <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17.5z" />
                 </svg>
               </button>
-              <button id="queueUrl" type="button">Import</button>
+              <button id="queueUrl" type="button" title="Add to the queue — imports run one at a time in the background">Import</button>
               <!-- Takes the URL box's place in Images mode: the row stays, so
                    the panel keeps its height and nothing shifts. -->
               <button id="imageBrowse" type="button" hidden>Choose a file…</button>
               <div class="source-status-row">
                 <p id="sourceStatus" class="source-status" role="status" aria-live="polite"></p>
-                <!-- Outside the live region on purpose: this ticks every
-                     second, and a screen reader reading the clock aloud each
-                     time would bury the stage name it is meant to accompany. -->
-                <span id="sourceElapsed" class="source-elapsed"></span>
               </div>
-              <div id="progressWrap" class="progress-wrap">
-                <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>
+              <div id="videoListHead" class="video-list-head" hidden>
+                <label class="video-select-all">
+                  <input id="videoSelectAll" type="checkbox" aria-label="Select every video that can be deleted" />
+                  <span>Videos</span>
+                </label>
+                <button id="videoDeleteSelected" type="button" class="video-delete-selected" disabled>Delete selected</button>
               </div>
+              <ul id="videoList" class="video-list" aria-label="Videos" hidden></ul>
             </div>
           </section>
 
