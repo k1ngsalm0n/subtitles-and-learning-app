@@ -5,14 +5,33 @@ description: Build/launch/drive recipe for verifying frontend or server changes 
 
 # Verifying this app
 
-## Launch
+## Launch — always the sandbox, never the reader's app
 
 ```bash
-npm start          # → http://localhost:3000 (plain npm start — NOT node --watch)
+npm run sandbox    # → http://localhost:3100
+```
+
+**Never drive the reader's own server on port 3000.** A test browser is a real
+visitor: the page's backup scheduler posts whatever cards the test seeded into
+`~/.local/share/stele/backups`, only twenty snapshots are kept, and test junk
+once pushed real backups out. The sandbox (`scripts/sandbox.mjs`) runs on its
+own port with backups, settings and the chat-model key in a throwaway folder,
+deleted on exit, and shares only the big caches (videos, word timings, models).
+It has no chat-model key, so mock `/api/lookup` where a meaning matters.
+
+Belt and braces in every Playwright script, even against the sandbox:
+
+```python
+page.route("**/api/backup*", lambda r: r.abort())
 ```
 
 No build step; frontend is static files in `public/` served by the stdlib
-Node server. Kill the server when done (`kill <pid>` of `node server/index.mjs`).
+Node server. Stop the sandbox when done (Ctrl-C, or kill the
+`node scripts/sandbox.mjs` process) — killing only its child server leaves the
+folder behind.
+
+For anything that compares imports (the subtitle audit), point it at the
+sandbox too: `--server http://localhost:3100`.
 
 ## Drive the GUI (headless)
 
@@ -24,7 +43,7 @@ uv pip install --python $SCRATCH/pw-venv/bin/python playwright
 $SCRATCH/pw-venv/bin/python -m playwright install chromium   # ~115 MB, cached in ~/.cache/ms-playwright
 ```
 
-Then a sync-API Playwright script: `goto http://localhost:3000/`,
+Then a sync-API Playwright script: `goto http://localhost:3100/`,
 `click("#sampleButton")` loads the 3-line bilingual sample subtitles.
 For a real video, generate one and feed the file input:
 
@@ -48,6 +67,9 @@ blocked; evaluate-play works headless because chromium mutes).
   line), mini player (scroll down with a video loaded →
   `#playerWrap.mini`, drag via `#miniDrag`, position persists in
   localStorage `stele.miniPlayerPos`), transcript word click →
-  word bubble (needs LLM key in `.env` for real lookups).
+  word bubble (mock `/api/lookup` in the sandbox).
+- The karaoke loop resets `.spoken` every frame, so a class added by hand is
+  gone by the next step: add it and read the computed style in one
+  `page.evaluate`.
 - Import/transcribe/translate flows need the Python venv + models —
   verify those against a short local file, not a URL, when possible.
