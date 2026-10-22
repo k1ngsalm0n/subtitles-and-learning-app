@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stele Phone Test</title>
+<style>
+  :root {
+    --bg: #f7f6f2; --surface: #ffffff; --text: #1d1d1b; --muted: #6b6a65;
+    --line: #dddbd3; --accent: #b4462e; --ok: #2f7d4f; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161614; --surface: #1f1f1c; --text: #ecebe6; --muted: #a3a29b;
+      --line: #34332e; --accent: #e07a5f; --ok: #6cc28e; --bad: #f28b82;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161614; --surface: #1f1f1c; --text: #ecebe6; --muted: #a3a29b;
+    --line: #34332e; --accent: #e07a5f; --ok: #6cc28e; --bad: #f28b82;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: .95rem; }
+  section {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; margin-bottom: 14px;
+  }
+  h2 { font-size: 1rem; margin: 0 0 10px; }
+  label { display: block; font-size: .9rem; color: var(--muted); margin-bottom: 6px; }
+  input[type="password"], input[type="text"] {
+    width: 100%; padding: 12px; font-size: 16px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  button, .file {
+    appearance: none; border: 0; border-radius: 10px; padding: 12px 16px;
+    font: inherit; font-weight: 600; background: var(--accent); color: #fff;
+    min-height: 44px; cursor: pointer; display: inline-flex; align-items: center;
+  }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  .file input { display: none; }
+  .hint { font-size: .85rem; color: var(--muted); margin: 8px 0 0; }
+  #status { font-weight: 600; margin: 0; }
+  #status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  td { padding: 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 12px; }
+  #lines { list-style: none; margin: 0; padding: 0; }
+  #lines li { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 1.05rem; }
+  #lines time { display: block; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  pre {
+    white-space: pre-wrap; word-break: break-word; font-size: .78rem; margin: 0;
+    max-height: 240px; overflow: auto; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Stele phone test</h1>
+  <p class="sub">Checks whether this phone can pull the audio out of a video and get Chinese subtitles back from Groq. Nothing is uploaded anywhere except to Groq.</p>
+
+  <section>
+    <h2>1. Groq key</h2>
+    <label for="key">Kept only in this browser on this phone.</label>
+    <input id="key" type="password" autocomplete="off" placeholder="gsk_…" />
+  </section>
+
+  <section>
+    <h2>2. Try it</h2>
+    <div class="row">
+      <label class="file">Choose a video or audio<input id="file" type="file" accept="video/*,audio/*" /></label>
+      <button id="record" class="secondary">Record</button>
+    </div>
+    <p class="hint">Try a short clip first, then a long one (20 minutes or more). The long one is the real test.</p>
+  </section>
+
+  <section aria-live="polite">
+    <h2>3. Result</h2>
+    <p id="status">Waiting.</p>
+    <table id="steps"></table>
+    <div class="row">
+      <button id="copy" class="secondary" disabled>Copy report</button>
+    </div>
+    <p class="hint">Send the copied report back to Claude.</p>
+  </section>
+
+  <section>
+    <h2>Subtitles</h2>
+    <ul id="lines"></ul>
+  </section>
+
+  <section>
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+// Groq's free tier refuses uploads over 25 MB; stay under it with room for the
+// form's own bytes.
+const LIMIT = 24 * 1024 * 1024;
+const RATE = 16000; // what Whisper listens at; anything higher is wasted upload
+const SENDABLE = /\.(flac|mp3|mp4|mpeg|mpga|m4a|ogg|opus|wav|webm)$/i;
+
+const $ = (id) => document.getElementById(id);
+const report = { device: device(), runs: [] };
+let run = null;
+
+function device() {
+  return {
+    userAgent: navigator.userAgent,
+    memoryGB: navigator.deviceMemory ?? null,
+    cores: navigator.hardwareConcurrency ?? null,
+  };
+}
+
+function memMB() {
+  const m = performance.memory; // Chrome only, which is what Android has
+  return m ? Math.round(m.usedJSHeapSize / 1048576) : null;
+}
+
+function log(text) {
+  const line = `[${(performance.now() / 1000).toFixed(1)}s] ${text}`;
+  $("log").textContent += line + "\n";
+  run?.log.push(line);
+}
+
+function status(text, kind = "") {
+  $("status").textContent = text;
+  $("status").className = kind;
+}
+
+function step(name, ms, extra = "") {
+  const mem = memMB();
+  run.steps.push({ name, seconds: +(ms / 1000).toFixed(2), extra, heapMB: mem });
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td></td><td></td>`;
+  tr.cells[0].textContent = name + (extra ? ` — ${extra}` : "");
+  // Chrome rounds the heap figure and leaves out audio buffers, so it goes in
+  // the report only; whether a long video crashes the page is the real test.
+  tr.cells[1].textContent = `${(ms / 1000).toFixed(1)} s`;
+  $("steps").append(tr);
+}
+
+async function timed(name, fn, extra) {
+  const t0 = performance.now();
+  const value = await fn();
+  step(name, performance.now() - t0, typeof extra === "function" ? extra(value) : extra);
+  return value;
+}
+
+const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+// --- Key ------------------------------------------------------------------
+try { $("key").value = localStorage.getItem("stele.phoneTest.key") || ""; } catch {}
+$("key").addEventListener("change", () => {
+  try { localStorage.setItem("stele.phoneTest.key", $("key").value.trim()); } catch {}
+});
+
+// --- Audio ----------------------------------------------------------------
+// decodeAudioData resamples to its context's rate, so asking a 16 kHz context
+// to decode gets the small version directly instead of a 48 kHz copy first.
+async function decode16k(bytes) {
+  const ctx = new OfflineAudioContext(1, 1, RATE);
+  const audio = await ctx.decodeAudioData(bytes);
+  const n = audio.length;
+  const mono = new Float32Array(n);
+  for (let c = 0; c < audio.numberOfChannels; c++) {
+    const ch = audio.getChannelData(c);
+    for (let i = 0; i < n; i++) mono[i] += ch[i] / audio.numberOfChannels;
+  }
+  return mono;
+}
+
+// Cut points: as long as the limit allows, nudged to the quietest moment in
+// the 10 s before, so a cut lands between words rather than through one.
+function cutPoints(samples) {
+  const perChunk = Math.floor((LIMIT - 44) / 2);
+  const cuts = [0];
+  const win = RATE / 10; // 100 ms windows
+  while (samples.length - cuts.at(-1) > perChunk) {
+    const hard = cuts.at(-1) + perChunk;
+    let best = hard, quietest = Infinity;
+    for (let at = hard - 10 * RATE; at < hard; at += win) {
+      let e = 0;
+      for (let i = at; i < at + win; i++) e += samples[i] * samples[i];
+      if (e < quietest) { quietest = e; best = at; }
+    }
+    cuts.push(best);
+  }
+  cuts.push(samples.length);
+  return cuts;
+}
+
+function wav(samples) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const text = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  text(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); text(8, "WAVE");
+  text(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true); text(36, "data"); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+// --- Groq -----------------------------------------------------------------
+async function transcribe(blob, name) {
+  const key = $("key").value.trim();
+  if (!key) throw new Error("Paste your Groq key first.");
+  const form = new FormData();
+  form.append("file", blob, name);
+  form.append("model", "whisper-large-v3-turbo");
+  form.append("language", "zh");
+  form.append("response_format", "verbose_json");
+  form.append("timestamp_granularities[]", "segment");
+  form.append("timestamp_granularities[]", "word");
+  const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const why = body?.error?.message || `Groq answered ${res.status}.`;
+    if (res.status === 401) throw new Error("Groq refused the key. Check it was pasted whole.");
+    if (res.status === 429) throw new Error(`Groq's free limit was reached: ${why}`);
+    throw new Error(why);
+  }
+  return body;
+}
+
+// --- A run ----------------------------------------------------------------
+function begin(kind, detail) {
+  run = { kind, detail, steps: [], log: [], ok: false };
+  report.runs.push(run);
+  $("steps").replaceChildren();
+  $("lines").replaceChildren();
+  $("copy").disabled = false;
+  status("Working…");
+  log(`${kind}: ${JSON.stringify(detail)}`);
+}
+
+function show(segments) {
+  const frag = document.createDocumentFragment();
+  for (const s of segments) {
+    const li = document.createElement("li");
+    const t = document.createElement("time");
+    t.textContent = `${clock(s.start)} – ${clock(s.end)}`;
+    li.append(t, s.text.trim());
+    frag.append(li);
+  }
+  $("lines").replaceChildren(frag);
+}
+
+function finish(segments, words, seconds) {
+  const chars = segments.reduce((n, s) => n + s.text.trim().length, 0);
+  run.ok = true;
+  run.result = { segments: segments.length, words, characters: chars, audioSeconds: Math.round(seconds),
+                 first: segments.slice(0, 3).map((s) => s.text.trim()) };
+  show(segments);
+  const total = run.steps.reduce((n, s) => n + s.seconds, 0);
+  status(`Done: ${segments.length} line${segments.length === 1 ? "" : "s"} from ${clock(seconds)} of audio in ${total.toFixed(1)} s.`, "ok");
+  log(`done ${JSON.stringify(run.result)}`);
+}
+
+function fail(error) {
+  run.error = String(error?.message || error);
+  status(run.error, "bad");
+  log(`FAILED: ${run.error}`);
+}
+
+$("file").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  begin("file", { name: file.name, type: file.type, size: mb(file.size) });
+  try {
+    // Small enough, and a format Groq reads: send the file itself. Phone clips
+    // over a minute or so won't be — video is mostly picture.
+    if (file.size <= LIMIT && SENDABLE.test(file.name)) {
+      const data = await timed("Transcribe (whole file)", () => transcribe(file, file.name), mb(file.size));
+      finish(data.segments || [], (data.words || []).length, data.duration || 0);
+      return;
+    }
+    const bytes = await timed("Read file", () => file.arrayBuffer(), mb(file.size));
+    const samples = await timed("Pull out the audio (16 kHz mono)", () => decode16k(bytes),
+      (s) => clock(s.length / RATE));
+    const cuts = cutPoints(samples);
+    log(`${cuts.length - 1} piece(s), cut at ${cuts.slice(1, -1).map((c) => clock(c / RATE)).join(", ") || "—"}`);
+    const segments = [];
+    let words = 0;
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const offset = cuts[i] / RATE;
+      const blob = await timed(`Encode piece ${i + 1}`, () => wav(samples.subarray(cuts[i], cuts[i + 1])),
+        (b) => mb(b.size));
+      const data = await timed(`Transcribe piece ${i + 1}`, () => transcribe(blob, `piece${i + 1}.wav`));
+      for (const s of data.segments || []) segments.push({ ...s, start: s.start + offset, end: s.end + offset });
+      words += (data.words || []).length;
+    }
+    finish(segments, words, samples.length / RATE);
+  } catch (error) {
+    fail(error);
+  }
+});
+
+// --- Recording ------------------------------------------------------------
+let recorder = null;
+$("record").addEventListener("click", async () => {
+  if (recorder) { recorder.stop(); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (error) {
+    begin("record", {});
+    fail(`No microphone: ${error.message}`);
+    return;
+  }
+  const type = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].find((t) =>
+    MediaRecorder.isTypeSupported(t)) || "";
+  const chunks = [];
+  recorder = new MediaRecorder(stream, type ? { mimeType: type } : {});
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  const started = performance.now();
+  recorder.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    const blob = new Blob(chunks, { type: recorder.mimeType });
+    const ext = /ogg/.test(blob.type) ? "ogg" : /mp4/.test(blob.type) ? "m4a" : "webm";
+    recorder = null;
+    $("record").textContent = "Record";
+    begin("record", { type: blob.type, size: mb(blob.size), seconds: Math.round((performance.now() - started) / 1000) });
+    try {
+      const data = await timed("Transcribe recording", () => transcribe(blob, `recording.${ext}`), mb(blob.size));
+      finish(data.segments || [], (data.words || []).length, data.duration || 0);
+    } catch (error) {
+      fail(error);
+    }
+  };
+  recorder.start(1000);
+  $("record").textContent = "Stop recording";
+  status("Recording… press Stop when done.");
+});
+
+// --- Report ---------------------------------------------------------------
+$("copy").addEventListener("click", async () => {
+  const text = JSON.stringify(report, null, 1);
+  try {
+    await navigator.clipboard.writeText(text);
+    $("copy").textContent = "Copied";
+  } catch {
+    $("log").textContent = text;
+    $("copy").textContent = "Copy failed — the report is in the Log box";
+  }
+  setTimeout(() => ($("copy").textContent = "Copy report"), 2500);
+});
+
+window.addEventListener("error", (e) => run && fail(e.message));
+window.addEventListener("unhandledrejection", (e) => run && fail(e.reason));
+</script>
+</body>
+</html>
