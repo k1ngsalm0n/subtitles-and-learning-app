@@ -45,8 +45,9 @@ uv pip install --python $SCRATCH/pw-venv/bin/python playwright
 $SCRATCH/pw-venv/bin/python -m playwright install chromium   # ~115 MB, cached in ~/.cache/ms-playwright
 ```
 
-Then a sync-API Playwright script: `goto http://localhost:3100/`,
-`click("#sampleButton")` loads the 3-line bilingual sample subtitles.
+Then a sync-API Playwright script: `goto http://localhost:3100/` — the
+3-line bilingual sample lesson loads on its own (there is no longer a
+`#sampleButton`), pinyin included once `/api/romanize` answers.
 For a real video, generate one and feed the file input:
 
 ```bash

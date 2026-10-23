@@ -9,6 +9,8 @@
 //
 // See `neural` below for why the browser isn't simply preferred.
 
+import { api } from "./backend.mjs";
+
 const supported =
   typeof window !== "undefined" && "speechSynthesis" in window;
 
@@ -59,7 +61,7 @@ let neural = new Set();
 // to the order below, "browser" and "espeak" name an engine outright.
 let prefer = "auto";
 if (typeof fetch === "function") {
-  fetch("/api/voices")
+  api("/api/voices")
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
       if (Array.isArray(data?.languages)) neural = new Set(data.languages);
@@ -111,7 +113,7 @@ export function speak(text, lang, rate = "fast") {
 
 async function speakViaServer(text, lang, rate) {
   try {
-    const res = await fetch("/api/speak", {
+    const res = await api("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, lang, rate }),

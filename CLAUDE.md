@@ -304,6 +304,16 @@ the obvious one and the only one that needs measuring:
   `th`/`latin` recognition models; using them means passing a `lang_type`
   instead of relying on the default. There is no Hebrew or Bengali model at all.
 
+**One door to the server.** Every `/api/…` request from the page goes through
+`api()` in `public/js/backend.mjs`, never `fetch` directly. On a computer it
+*is* `fetch`. It exists for the phone version (Groq-only, no server, planned):
+an in-page engine plugged in with `useEngine` answers the same paths. The
+engine replies with a real `Response`, not a value, because call sites read
+replies their own way — `res.ok`, a 404 meaning "video gone", a 405 meaning
+"restart the server", the import's progress stream — and an engine that
+speaks HTTP keeps all of that unchanged. A new call to the server goes
+through `api()` too.
+
 **Backups.** Cards live only in the browser's localStorage, which a "clear
 site data", a private window, or a changed port can wipe. `backup.mjs` takes
 the same JSON `Export (JSON)` produces (`POST /api/backup`) and writes it to

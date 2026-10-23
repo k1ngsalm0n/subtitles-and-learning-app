@@ -7,6 +7,7 @@
 // y-down space; without it every character renders upside down.
 
 import { escapeHtml } from "./util.mjs";
+import { api } from "./backend.mjs";
 
 const HAN_RE = /\p{Script=Han}/u;
 
@@ -50,7 +51,7 @@ export async function getStrokes(text) {
   const chars = hanChars(text);
   const need = chars.filter((ch) => !_cache.has(ch) && !_pending.has(ch));
   if (need.length) {
-    const request = fetch(
+    const request = api(
       `/api/strokes?chars=${encodeURIComponent(need.join(""))}`,
     )
       .then((res) => (res.ok ? res.json() : {}))

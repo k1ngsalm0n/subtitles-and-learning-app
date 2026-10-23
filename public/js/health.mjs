@@ -8,6 +8,7 @@
 // page is the answer to "why does this sound like that?".
 
 import { openLlmSetup } from "./llmsetup.mjs";
+import { api } from "./backend.mjs";
 
 // Rows whose fix is a dialog rather than a terminal command.
 const ACTIONS = {
@@ -118,7 +119,7 @@ function toggleRow(toggle) {
       setBusy(slot);
       let ok = false;
       try {
-        const res = await fetch("/api/prefs", {
+        const res = await api("/api/prefs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ [toggle.name]: option.value }),
@@ -283,7 +284,7 @@ export async function renderHealth(els, { force = false, status = null } = {}) {
 
   let data = null;
   try {
-    const res = await fetch(force ? "/api/health?fresh=1" : "/api/health");
+    const res = await api(force ? "/api/health?fresh=1" : "/api/health");
     if (res.ok) data = await res.json();
   } catch {
     // handled below

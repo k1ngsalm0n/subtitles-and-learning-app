@@ -12,6 +12,7 @@
 // "Import again" — keeping their id, so cards made from them still point here.
 
 import { percentOf, readImportStream } from "./importstream.mjs";
+import { api } from "./backend.mjs";
 
 // ---- Pure parts (tested under Node) ----------------------------------------
 
@@ -202,7 +203,7 @@ async function runImport(source) {
   ctx.saveSources();
   renderVideos();
   try {
-    const response = await fetch("/api/import-url", {
+    const response = await api("/api/import-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: source.url }),

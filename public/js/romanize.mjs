@@ -1,6 +1,7 @@
 import { state } from "./state.mjs";
 import { detectLanguage } from "./languages.mjs";
 import { renderAll } from "./ui.mjs";
+import { api } from "./backend.mjs";
 
 // Fetch a pronunciation guide (pinyin/romaji/transliteration) for the currently
 // loaded subtitles and attach it to each line as `.tokens` ([base, pron] pairs,
@@ -18,7 +19,7 @@ export async function romanizeSubtitles() {
   if (!lang) return;
 
   try {
-    const res = await fetch("/api/romanize", {
+    const res = await api("/api/romanize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ language: lang, lines: texts }),
