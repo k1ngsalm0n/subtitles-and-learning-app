@@ -1273,6 +1273,13 @@ async function withUploaderTranslation(transcript, words, uploader, machine) {
       translation: preferHumanTranslation(transcript, uploader, await machine()),
     };
   }
+  return overHumanLines(cues);
+}
+
+// Re-cut cues (regridToHuman) as { subtitles, translation }: each line's
+// translation is the uploader's own, and only the leftover Chinese they
+// didn't translate goes through the machine translator.
+async function overHumanLines(cues) {
   const leftovers = cues.filter((cue) => cue.human == null);
   const machineLines = leftovers.length
     ? srtTexts(await translateSrt(cuesToSrt(leftovers), "zh"))
@@ -1328,8 +1335,22 @@ async function getExistingSubtitle(url, workspace, meta, origBase) {
   const humanFile = human && fileFor(human);
   if (humanFile) {
     const cleaned = cleanCaptions(await readFile(humanFile, "utf8"));
-    const aligned = cleaned ? alignTranslationByTime(text, cleaned) : "";
-    if (aligned.trim()) translation = aligned;
+    // The two tracks are often cut differently: a song's Chinese in two or
+    // three short pieces per line, its English one line per lyric. Hung on
+    // the Chinese cues by overlap, an English line lands on the first piece
+    // and leaves the rest blank, and English with no Chinese under it (the
+    // spoken dialogue) is glued onto the next lyric. So when the timing fits,
+    // the Chinese is re-cut to the English lines, as a transcript is.
+    const cues =
+      cleaned && sourceBase === "zh"
+        ? regridToHuman(text, cleaned, [], { empty: null })
+        : null;
+    if (cues?.length) {
+      ({ subtitles: text, translation } = await overHumanLines(cues));
+    } else {
+      const aligned = cleaned ? alignTranslationByTime(text, cleaned) : "";
+      if (aligned.trim()) translation = aligned;
+    }
   }
   if (!translation && bilingualEnglish) translation = bilingualEnglish;
 

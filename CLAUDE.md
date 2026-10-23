@@ -179,6 +179,18 @@ When the timing doesn't fit, their lines are hung on Whisper's cues instead
 (`preferHumanTranslation`). Words are matched by count, not glyph — Whisper's
 are often Simplified while the transcript is Traditional.
 
+The same re-cut applies when the Chinese is the **uploader's own subtitle
+track** and they also ship English (`getExistingSubtitle`). The two tracks are
+often cut differently — a song's Chinese in two or three short pieces per line
+(at odd points: 「我多 / 耐心」), its English one line per lyric — and hung by
+overlap, each English line landed on the first piece and left the rest blank,
+while English with no Chinese under it (the MV's spoken dialogue) was glued
+onto the next lyric. Characters are spread evenly over each subtitle cue (no
+word timings), pieces join with no space (a space mid-phrase would split a
+word), and an English line with no Chinese written under it is *left out*
+(`empty: null`) rather than called unintelligible — the audio was clear, the
+Chinese just wasn't written down.
+
 Key server modules: `import.mjs` (URL import via yt-dlp), `transcribe.py`
 (faster-whisper), `ocr_captions.py` (burned-in caption OCR via RapidOCR — runs
 automatically on URL imports with no subtitle track; a quick frame probe

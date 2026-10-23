@@ -98,3 +98,39 @@ test("no uploader lines, or no transcript, is nothing to re-cut", () => {
   assert.equal(regridToHuman(srt([[0, 1, "我們"]]), "", []), null);
   assert.equal(regridToHuman("", srt([[0, 1, "We"]]), []), null);
 });
+
+// The uploader's own Chinese subtitles as the source (#7I1SPKwTXJ0, 「我多喜歡你，
+// 你會知道」): two or three short Chinese pieces per English lyric line, cut at
+// different points, and spoken dialogue with English but no Chinese.
+const songZh = srt([
+  [3.4, 5.0, "我喜歡你"],
+  [34.0, 37.1, "我喜歡你的眼睛 你的睫毛"],
+  [37.2, 39.9, "你的冷傲 我喜歡你的酒窩"],
+  [39.9, 42.9, "你的嘴角 你的微笑"],
+]);
+const songEn = srt([
+  [3.5, 5.5, "I like you."],
+  [27.8, 29.5, "Let's go to school together."],
+  [34.1, 38.5, "I like your eyes, your eyelashes, your aloof pride."],
+  [38.5, 42.9, "I like your dimples, your lips, your smile."],
+]);
+
+test("subtitle pieces are re-cut to the English lines they were sung under", () => {
+  const cues = regridToHuman(songZh, songEn, [], { empty: null });
+  assert.deepEqual(pairs(cues), [
+    ["我喜歡你", "I like you."],
+    ["我喜歡你的眼睛 你的睫毛你的冷傲", "I like your eyes, your eyelashes, your aloof pride."],
+    ["我喜歡你的酒窩你的嘴角 你的微笑", "I like your dimples, your lips, your smile."],
+  ]);
+});
+
+test("an English line with no Chinese written under it is left out, not called unintelligible", () => {
+  const cues = regridToHuman(songZh, songEn, [], { empty: null });
+  assert.ok(!cues.some((c) => c.text === UNINTELLIGIBLE));
+  assert.ok(!cues.some((c) => c.human === "Let's go to school together."));
+});
+
+test("by default, a line with nothing under it still gets the placeholder (Whisper)", () => {
+  const cues = regridToHuman(songZh, songEn, []);
+  assert.ok(cues.some((c) => c.text === UNINTELLIGIBLE && c.human === "Let's go to school together."));
+});
