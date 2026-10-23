@@ -7,6 +7,8 @@
 // Cards are sent per video, since the server listens to a video once and
 // answers for all its cards from that.
 
+import { api } from "./backend.mjs";
+
 // Results back onto cards, pure so it can be tested. A word that was found
 // moves the card's line to the one it's in; one that wasn't keeps the card's
 // time and is marked, so it isn't asked about again on every review.
@@ -57,7 +59,7 @@ export async function locateCards(cards, sources, { onVideo = () => {} } = {}) {
   for (const [videoUrl, group] of groups) {
     onVideo(done, groups.size);
     try {
-      const res = await fetch("/api/locate", {
+      const res = await api("/api/locate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

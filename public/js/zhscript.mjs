@@ -10,6 +10,7 @@
 
 import { state, setZhScript } from "./state.mjs";
 import { detectLanguage } from "./languages.mjs";
+import { api } from "./backend.mjs";
 
 // Han characters. Bopomofo, kana and Latin are all outside this, so a Japanese
 // or English transcript never offers the toggle.
@@ -66,7 +67,7 @@ export async function ensureConverted(texts, script) {
   const wanted = missing(texts, script);
   if (!wanted.length) return null;
 
-  const res = await fetch("/api/zh-convert", {
+  const res = await api("/api/zh-convert", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ lines: wanted, to: script }),
@@ -125,7 +126,7 @@ async function fetchRuby(texts) {
   const lang = detectLanguage(wanted.join("\n"));
   if (!lang) return false;
 
-  const res = await fetch("/api/romanize", {
+  const res = await api("/api/romanize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ language: lang, lines: wanted }),

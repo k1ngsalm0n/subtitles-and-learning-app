@@ -9,6 +9,7 @@
 
 import { state, storageRevision } from "./state.mjs";
 import { buildExport } from "./portability.mjs";
+import { api } from "./backend.mjs";
 
 // One slow tick, checked against the configured interval, so changing the
 // interval takes effect without restarting any timers.
@@ -38,7 +39,7 @@ async function send({ keepalive = false } = {}) {
   _lastAttemptAt = Date.now();
   const revision = storageRevision;
   try {
-    const res = await fetch("/api/backup", {
+    const res = await api("/api/backup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload()),
@@ -105,13 +106,13 @@ export function startAutoBackup() {
 }
 
 export async function listBackups() {
-  const res = await fetch("/api/backups").catch(() => null);
+  const res = await api("/api/backups").catch(() => null);
   if (!res || !res.ok) return { files: [], error: "Couldn't reach the server." };
   return res.json().catch(() => ({ files: [] }));
 }
 
 export async function readBackup(name) {
-  const res = await fetch(`/api/backup?name=${encodeURIComponent(name)}`).catch(
+  const res = await api(`/api/backup?name=${encodeURIComponent(name)}`).catch(
     () => null,
   );
   if (!res || !res.ok) return null;

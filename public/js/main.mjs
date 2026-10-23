@@ -99,6 +99,7 @@ import {
 } from "./ui.mjs";
 import { setupPractice, openPractice } from "./practice.mjs";
 import { setupMiniPlayer } from "./miniplayer.mjs";
+import { api } from "./backend.mjs";
 
 const els = {
   video: document.querySelector("#video"),
@@ -928,7 +929,7 @@ function setupImagesMode() {
     els.transcript.innerHTML = '<p class="muted">Reading the image…</p>';
 
     try {
-      const res = await fetch("/api/ocr-image", {
+      const res = await api("/api/ocr-image", {
         method: "POST",
         headers: { "Content-Type": file.type },
         body: file,
@@ -1341,7 +1342,7 @@ async function deleteSources(sources) {
   for (const source of sources) {
     const id = storedId(source);
     if (id) {
-      const res = await fetch(`/api/library/${id}`, { method: "DELETE" }).catch(() => null);
+      const res = await api(`/api/library/${id}`, { method: "DELETE" }).catch(() => null);
       if (!res?.ok) continue;
     }
     deleted.push(source);
@@ -1380,7 +1381,7 @@ async function openSource(source, { at = null, play = false } = {}) {
   rememberPosition();
   let entry;
   try {
-    const res = await fetch(`/api/library/${source.libraryId}`);
+    const res = await api(`/api/library/${source.libraryId}`);
     entry = await res.json();
     if (!res.ok) throw new Error(entry.error || "Couldn't open that video.");
   } catch (err) {
@@ -1560,7 +1561,7 @@ function setCookieMode(mode) {
 
 async function loadCookieSettings() {
   try {
-    const res = await fetch("/api/cookies");
+    const res = await api("/api/cookies");
     const data = await res.json();
     setCookieMode(data.mode || "none");
     if (data.browser) els.cookieBrowser.value = data.browser;
@@ -1582,7 +1583,7 @@ async function saveCookieSettings() {
   if (mode === "file") body.cookiesTxt = els.cookiesTxt.value;
 
   try {
-    const res = await fetch("/api/cookies", {
+    const res = await api("/api/cookies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

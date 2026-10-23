@@ -11,6 +11,7 @@
 // keeping it and never sends it back.
 
 import { createCombobox } from "./combobox.mjs";
+import { api } from "./backend.mjs";
 
 // Shown beside each option. The server owns the URLs and model names; this
 // owns the words a person choosing between them needs.
@@ -34,7 +35,7 @@ function $(id) {
 }
 
 async function fetchStatus() {
-  const res = await fetch("/api/llm");
+  const res = await api("/api/llm");
   if (!res.ok) throw new Error("Couldn't reach the server.");
   status = await res.json();
   return status;
@@ -105,7 +106,7 @@ async function loadOllamaModels() {
   let data = null;
   try {
     const base = encodeURIComponent(els.baseUrl.value.trim());
-    const res = await fetch(`/api/llm/models?base=${base}`);
+    const res = await api(`/api/llm/models?base=${base}`);
     data = await res.json();
   } catch {
     data = { ok: false, error: "Couldn't reach the app's server." };
@@ -163,7 +164,7 @@ async function save() {
           model: els.model.value.trim(),
           apiKey: els.key.value.trim(),
         };
-    const res = await fetch("/api/llm", {
+    const res = await api("/api/llm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

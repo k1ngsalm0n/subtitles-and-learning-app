@@ -24,6 +24,7 @@ import { parseSubtitle } from "./subtitle.mjs";
 import { detectLanguage } from "./languages.mjs";
 import { showToast } from "./toast.mjs";
 import { escapeHtml } from "./util.mjs";
+import { api } from "./backend.mjs";
 
 const TEXT_FIELDS = CARD_FIELDS.filter((field) => field.text).map(
   (field) => field.key,
@@ -536,7 +537,7 @@ async function prefetch(draft) {
     if (!draft.pinyin && draft.word) setFieldLoading("pinyin", true);
     if (!draft.examplePinyin && draft.example) setFieldLoading("examplePinyin", true);
     jobs.push(
-      fetch("/api/romanize", {
+      api("/api/romanize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ language: lang, lines }),
@@ -575,7 +576,7 @@ async function prefetch(draft) {
     const to = _els.translateTo?.value || "en";
     const srt = `1\n00:00:00,000 --> 00:00:02,000\n${draft.example}\n`;
     jobs.push(
-      fetch("/api/translate", {
+      api("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ srt, from: lang, to }),

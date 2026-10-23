@@ -1,3 +1,5 @@
+import { api } from "./backend.mjs";
+
 const CACHE_KEY = "stele.lookupCache";
 const CACHE_VERSION_KEY = "stele.lookupCacheVersion";
 // 11: explanation describes the word only + forced English output; bump to
@@ -40,7 +42,7 @@ export async function lookupWord(word, lang = "zh", context = "") {
   const params = new URLSearchParams({ word, lang, context });
   let result;
   try {
-    const res = await fetch(`/api/lookup?${params}`);
+    const res = await api(`/api/lookup?${params}`);
     result = await res.json();
   } catch {
     result = { word, pronunciation: "", meaning: "", source: "error" };

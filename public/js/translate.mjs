@@ -2,6 +2,7 @@ import { state, setTranslateTo } from "./state.mjs";
 import { parseSubtitle, alignTranslations } from "./subtitle.mjs";
 import { renderTranscript, setElements } from "./ui.mjs";
 import { LANGUAGES, detectLanguage, languageName } from "./languages.mjs";
+import { api } from "./backend.mjs";
 
 const AUTO = "auto";
 
@@ -126,7 +127,7 @@ export async function runTranslation(els) {
     // server treats a line already in `to` as done and skips translating it,
     // and falls back to `from` for any line detection can't call.
     const langs = state.subtitles.map((line) => detectLanguage(line.text));
-    const res = await fetch("/api/translate", {
+    const res = await api("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ srt, from, to, langs }),
