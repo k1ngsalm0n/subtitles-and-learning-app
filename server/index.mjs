@@ -18,6 +18,7 @@ import { handleStrokes } from "./strokes.mjs";
 import { handleLocate } from "./locate.mjs";
 import { handleLibrary } from "./library.mjs";
 import { handleSync, handleSyncEvents } from "./sync.mjs";
+import { handleTailscale } from "./tailscale.mjs";
 import {
   handleSaveBackup,
   handleListBackups,
@@ -109,6 +110,10 @@ createServer(async (req, res) => {
     }
     if (req.method === "GET" && req.url.startsWith("/api/strokes")) {
       await handleStrokes(req, res);
+      return;
+    }
+    if (req.url === "/api/tailscale" && (req.method === "GET" || req.method === "POST")) {
+      await handleTailscale(req, res, { port: PORT });
       return;
     }
     if (req.method === "POST" && req.url === "/api/sync") {
