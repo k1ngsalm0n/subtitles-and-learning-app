@@ -100,6 +100,7 @@ import {
 } from "./ui.mjs";
 import { setupPractice, openPractice } from "./practice.mjs";
 import { setupMiniPlayer } from "./miniplayer.mjs";
+import { setupSplitter } from "./splitter.mjs";
 import { api } from "./backend.mjs";
 
 const els = {
@@ -325,6 +326,10 @@ function init() {
   renderAll(els);
   setupTranscriptDelegation(els);
   setupMiniPlayer(els);
+  setupSplitter({
+    workspace: document.querySelector("#studyView .workspace"),
+    divider: document.querySelector("#paneDivider"),
+  });
   setupLlmDialog({
     onSaved: (status) => {
       showToast(
