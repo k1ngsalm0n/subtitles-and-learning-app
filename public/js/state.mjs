@@ -36,6 +36,8 @@ export const STORAGE_KEYS = {
   translateTo: "stele.translateTo",
   backupEnabled: "stele.backupEnabled",
   backupInterval: "stele.backupInterval",
+  // The video column's share of the Study page (splitter.mjs).
+  split: "stele.split",
 };
 
 // Everything this app stores about you lives under this prefix, in this
