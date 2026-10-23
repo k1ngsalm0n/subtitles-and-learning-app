@@ -17,6 +17,7 @@ import { handleLlm } from "./llmConfig.mjs";
 import { handleStrokes } from "./strokes.mjs";
 import { handleLocate } from "./locate.mjs";
 import { handleLibrary } from "./library.mjs";
+import { handleSync, handleSyncEvents } from "./sync.mjs";
 import {
   handleSaveBackup,
   handleListBackups,
@@ -108,6 +109,14 @@ createServer(async (req, res) => {
     }
     if (req.method === "GET" && req.url.startsWith("/api/strokes")) {
       await handleStrokes(req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/sync") {
+      await handleSync(req, res);
+      return;
+    }
+    if (req.method === "GET" && req.url.startsWith("/api/sync/events")) {
+      handleSyncEvents(req, res);
       return;
     }
     if (req.method === "POST" && req.url === "/api/backup") {
