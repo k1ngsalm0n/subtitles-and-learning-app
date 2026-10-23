@@ -328,6 +328,28 @@ card panel menu lists them and merges one back in. Failed localStorage writes
 are no longer silent: `setStorageErrorHandler` (state.mjs) reports once per
 session and main.mjs turns that into a toast offering Export/Back up.
 
+**Sync.** A phone opening the app over Tailscale is a different browser,
+with its own localStorage, so cards made on one device never reached the
+other. `server/sync.mjs` keeps a shared copy (`~/.local/share/stele/sync.json`,
+0600) and `public/js/sync.mjs` keeps each browser in step with it: changes go
+up about a second after they're saved (it watches `storageRevision`, like the
+backups, so no edit has to remember to call anything), and the server pings
+every other open page over server-sent events (`GET /api/sync/events`) so
+they fetch at once; a page that missed it asks when it's looked at again and
+every 30s. `syncdata.mjs` is the pure half, tested under Node: nothing on a
+card records when it changed, so it *compares* — a hash and a time per item
+in `stele.sync`, written straight to localStorage so it doesn't move
+`storageRevision` itself. Newest wins per item; ties go to the server's copy
+on both sides; a first scan stamps everything 0 so any real edit beats it.
+Deletions are tombstones (kept 180 days), and a scan that would delete more
+than 20 items *and* half a collection is refused — that's what a wiped
+localStorage looks like, and syncing it would delete the same cards
+everywhere. Synced: cards, decks and their order (one `deckOrder` item, since
+per-deck newest-wins can't express a move), templates, known words, and
+*finished* Videos-list entries (a waiting one would be imported twice). Not
+synced: appearance, daily counts, the import queue. A browser that already
+has cards backs up before its first merge.
+
 **What's running.** Settings → the last wheel entry, backed by
 `GET /api/health` (`health.mjs` + `health.py`). Everything optional in this app
 degrades quietly by design — no voice model gives a robotic voice, no LLM key

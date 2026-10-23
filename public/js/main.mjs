@@ -47,6 +47,7 @@ import {
   listBackups,
   readBackup,
 } from "./backup.mjs";
+import { startSync, syncStatus } from "./sync.mjs";
 import { describeReport } from "./portability.mjs";
 import { createWheel } from "./wheel.mjs";
 import { paintHighlight, clearHighlight } from "./imagehighlight.mjs";
@@ -222,6 +223,7 @@ const els = {
   backupEnabled: document.querySelector("#backupEnabled"),
   backupInterval: document.querySelector("#backupInterval"),
   backupStatus: document.querySelector("#backupStatus"),
+  syncStatus: document.querySelector("#syncStatus"),
   exportFromData: document.querySelector("#exportFromData"),
   importFileSettings: document.querySelector("#importFileSettings"),
   usageFill: document.querySelector("#usageFill"),
@@ -343,6 +345,14 @@ function init() {
   setSourceJumper(jumpToSource);
   loadCookieSettings();
   startAutoBackup();
+  // Cards made on the phone show up here and the other way round (sync.mjs).
+  startSync({
+    applied: () => {
+      renderAll(els);
+      renderVideos();
+      if (state.lastView === "settings") renderDataPanel();
+    },
+  });
 }
 
 function bindEvents() {
@@ -500,6 +510,13 @@ function renderDataPanel() {
       ? "Waiting for the first snapshot of this session."
       : "Nothing new to back up yet.";
   }
+
+  const sync = syncStatus();
+  els.syncStatus.textContent = sync.error
+    ? `Sync: ${sync.error}`
+    : sync.lastSyncAt
+      ? `Cards synced with the computer ${formatAgo(sync.lastSyncAt)}.`
+      : "Sync: connecting to the computer…";
 }
 
 // Backup list: newest first, each row restoring by merging that snapshot in.
