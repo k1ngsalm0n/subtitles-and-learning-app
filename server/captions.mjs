@@ -226,6 +226,15 @@ export function preferHumanTranslation(sourceSrt, humanSrt, machineSrt = "") {
 // uploader's line, or null for a leftover cue the caller should machine-
 // translate — or null when too little of the transcript lands inside the
 // uploader's lines for their timing to be trusted (MIN_REGRID_COVERAGE).
+//
+// `empty` is the text for an uploader line with nothing under it, or null to
+// leave such a line out. Under Whisper that means nothing was heard; when the
+// source is the uploader's own Chinese subtitles (getExistingSubtitle) it only
+// means the Chinese wasn't written down — a song's spoken dialogue — and
+// "unintelligible" would be untrue. Pieces of two source cues join with
+// nothing between them either way: a subtitle track breaks lines mid-phrase
+// as often as between phrases (「我多 / 耐心」), and a space there would split
+// a word.
 const MIN_REGRID_COVERAGE = 0.5;
 // A word belongs to a cue when its midpoint is this close to the cue's span.
 const WORD_SLACK = 0.25;
@@ -247,7 +256,7 @@ function textUnits(text) {
   return String(text).match(/\p{Script=Han}|[\p{L}\p{N}]+|[^\p{L}\p{N}]+/gu) || [];
 }
 
-export function regridToHuman(sourceSrt, humanSrt, words = []) {
+export function regridToHuman(sourceSrt, humanSrt, words = [], { empty = UNINTELLIGIBLE } = {}) {
   const textOf = (c) => c.lines.map(normalizeLine).filter(Boolean).join(" ").trim();
   const src = parseCues(sourceSrt).map((c) => ({ start: c.start, end: c.end, text: textOf(c) }));
   const human = parseCues(humanSrt)
@@ -397,9 +406,11 @@ export function regridToHuman(sourceSrt, humanSrt, words = []) {
       .replace(LEADING_PUNCT, "")
       .trim();
 
-  const out = human.map((h, hi) => {
+  const out = [];
+  human.forEach((h, hi) => {
     const text = join(units.filter((_, i) => owner[i] === hi));
-    return { start: h.start, end: h.end, text: HAS_LETTER.test(text) ? text : UNINTELLIGIBLE, human: h.text };
+    if (HAS_LETTER.test(text)) out.push({ start: h.start, end: h.end, text, human: h.text });
+    else if (empty != null) out.push({ start: h.start, end: h.end, text: empty, human: h.text });
   });
   // Leftovers: runs outside every line, split where the source cue changes,
   // so a leftover never spans two of Whisper's lines.
