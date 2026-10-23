@@ -23,7 +23,9 @@
     <link rel="modulepreload" href="./js/miniplayer.mjs" />
     <link rel="modulepreload" href="./js/player.mjs" />
     <link rel="modulepreload" href="./js/portability.mjs" />
+    <link rel="modulepreload" href="./js/phone.mjs" />
     <link rel="modulepreload" href="./js/practice.mjs" />
+    <link rel="modulepreload" href="./js/qr.mjs" />
     <link rel="modulepreload" href="./js/romanize.mjs" />
     <link rel="modulepreload" href="./js/scheduler.mjs" />
     <link rel="modulepreload" href="./js/state.mjs" />
@@ -248,6 +250,9 @@ input:focus, textarea:focus { border-color: var(--accent); }
 }
 .segmented button { height: 28px; min-height: 28px; border: none; border-radius: 6px; font-size: 12px; }
 #themeToggle { width: 36px; padding: 0; border: none; background: transparent; font-size: 18px; }
+#phoneButton { width: 36px; padding: 0; border: none; background: transparent; display: grid; place-items: center; }
+#phoneButton[hidden] { display: none; }
+#phoneButton svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 
 /* Main content */
 main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
@@ -279,7 +284,8 @@ main { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
 :root[data-settings-page="data"] .settings-page[data-page="data"],
 :root[data-settings-page="backups"] .settings-page[data-page="backups"],
 :root[data-settings-page="cookies"] .settings-page[data-page="cookies"],
-:root[data-settings-page="health"] .settings-page[data-page="health"] {
+:root[data-settings-page="health"] .settings-page[data-page="health"],
+:root[data-settings-page="phone"] .settings-page[data-page="phone"] {
   display: block;
 }
 /* Restored state must appear, not animate in. Dropped after the first frame. */
@@ -1473,6 +1479,37 @@ rt {
 /* Deck limits: two numbers and two buttons — sized to that, not to the wide
    default dialog. Label left, small input right, so no row is mostly padding. */
 #llmSetupDialog { width: min(480px, calc(100vw - 32px)); padding: 14px 16px; }
+/* "Use on phone" (phone.mjs). The QR code keeps its white tile in both themes:
+   a camera wants black on white, whatever the page around it. */
+#phoneDialog { width: min(420px, calc(100vw - 32px)); padding: 14px 16px; }
+#phoneDialog .icon-button { width: 28px; height: 28px; min-height: 28px; }
+.phone-body { display: grid; gap: 12px; }
+.phone-body p { margin: 0; }
+.phone-qr { width: min(260px, 70vw); margin: 4px auto 0; border-radius: 10px; overflow: hidden; background: #fff; }
+.phone-qr svg { display: block; width: 100%; height: auto; }
+.phone-url { display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.phone-url code { padding: 6px 10px; border-radius: 6px; background: var(--surface-2); font-size: 13px; overflow-wrap: anywhere; }
+.phone-hint { text-align: center; }
+.phone-steps { display: grid; gap: 8px; padding-left: 20px; margin: 0; }
+.phone-devices ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.phone-devices li { display: flex; align-items: center; gap: 6px; }
+.phone-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
+.phone-devices li.online .phone-dot { background: var(--accent); opacity: 1; }
+.phone-problem { color: var(--text); font-weight: 600; }
+.phone-start { display: grid; gap: 6px; justify-items: start; }
+.phone-get-app { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.phone-get-app h3 { font-size: 15px; }
+.phone-get-app-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.phone-get-app-row .phone-steps { flex: 1 1 180px; min-width: 0; }
+.phone-qr.phone-qr-small { width: 112px; margin: 0; border-radius: 8px; flex: 0 0 auto; }
+/* The account link is the first step, so it carries the accent like a main
+   action would; it's a link because it leaves for Tailscale's site. */
+.phone-link-button {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px;
+  border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600;
+  text-decoration: none;
+}
+:root:not([data-theme="light"]) .phone-link-button { color: #07110e; }
 #llmSetupDialog .word-form { gap: 12px; }
 /* The title row's own margin stacked on the form's gap, and the 36px close
    button made the row taller still, so the intro sat far below its heading. */
@@ -2583,7 +2620,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         // from main.mjs meant Settings always painted on Appearance and then
         // swapped once the modules landed.
         var page = localStorage.getItem("stele.settingsPage");
-        if (page === "data" || page === "backups" || page === "cookies") {
+        if (page === "data" || page === "backups" || page === "cookies" || page === "phone") {
           document.documentElement.dataset.settingsPage = page;
         }
       } catch (e) {
@@ -2618,6 +2655,9 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         <div class="stat-pill"><strong id="subtitleCount">0</strong><span>lines</span></div>
         <div class="stat-pill"><strong id="cardCount">0</strong><span>cards</span></div>
         <div class="stat-pill"><strong id="reviewDue">0</strong><span>due</span></div>
+        <button id="phoneButton" type="button" aria-label="Use on phone" title="Use on phone">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>
+        </button>
         <button id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">☾</button>
       </div>
     </header>
@@ -2907,6 +2947,16 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             <p id="cookieStatus" class="muted" role="status" aria-live="polite"></p>
           </section>
 
+          <section class="panel settings-page" data-page="phone">
+            <div class="section-title"><h2>Use on your phone</h2></div>
+            <p class="muted data-note">Your phone opens Stele from this computer through Tailscale, a free private network between your own devices. Nothing is on the public internet, and the computer has to be on.</p>
+            <p id="phoneSettingsStatus" class="data-note" role="status" aria-live="polite"></p>
+            <div class="settings-actions">
+              <button id="phoneSettingsOpen" type="button">Show QR code</button>
+              <button id="phoneSettingsStop" type="button" hidden>Stop sharing</button>
+            </div>
+          </section>
+
           <section class="panel settings-page" data-page="health">
             <div class="section-title">
               <h2>What's running</h2>
@@ -3137,6 +3187,16 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <button value="cancel" type="submit">Cancel</button>
           <button id="tplSave" type="button">Save template</button>
         </menu>
+      </form>
+    </dialog>
+
+    <dialog id="phoneDialog" aria-labelledby="phoneTitle">
+      <form method="dialog" class="word-form">
+        <div class="section-title">
+          <h2 id="phoneTitle">Use on your phone</h2>
+          <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="phoneBody" class="phone-body" aria-live="polite"></div>
       </form>
     </dialog>
 

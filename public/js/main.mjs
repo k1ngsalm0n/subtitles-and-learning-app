@@ -101,6 +101,7 @@ import {
 import { setupPractice, openPractice } from "./practice.mjs";
 import { setupMiniPlayer } from "./miniplayer.mjs";
 import { setupSplitter } from "./splitter.mjs";
+import { setupPhone, renderPhoneSettings } from "./phone.mjs";
 import { api } from "./backend.mjs";
 
 const els = {
@@ -326,6 +327,7 @@ function init() {
   renderAll(els);
   setupTranscriptDelegation(els);
   setupMiniPlayer(els);
+  setupPhone();
   setupSplitter({
     workspace: document.querySelector("#studyView .workspace"),
     divider: document.querySelector("#paneDivider"),
@@ -1123,6 +1125,7 @@ function setupSettings() {
       { id: "data", label: "Your data" },
       { id: "backups", label: "Automatic backups" },
       { id: "cookies", label: "Importing video" },
+      { id: "phone", label: "Use on your phone" },
       { id: "health", label: "What's running" },
     ],
     (entry) => {
@@ -1131,6 +1134,7 @@ function setupSettings() {
       // Asked for on arrival rather than at boot: it spawns a Python process
       // to find out, and most visits to Settings are for something else.
       if (entry.id === "health") renderHealth(els);
+      if (entry.id === "phone") renderPhoneSettings();
     },
     { startAt: state.settingsPage },
   );
@@ -1138,6 +1142,7 @@ function setupSettings() {
   // the markup (which hard-codes Appearance) is brought into line here.
   showSettingsPage(state.settingsPage);
   if (state.settingsPage === "health") renderHealth(els);
+  if (state.settingsPage === "phone") renderPhoneSettings();
 
   // The point of "Check again" is to see a fix take effect, so it must ignore
   // the cached answer — which means a real wait, which means saying so.

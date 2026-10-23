@@ -362,6 +362,28 @@ per-deck newest-wins can't express a move), templates, known words, and
 synced: appearance, daily counts, the import queue. A browser that already
 has cards backs up before its first merge.
 
+**Use on phone.** The 📱 button in the topbar (`phone.mjs`) ends at a QR code
+of this machine's Tailscale address, doing whatever is missing on the way:
+not installed → install steps; daemon down → the command; signed out → "Sign
+in" (`tailscale up`, whose link is answered at once while the process waits on
+in the background, and the window carries on by itself once signed in);
+HTTPS certificates off → the two admin settings; signed in → `tailscale serve
+--bg <PORT>` (tailnet only, never `funnel`), then the code. `server/tailscale.mjs`
+reads everything from `tailscale status --json` / `serve status --json`, which
+need no password; *changing* anything needs an operator (`sudo tailscale set
+--operator=$USER`), and a refusal comes back with that command. Changes are
+accepted only when `Host` is loopback — a phone arrives through `serve` with
+the ts.net name, and could otherwise switch off the sharing it's connected
+through; the button hides itself there too. Settings → "Use on your phone"
+shows the same status and is where sharing is turned off. The QR encoder
+(`qr.mjs`) is written out, not imported: byte mode, versions 1–40, all four
+levels; `test/qr.test.mjs` checks Reed–Solomon against ISO 18004's worked
+example and decodes generated codes with `zbarimg` where it's installed.
+`scripts/fake-tailscale.mjs` stands in for the CLI in every state
+(`STELE_TAILSCALE_BIN`, `FAKE_TS_STATE`, or a `state` file in `FAKE_TS_DIR`
+to switch a running sandbox) — it lives outside `test/` because `node --test`
+runs every `.mjs` there.
+
 **What's running.** Settings → the last wheel entry, backed by
 `GET /api/health` (`health.mjs` + `health.py`). Everything optional in this app
 degrades quietly by design — no voice model gives a robotic voice, no LLM key
