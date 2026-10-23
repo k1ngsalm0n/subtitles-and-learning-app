@@ -173,12 +173,10 @@ input:focus, textarea:focus { border-color: var(--accent); }
   width: 32px; height: 32px;
   border-radius: 8px;
   background: var(--accent);
-  color: #000;
   display: grid;
   place-items: center;
-  font-weight: 800;
-  font-size: 16px;
 }
+.brand-mark svg { width: 70%; height: 70%; fill: #fff; }
 .brand h1 { font-size: 16px; font-weight: 700; }
 /* The tabs are the one part of the topbar that can't be dropped, so they get to
    scroll rather than push the toggle off the end and take the whole page's
@@ -237,7 +235,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
 }
 @media (max-width: 360px) {
   .topbar { padding: 0 12px; gap: 8px; }
-  .brand-mark { width: 28px; height: 28px; font-size: 14px; }
+  .brand-mark { width: 28px; height: 28px; }
   .nav-tab { padding: 6px 8px; font-size: 12px; }
 }
 .segmented {
@@ -2539,7 +2537,11 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   <body>
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark">S</div>
+        <!-- Flower with heart petals, from SVG Repo (flower-with-heart-petals),
+             drawn white on the accent square. -->
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 396.079 396.079"><path d="M368.738,147.224c7.356-18.313,7.362-36.373-1.709-48.867c-16.381-22.556-56.126-18.441-88.78,9.187c-32.935,27.868-37.662,71.655-34.661,80.346c2.68,8.795,32.242,41.438,75.267,44.629c42.656,3.157,77.229-16.876,77.225-44.753C396.075,172.322,385.455,157.714,368.738,147.224z"/><path d="M313.314,249.568c-36.682-22.711-79.787-13.676-87.125-8.136c-7.535,5.267-29.447,43.469-19.186,85.374c10.18,41.545,39.915,68.232,66.426,59.614c14.685-4.776,25.294-19.39,30.106-38.53c19.69,1.339,36.869-4.237,45.949-16.726C365.874,308.615,349.682,272.086,313.314,249.568z"/><path d="M169.89,241.434c-7.338-5.54-50.442-14.573-87.124,8.136c-36.366,22.519-52.56,59.047-36.171,81.598c9.08,12.488,26.258,18.063,45.948,16.726c4.813,19.142,15.424,33.756,30.107,38.53c26.511,8.618,56.248-18.069,66.425-59.614C199.339,284.902,177.425,246.699,169.89,241.434z"/><path d="M77.225,232.517c43.024-3.188,72.586-35.834,75.267-44.628c3-8.692-1.728-52.477-34.662-80.347c-32.653-27.628-72.398-31.741-88.78-9.187c-9.073,12.495-9.066,30.555-1.708,48.868C10.625,157.714,0.005,172.322,0,187.763C-0.003,215.641,34.568,235.674,77.225,232.517z"/><path d="M198.04,154.794c9.192,0.168,49.374-17.856,65.703-57.792c16.185-39.593,7.813-78.664-18.699-87.273c-14.687-4.769-31.86,0.818-47.004,13.477c-15.144-12.657-32.318-18.244-47.004-13.477c-26.513,8.609-34.884,47.682-18.698,87.273C148.664,136.937,188.848,154.962,198.04,154.794z"/><circle cx="198.04" cy="198.039" r="35"/></svg>
+        </div>
         <h1>Stele</h1>
       </div>
 
