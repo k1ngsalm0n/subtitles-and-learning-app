@@ -11,16 +11,13 @@
 // tells the reader to run `npm run sync` instead, which gives the app its own.
 
 import { existsSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { runCommand } from "./util.mjs";
+import { venvTool } from "./device.mjs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const VENV_BIN = path.join(__dirname, "..", ".venv", "bin");
 
 // Prefer the venv's yt-dlp (kept on the nightly channel, which gets YouTube
 // fixes ahead of distro packages); fall back to whatever is on PATH.
-export const VENV_YTDLP = path.join(VENV_BIN, "yt-dlp");
+export const VENV_YTDLP = venvTool("yt-dlp");
 export const YTDLP_BIN = existsSync(VENV_YTDLP) ? VENV_YTDLP : "yt-dlp";
 
 // Older than this and the venv's copy is replaced.
@@ -71,7 +68,7 @@ async function installLatest() {
     "uv",
     [
       "pip", "install", "-U", "--prerelease=allow", "yt-dlp[default]",
-      "--python", path.join(VENV_BIN, "python"),
+      "--python", venvTool("python"),
     ],
     { timeoutMs: 5 * 60_000 },
   );

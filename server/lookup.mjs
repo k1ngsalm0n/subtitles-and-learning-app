@@ -1,21 +1,32 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { readPrefs } from "./prefs.mjs";
+import { readFile } from "node:fs/promises";
+import { readPrefs, dir } from "./prefs.mjs";
+import { createLookupCache } from "./lookupCache.mjs";
 import { getLlmConfig } from "./llmConfig.mjs";
+import { chatJson } from "./chat.mjs";
+import { preparedNote } from "./prepared.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sendJson, runCommand } from "./util.mjs";
+import { PYTHON_BIN } from "./device.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "data");
 const FULL_DICT = path.join(DATA_DIR, "cedict.u8"); // optional full CC-CEDICT
 const SEED_DICT = path.join(DATA_DIR, "cedict-seed.u8"); // bundled fallback
-const CACHE_FILE = path.join(DATA_DIR, "lookup-cache.json"); // LLM results
-const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
+// Chat-model and context-ranking answers. They used to live in data/ in the
+// checkout; the first run with this moves them beside the reader's other data.
+const cache = createLookupCache({
+  file: () => path.join(dir(), "lookup-cache.json"),
+  // Only into the reader's own folder: the sandbox and tests point
+  // STELE_PREFS_DIR at a throwaway one, and adopting there would delete the
+  // reader's cache along with it.
+  legacyFile: process.env.STELE_PREFS_DIR ? null : path.join(DATA_DIR, "lookup-cache.json"),
+});
+process.on("exit", cache.flushSync);
 const CONTEXT_RANK_SCRIPT = path.join(__dirname, "context_rank.py");
 
 // word -> { traditional, simplified, pinyin, defs: [] }
 let dict = null;
-let llmCache = null;
 
 // ---- Layer 1: local dictionary (CC-CEDICT) --------------------------------
 
@@ -111,21 +122,6 @@ export function numberedToAccent(pinyin) {
 
 // ---- Layer 3: LLM fallback (OpenAI) + disk cache --------------------------
 
-async function loadCache() {
-  if (llmCache) return llmCache;
-  try {
-    llmCache = JSON.parse(await readFile(CACHE_FILE, "utf8"));
-  } catch {
-    llmCache = {};
-  }
-  return llmCache;
-}
-
-async function saveCache() {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(CACHE_FILE, JSON.stringify(llmCache, null, 2));
-}
-
 // Any OpenAI-compatible chat API — Groq, Gemini's OpenAI shim, OpenAI, a local
 // Ollama. Which one, and the key, come from llmConfig.mjs: chosen in the app's
 // setup dialog, or from the LLM_* vars in .env. Asked per call so a key pasted
@@ -133,19 +129,19 @@ async function saveCache() {
 async function lookupWithLlm(word, lang, context, dictDefs) {
   const config = await getLlmConfig();
   if (!config) return null;
-  const { apiKey: LLM_API_KEY, baseUrl: LLM_BASE_URL, model: LLM_MODEL } = config;
+  const LLM_MODEL = config.model;
   // The reader can turn the chat model off in Settings → What's running;
   // meanings then come from the dictionary and the offline model alone.
   const { llm } = await readPrefs();
   if (llm === "off") return null;
-  const cache = await loadCache();
   // Include the model and prompt version in the key so switching providers or
   // changing the prompt refreshes answers. Bump the version token on any prompt
   // edit. v2: literal `meaning` + meaning/explanation consistency. v3: added
   // partOfSpeech. v4: explanation is about the word only, no sentence retelling.
   // v5: force English output.
   const key = `${LLM_MODEL}:v5:${lang}:${word}:${context || ""}`;
-  if (cache[key]) return cache[key];
+  const known = await cache.get(key);
+  if (known) return known;
 
   // Consistency rules shared by both prompts. The `meaning` is the word's
   // literal/dictionary sense; figurative or metaphorical use goes in the
@@ -186,26 +182,8 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
     userParts.push(`Dictionary definitions:\n${dictDefs.map((d, i) => `${i + 1}. ${d}`).join("\n")}`);
   }
 
-  const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LLM_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userParts.join("\n") },
-      ],
-    }),
-  }).catch(() => null);
-
-  if (!response || !response.ok) return null;
-  const payload = await response.json().catch(() => null);
-  const content = payload?.choices?.[0]?.message?.content;
+  // An OpenAI-compatible API, or Claude through Claude Code (chat.mjs).
+  const content = await chatJson(config, { system, user: userParts.join("\n") });
   if (!content) return null;
 
   let parsed;
@@ -223,8 +201,7 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
     partOfSpeech: String(parsed.partOfSpeech || ""),
     source: "llm",
   };
-  cache[key] = result;
-  await saveCache().catch(() => {});
+  await cache.set(key, result);
   return result;
 }
 
@@ -232,11 +209,11 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
 
 async function rankWithContext(word, context, defs, lang) {
   if (!context || defs.length <= 1) return null;
-  const cache = await loadCache();
   // v3: explanation is now a meaning-focused note about the word (was the whole
   // sentence's translation); bump so stale entries refresh.
   const key = `nllb3:${lang}:${word}:${context}`;
-  if (cache[key]) return cache[key];
+  const known = await cache.get(key);
+  if (known) return known;
 
   // Pass the generic code; context_rank.py detects Simplified vs Traditional
   // from the context text instead of assuming one script.
@@ -261,8 +238,7 @@ async function rankWithContext(word, context, defs, lang) {
       rankedDefs: parsed.ranked_defs || defs,
       source: "nllb",
     };
-    cache[key] = ranked;
-    await saveCache().catch(() => {});
+    await cache.set(key, ranked);
     return ranked;
   } catch {
     return null;
@@ -291,6 +267,19 @@ export async function lookupWord(word, lang, context) {
         source: "dictionary",
       };
     }
+  }
+
+  // Claude prepared this word for this line (mcp.mjs): answer at once.
+  const note = await preparedNote(word, context).catch(() => null);
+  if (note) {
+    return {
+      word,
+      pronunciation: note.pinyin || dictResult?.pronunciation || "",
+      meaning: note.meaning,
+      explanation: note.explanation || "",
+      defs: dictResult?.defs || [],
+      source: "claude-prepared",
+    };
   }
 
   const llm = await lookupWithLlm(word, lang, context, dictResult?.defs);

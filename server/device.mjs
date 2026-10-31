@@ -48,8 +48,15 @@ import { runCommand } from "./util.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HEALTH_SCRIPT = path.join(__dirname, "health.py");
-export const PYTHON_BIN =
-  process.env.STELE_PYTHON || path.join(__dirname, "..", ".venv", "bin", "python");
+// The venv's Python, for every module that runs one — kept here so there is
+// one answer. Windows venvs put it in Scripts\python.exe, not bin/python;
+// eight modules each spelling out the POSIX path meant no Python feature
+// worked on Windows. STELE_PYTHON points elsewhere.
+const WINDOWS = process.platform === "win32";
+export const VENV_BIN = path.join(__dirname, "..", ".venv", WINDOWS ? "Scripts" : "bin");
+// A program the venv installed (yt-dlp, deno, whisper), by its bare name.
+export const venvTool = (name) => path.join(VENV_BIN, WINDOWS ? `${name}.exe` : name);
+export const PYTHON_BIN = process.env.STELE_PYTHON || venvTool("python");
 
 // Below this, the two passes are better off queued. Measured, not guessed —
 // see the table above. Six is where they tie, and ties go to the simpler path.

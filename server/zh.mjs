@@ -13,9 +13,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readJsonBody, runCommand, sendJson } from "./util.mjs";
+import { PYTHON_BIN } from "./device.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const ZH_CONVERT_SCRIPT = path.join(__dirname, "zh_convert.py");
 
 // A transcript plus the words already in the deck. Well above any screenshot,

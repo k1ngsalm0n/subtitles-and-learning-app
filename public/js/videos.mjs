@@ -13,6 +13,40 @@
 
 import { percentOf, readImportStream } from "./importstream.mjs";
 import { api } from "./backend.mjs";
+import { showToast } from "./toast.mjs";
+
+// Claude preparing videos in the background (server/prepare.mjs), when the
+// chat model is "Claude (your subscription)". Asked every few seconds while
+// the page is visible; the rows show it, and a video Claude finishes while
+// it's open offers to reload, since its transcript on screen is the old one.
+let claude = { on: false, jobs: {} };
+async function refreshClaude() {
+  if (!ctx || document.visibilityState !== "visible") return;
+  try {
+    const [llm, prep] = await Promise.all([
+      api("/api/llm").then((r) => (r.ok ? r.json() : {})),
+      api("/api/prepare").then((r) => (r.ok ? r.json() : { jobs: {} })),
+    ]);
+    const next = { on: llm.provider === "claude" && Boolean(llm.configured), jobs: prep.jobs || {} };
+    for (const [id, job] of Object.entries(next.jobs)) {
+      const was = claude.jobs[id];
+      if (job.state !== "done" || !was || was.state === "done") continue;
+      const source = ctx.state.sources.find((s) => s.libraryId === id);
+      if (source && source.id === ctx.state.currentSourceId) {
+        showToast(`Claude finished preparing “${source.title}”.`, {
+          actions: [{ label: "Reload it", onClick: () => ctx.onOpen(source) }],
+          duration: 15_000,
+        });
+      }
+    }
+    if (JSON.stringify(next) !== JSON.stringify(claude)) {
+      claude = next;
+      renderVideos();
+    }
+  } catch {
+    // The server is restarting or an older one: nothing to show.
+  }
+}
 
 // ---- Pure parts (tested under Node) ----------------------------------------
 
@@ -127,6 +161,8 @@ let lastTicked = null;
 
 export function setupVideos({ state, saveSources, els, onOpen, onReady, onDelete }) {
   ctx = { state, saveSources, els, onOpen, onReady, onDelete };
+  refreshClaude();
+  setInterval(refreshClaude, 5000);
   if (resumeQueue(state.sources)) saveSources();
   els.videoList.addEventListener("click", onListClick);
   els.videoSelectAll.addEventListener("change", () => {
@@ -310,6 +346,18 @@ export function renderVideos() {
     if (source.status === "importing" && source.stage) status.title = source.stage;
     if (source.status === "failed") status.title = source.error || "";
 
+    // What Claude is doing with this video, when it's the chat model.
+    const job = source.libraryId ? claude.jobs[source.libraryId] : null;
+    if (job) {
+      const note = document.createElement("span");
+      note.className = `video-claude video-claude-${job.state}`;
+      note.textContent =
+        job.state === "done" ? "✦ Claude" : job.state === "failed" ? "Claude couldn't" : "Claude preparing…";
+      note.title =
+        job.state === "done" ? `Prepared by Claude in ${job.seconds}s` : job.state === "failed" ? job.error || "" : "";
+      title.append(" ", note);
+    }
+
     row.append(pick, mark, title, status);
     if (source.status === "importing") {
       const bar = document.createElement("span");
@@ -322,6 +370,9 @@ export function renderVideos() {
     if (source.status === "failed") actions.push(["retry", "Retry"]);
     if (isLegacy(source)) actions.push(["retry", "Import again"]);
     if (source.status === "waiting" || source.status === "failed") actions.push(["remove", "Remove"]);
+    if (claude.on && source.status === "ready" && source.libraryId && (!job || job.state === "failed")) {
+      actions.push(["prepare", "Prepare with Claude"]);
+    }
     if (canDelete(source)) actions.push(["delete", "Delete"]);
     // One cell for however many buttons, so a failed row's Retry and Remove
     // sit side by side instead of wrapping onto a line of their own.
@@ -378,6 +429,16 @@ function onListClick(event) {
   }
   if (action === "delete") {
     ctx.onDelete?.([source]);
+    return;
+  }
+  if (action === "prepare") {
+    api(`/api/prepare/${source.libraryId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      .then((r) => r.json())
+      .then((reply) => {
+        if (reply.error) showToast(reply.error);
+        refreshClaude();
+      })
+      .catch(() => showToast("The computer didn't answer."));
     return;
   }
   if (source.status === "ready") ctx.onOpen(source);

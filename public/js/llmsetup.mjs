@@ -16,16 +16,18 @@ import { api } from "./backend.mjs";
 // Shown beside each option. The server owns the URLs and model names; this
 // owns the words a person choosing between them needs.
 const BLURBS = {
+  claude: "No key. Uses your Claude plan through Claude Code on this computer. A few seconds per word.",
   groq: "Free account, then paste a key. Fast.",
   gemini: "Free tier with a Google account.",
   openrouter: "Free models with an account; daily limit.",
   openai: "Paid per use — pennies for a lot of lookups.",
+  deepseek: "Paid per use, and among the cheapest. Strong at Chinese.",
   ollama: "No account, stays on this computer. Install Ollama and pull any model. Slower.",
   custom: "Any OpenAI-compatible chat API.",
   offline: "No account, nothing sent. Dictionary meanings only, no explanations.",
 };
 
-const ORDER = ["groq", "gemini", "openrouter", "openai", "ollama", "custom", "offline"];
+const ORDER = ["claude", "groq", "gemini", "openrouter", "openai", "deepseek", "ollama", "custom", "offline"];
 
 let status = null;
 let els = null;
@@ -52,7 +54,7 @@ function renderOptions() {
     value: id,
     label: id === "offline" ? "Offline only" : status.providers[id].label,
     detail: BLURBS[id],
-    tag: id === "groq" ? "Recommended" : "",
+    tag: id === "groq" ? "Recommended" : id === "claude" ? "No key" : "",
   })));
 }
 
@@ -73,19 +75,159 @@ function fillFields(id) {
   els.key.placeholder = current && status.keyHint
     ? `Saved key ${status.keyHint} — leave blank to keep it`
     : preset.needsKey ? "Paste your API key" : "Not needed";
-  els.keyRow.hidden = id === "ollama";
+  // Claude has no key and no address: Claude Code signs in by itself.
+  els.keyRow.hidden = id === "ollama" || Boolean(preset.noAddress);
+  els.baseUrl.closest("label").hidden = Boolean(preset.noAddress);
   els.modelRow.hidden = id !== "ollama";
   if (id === "ollama") loadOllamaModels();
 
   if (preset.keyUrl) {
     els.keyLink.href = preset.keyUrl;
-    els.keyLink.textContent = id === "ollama" ? "Download Ollama ↗" : `Get a ${preset.label} key ↗`;
+    els.keyLink.textContent =
+      id === "ollama" ? "Download Ollama ↗" : id === "claude" ? "Get Claude Code ↗"
+        : `Get ${/^[AEIOU]/i.test(preset.label) ? "an" : "a"} ${preset.label} key ↗`;
     els.keyLink.hidden = false;
   } else {
     els.keyLink.hidden = true;
   }
+  // What leaves this computer, said in terms of this choice: Claude has no key.
+  els.privacy.textContent = preset.noAddress
+    ? "No key. The words you look up and the subtitle lines go to Claude through Claude Code on this computer, on your own Claude plan."
+    : "The key stays on this computer and goes only to that provider, along with the words you look up and the subtitle lines.";
+  if (id === "claude") refreshClaudeSetup();
+  else {
+    claudeTicket++;
+    stopClaudePoll();
+    els.claudeSetup.hidden = true;
+  }
   // Custom has nothing to prefill, so the address and model can't hide.
   els.advanced.open = id === "custom";
+}
+
+// Claude Code's state, and the one next step: install it, sign in, or nothing
+// (server/claudecode.mjs). The reader never opens a terminal. From a phone
+// (through Tailscale) it only reports: installing software on the computer is
+// done on the computer.
+let claudeTicket = 0;
+let claudePoll = null;
+
+function claudeEl(tag, props = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "onclick") el.addEventListener("click", v);
+    else if (k === "class") el.className = v;
+    else el.setAttribute(k, v);
+  }
+  el.append(...children.filter((c) => c != null && c !== false));
+  return el;
+}
+
+async function claudeAct(action, extra = {}) {
+  const res = await api("/api/claude-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...extra }),
+  });
+  return res.json().catch(() => ({ ok: false, error: "The computer didn't answer." }));
+}
+
+function stopClaudePoll() {
+  clearInterval(claudePoll);
+  claudePoll = null;
+}
+
+async function refreshClaudeSetup(message = "") {
+  const panel = els.claudeSetup;
+  const ticket = ++claudeTicket;
+  stopClaudePoll();
+  panel.hidden = false;
+  panel.replaceChildren(claudeEl("span", { class: "muted" }, "Checking Claude Code on this computer…"));
+  let s;
+  try {
+    s = await (await api("/api/claude-code")).json();
+  } catch {
+    s = null;
+  }
+  if (ticket !== claudeTicket || selected() !== "claude") return;
+  if (!s || s.error) {
+    panel.replaceChildren(claudeEl("span", { class: "claude-error" }, "Restart Stele so it can set up Claude Code, then try again."));
+    return;
+  }
+  const note = message && claudeEl("span", { class: "claude-error" }, message);
+  const remote = s.here !== "computer";
+  if (!s.installed) {
+    panel.replaceChildren(
+      claudeEl("span", {}, "Claude Code isn't on this computer yet. It's free to install, and needs a paid Claude plan (Pro or Max) to sign in."),
+      note,
+      remote
+        ? claudeEl("span", { class: "muted" }, "Install it from the computer Stele runs on.")
+        : claudeEl("div", { class: "claude-row" }, claudeEl("button", { type: "button", onclick: onInstall }, "Install Claude Code")),
+    );
+    return;
+  }
+  if (!s.signedIn) {
+    panel.replaceChildren(
+      claudeEl("span", {}, "Claude Code is installed. Sign in with your Claude account (Pro or Max)."),
+      note,
+      remote
+        ? claudeEl("span", { class: "muted" }, "Sign in from the computer Stele runs on.")
+        : claudeEl("div", { class: "claude-row" }, claudeEl("button", { type: "button", onclick: onSignIn }, "Sign in to Claude")),
+    );
+    return;
+  }
+  const plan = s.plan ? ` (${s.plan[0].toUpperCase()}${s.plan.slice(1)})` : "";
+  panel.replaceChildren(
+    claudeEl("span", { class: "claude-ok" }, `✓ Claude Code is ready, signed in as ${s.email || "you"}${plan}.`),
+    note,
+  );
+}
+
+async function onInstall(event) {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = "Installing… (about a minute)";
+  const result = await claudeAct("install");
+  refreshClaudeSetup(result.ok ? "" : result.error || "Claude Code didn't install.");
+}
+
+async function onSignIn(event) {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = "Opening Claude…";
+  const result = await claudeAct("signin");
+  if (!result.ok) return refreshClaudeSetup(result.error);
+  if (result.alreadySignedIn || !result.link) return refreshClaudeSetup();
+  window.open(result.link, "_blank", "noopener");
+  const code = claudeEl("input", { type: "text", id: "claudeCode", autocomplete: "off", spellcheck: "false", placeholder: "Paste the code from Claude's page" });
+  const finish = claudeEl("button", { type: "button" }, "Finish sign-in");
+  finish.addEventListener("click", async () => {
+    finish.disabled = true;
+    finish.textContent = "Signing in…";
+    const done = await claudeAct("code", { code: code.value });
+    refreshClaudeSetup(done.ok ? "" : done.error);
+  });
+  code.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish.click();
+    }
+  });
+  els.claudeSetup.replaceChildren(
+    claudeEl("span", {}, "Sign in on the page that opened. Claude then shows a code: paste it here."),
+    claudeEl("span", { class: "muted" }, "No page? ", claudeEl("a", { href: result.link, target: "_blank", rel: "noopener noreferrer" }, "Open Claude's sign-in ↗")),
+    claudeEl("div", { class: "claude-row" }, code, finish),
+  );
+  // Some sign-ins finish in the browser without a code: notice that too.
+  const ticket = claudeTicket;
+  claudePoll = setInterval(async () => {
+    if (ticket !== claudeTicket || !els.dialog.open) return stopClaudePoll();
+    try {
+      const s = await (await api("/api/claude-code")).json();
+      if (s.signedIn) refreshClaudeSetup();
+    } catch {
+      // Keep waiting.
+    }
+  }, 3000);
 }
 
 // Ollama's models are whatever this computer has pulled, so offer those rather
@@ -154,7 +296,7 @@ async function save() {
   els.error.textContent = "";
   els.save.disabled = true;
   const label = els.save.textContent;
-  if (provider !== "offline") els.save.textContent = "Checking…";
+  if (provider !== "offline") els.save.textContent = provider === "claude" ? "Asking Claude…" : "Checking…";
   try {
     const body = provider === "offline"
       ? { provider }
@@ -218,6 +360,8 @@ export function setupLlmDialog({ onSaved } = {}) {
     modelRow: $("llmModelRow"),
     modelPick: $("llmModelPick"),
     modelNote: $("llmModelNote"),
+    privacy: $("llmPrivacy"),
+    claudeSetup: $("claudeSetup"),
     modelRefresh: $("llmModelRefresh"),
     save: $("llmSave"),
     onSaved,

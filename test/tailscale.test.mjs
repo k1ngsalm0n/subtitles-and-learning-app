@@ -71,6 +71,17 @@ test("changes are only accepted from the computer itself", () => {
   assert.ok(!fromThisComputer(req("evil.example")));
 });
 
+test("a request through a proxy is never the computer itself, whatever its Host", () => {
+  for (const extra of [
+    { "x-forwarded-for": "100.64.0.2" },
+    { "x-forwarded-host": "pc.tail1.ts.net" },
+    { forwarded: "for=100.64.0.2" },
+    { "tailscale-user-login": "someone@example.com" },
+  ]) {
+    assert.ok(!fromThisComputer({ headers: { host: "localhost:3000", ...extra } }), Object.keys(extra)[0]);
+  }
+});
+
 test("not installed", async () => {
   process.env.STELE_TAILSCALE_BIN = "/nonexistent/tailscale";
   assert.equal((await tailscaleStatus(PORT)).installed, false);
@@ -118,4 +129,17 @@ test("HTTPS off: points at the setting rather than failing vaguely", async () =>
   assert.equal(result.ok, false);
   assert.match(result.error, /HTTPS/);
   assert.match(result.link, /^https:\/\/login\.tailscale\.com\//);
+});
+
+test("the QR code's address carries the pairing token; the plain one doesn't", async () => {
+  const { pairUrl } = await import("../server/tailscale.mjs");
+  const { pairToken, forgetPairToken } = await import("../server/gate.mjs");
+  process.env.STELE_PREFS_DIR = await mkdtemp(join(tmpdir(), "stele-pair-"));
+  forgetPairToken();
+  const link = new URL(await pairUrl("https://pc.tail1.ts.net/"));
+  assert.equal(link.origin, "https://pc.tail1.ts.net");
+  assert.equal(link.searchParams.get("pair"), await pairToken());
+  assert.equal(await pairUrl(""), "");
+  delete process.env.STELE_PREFS_DIR;
+  forgetPairToken();
 });

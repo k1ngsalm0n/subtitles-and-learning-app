@@ -238,12 +238,16 @@ function getTheApp() {
 
 function showReady(status) {
   stopPolling();
+  // The code and the copied link carry the pairing token (server/gate.mjs): a
+  // device that opens the plain address is turned away until it's paired.
+  // The address shown stays plain — the token isn't something to read out.
+  const link = status.pairUrl || status.url;
   const qr = h("div", { class: "phone-qr", role: "img", "aria-label": `QR code for ${status.url}` });
-  qr.innerHTML = qrSvg(status.url);
+  qr.innerHTML = qrSvg(link);
   const phoneOnline = (status.peers || []).some((p) => p.online);
   show(
     qr,
-    h("div", { class: "phone-url" }, h("code", {}, status.url.replace(/\/$/, "")), copyButton(status.url, "Copy link")),
+    h("div", { class: "phone-url" }, h("code", {}, status.url.replace(/\/$/, "")), copyButton(link, "Copy link")),
     h("p", { class: "phone-hint" }, "Open the ", h("strong", {}, "Tailscale"), " app on your phone first, then scan this with the camera."),
     deviceList(status.peers),
     !phoneOnline && getTheApp(),

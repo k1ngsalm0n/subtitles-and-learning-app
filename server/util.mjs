@@ -16,6 +16,9 @@ export function sendJson(res, status, value) {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(text),
+    // Same as static.mjs: a reply that quotes the request (an error message,
+    // a title) must never be sniffed into something the browser runs.
+    "X-Content-Type-Options": "nosniff",
   });
   res.end(text);
 }

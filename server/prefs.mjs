@@ -27,6 +27,60 @@ function file() {
   return path.join(dir(), "settings.json");
 }
 
+// Everything under dir() is the reader's own: cookies that sign in to YouTube,
+// a chat-model key, every card, every transcript. Folders are made 0700 and
+// files 0600 so another account on the same computer can't read them. These
+// two helpers are the one place that's decided; everything that writes
+// personal data out here goes through them.
+const WINDOWS = process.platform === "win32";
+
+// Folders made before this existed were left at the umask's 0755. Narrowed
+// once per data folder, the first time anything is written there. Best-effort:
+// a folder we can't chmod is no worse than it was.
+const tightened = new Set();
+async function tightenOnce(root) {
+  if (WINDOWS || tightened.has(root)) return;
+  tightened.add(root);
+  const narrow = async (folder) => {
+    const info = await fs.stat(folder).catch(() => null);
+    if (info?.isDirectory() && (info.mode & 0o077)) await fs.chmod(folder, 0o700).catch(() => {});
+  };
+  await narrow(root);
+  for (const entry of await fs.readdir(root, { withFileTypes: true }).catch(() => [])) {
+    if (entry.isDirectory()) await narrow(path.join(root, entry.name));
+  }
+}
+
+// mkdir -p, readable by this account only.
+export async function privateDir(folder) {
+  await fs.mkdir(folder, { recursive: true, mode: 0o700 });
+  if (WINDOWS) return;
+  // mkdir's mode only applies to what it creates, and the umask can't widen
+  // it, so only an existing, wider folder needs the chmod. The data folder
+  // itself is narrowed only when the write lands inside it — a test or a
+  // STELE_BACKUP_DIR elsewhere has no business changing it.
+  const root = path.resolve(dir());
+  const target = path.resolve(folder);
+  if (target === root || target.startsWith(root + path.sep)) await tightenOnce(root);
+  const info = await fs.stat(target).catch(() => null);
+  if (info && (info.mode & 0o077)) await fs.chmod(target, 0o700).catch(() => {});
+}
+
+// Write temp-then-rename, 0600. A half-written file read on the next request
+// would look like corruption; a rename is all or nothing. The temp file is
+// new, so `mode` applies to it, and the rename carries that over.
+export async function writePrivate(target, text) {
+  await privateDir(path.dirname(target));
+  const temp = `${target}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  try {
+    await fs.writeFile(temp, text, { mode: 0o600 });
+    await fs.rename(temp, target);
+  } catch (error) {
+    await fs.rm(temp, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
 // name -> allowed values. Anything not in here is refused rather than stored,
 // so a typo can't quietly disable a feature until someone finds this file.
 export const ALLOWED = {
@@ -72,13 +126,9 @@ export async function writePrefs(changes) {
   for (const [key, value] of Object.entries(changes || {})) {
     if (ALLOWED[key]?.includes(value)) next[key] = value;
   }
-  await fs.mkdir(dir(), { recursive: true });
   // Temp-then-rename, as the backups do: a half-written settings file read on
   // the next request would look like corruption and silently reset choices.
-  const target = file();
-  const temp = `${target}.${process.pid}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(next, null, 2));
-  await fs.rename(temp, target);
+  await writePrivate(file(), JSON.stringify(next, null, 2));
   cache.set(dir(), next);
   return { ...next };
 }

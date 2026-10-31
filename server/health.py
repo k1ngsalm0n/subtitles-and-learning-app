@@ -26,6 +26,7 @@ MODULES = [
     "unidecode",
     "opencc",
     "rapidocr",
+    "openvino",
     "piper",
     "faster_whisper",
     "whisper",

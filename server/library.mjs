@@ -15,10 +15,12 @@
 //   DELETE /api/library/<id> -> removes the saved import and the downloaded
 //                               video for that id: { removed: [file names] }
 
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { sendJson } from "./util.mjs";
+import { writePrivate } from "./prefs.mjs";
+import { loadPrepared, mergeTranslations } from "./prepared.mjs";
 
 const DATA_HOME = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
 
@@ -31,13 +33,8 @@ const ID = /^[0-9a-f]{32}$/;
 
 export async function saveToLibrary(id, entry) {
   if (!ID.test(id)) return null;
-  const dir = libraryDir();
-  await mkdir(dir, { recursive: true });
-  const file = path.join(dir, `${id}.json`);
-  const tmp = `${file}.tmp`;
   const saved = { id, ...entry, importedAt: Date.now() };
-  await writeFile(tmp, JSON.stringify(saved));
-  await rename(tmp, file);
+  await writePrivate(path.join(libraryDir(), `${id}.json`), JSON.stringify(saved));
   return saved;
 }
 
@@ -81,9 +78,11 @@ export async function handleLibrary(req, res, { videoDir } = {}) {
     return;
   }
   try {
-    const text = await readFile(path.join(libraryDir(), `${id}.json`), "utf8");
+    const entry = JSON.parse(await readFile(path.join(libraryDir(), `${id}.json`), "utf8"));
+    // Claude's line translations (prepared.mjs) over the import's own.
+    const merged = mergeTranslations(entry, await loadPrepared(id));
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-cache" });
-    res.end(text);
+    res.end(JSON.stringify(merged));
   } catch {
     sendJson(res, 404, { error: "That video's subtitles aren't saved — import it again." });
   }

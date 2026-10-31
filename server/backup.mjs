@@ -14,6 +14,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { sendJson, readJsonBody, HttpError } from "./util.mjs";
+import { privateDir, writePrivate } from "./prefs.mjs";
 
 const DATA_HOME =
   process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
@@ -56,7 +57,7 @@ function adoptLegacyDir() {
     if (await exists(BACKUP_DIR)) return;
     if (!(await exists(LEGACY_DIR))) return;
 
-    await fs.mkdir(path.dirname(BACKUP_DIR), { recursive: true });
+    await privateDir(path.dirname(BACKUP_DIR));
     try {
       await fs.rename(LEGACY_DIR, BACKUP_DIR);
     } catch {
@@ -116,15 +117,12 @@ export async function handleSaveBackup(req, res) {
     return;
   }
 
-  await fs.mkdir(BACKUP_DIR, { recursive: true });
   const name = backupName();
-  const target = path.join(BACKUP_DIR, name);
   // Write beside the target and rename: a crash mid-write leaves the previous
   // snapshot intact rather than a truncated file that looks like a backup.
-  const temp = `${target}.part`;
+  // 0600, in a 0700 folder: every card the reader has made is in here.
   const text = JSON.stringify(payload);
-  await fs.writeFile(temp, text, "utf8");
-  await fs.rename(temp, target);
+  await writePrivate(path.join(BACKUP_DIR, name), text);
 
   // Rotate oldest-first, ignoring failures: a backup that can't be pruned is
   // still a backup.

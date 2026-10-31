@@ -17,14 +17,17 @@ import { handleLlm } from "./llmConfig.mjs";
 import { handleStrokes } from "./strokes.mjs";
 import { handleLocate } from "./locate.mjs";
 import { handleLibrary } from "./library.mjs";
+import { handlePrepare } from "./prepare.mjs";
+import { handleClaudeCode } from "./claudecode.mjs";
 import { handleSync, handleSyncEvents } from "./sync.mjs";
-import { handleTailscale } from "./tailscale.mjs";
+import { handleTailscale, tailnetName } from "./tailscale.mjs";
 import {
   handleSaveBackup,
   handleListBackups,
   handleReadBackup,
 } from "./backup.mjs";
 import { serveStatic } from "./static.mjs";
+import { checkRequest, fromLoopback, isProxied, isTailnetHost, pairToken } from "./gate.mjs";
 import { sendJson } from "./util.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,98 +45,93 @@ process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
 });
 
+// Every API route, in one table. `path` matches the whole request line (query
+// included, as the handlers expect); `prefix` its start. First match wins.
+const ROUTES = [
+  { methods: ["POST"], path: "/api/import-url", run: handleImportUrl },
+  { methods: ["GET"], path: "/api/cookies", run: handleGetCookies },
+  { methods: ["POST"], path: "/api/cookies", run: handleSaveCookies },
+  { methods: ["GET"], prefix: "/api/lookup", run: handleLookup },
+  { methods: ["GET", "DELETE"], prefix: "/api/library/", run: (req, res) => handleLibrary(req, res, { videoDir: VIDEO_DIR }) },
+  { methods: ["POST"], path: "/api/locate", run: handleLocate },
+  { methods: ["POST"], path: "/api/translate", run: handleTranslate },
+  { methods: ["POST"], path: "/api/romanize", run: handleRomanize },
+  { methods: ["POST"], path: "/api/ocr-image", run: handleOcrImage },
+  { methods: ["POST"], path: "/api/zh-convert", run: handleZhConvert },
+  { methods: ["POST"], path: "/api/speak", run: handleSpeak },
+  { methods: ["GET"], path: "/api/voices", run: handleVoices },
+  { methods: ["GET"], prefix: "/api/health", run: handleHealth },
+  { methods: ["POST"], path: "/api/prefs", run: handlePrefs },
+  { methods: ["GET"], prefix: "/api/llm/models", run: handleLlm },
+  { methods: ["GET", "POST", "DELETE"], path: "/api/llm", run: (req, res) => handleLlm(req, res, { onChange: forgetHealth }) },
+  { methods: ["GET"], prefix: "/api/strokes", run: handleStrokes },
+  { methods: ["GET", "POST"], path: "/api/tailscale", run: (req, res) => handleTailscale(req, res, { port: PORT }) },
+  { methods: ["GET", "POST"], path: "/api/claude-code", run: handleClaudeCode },
+  { methods: ["GET"], path: "/api/prepare", run: handlePrepare },
+  { methods: ["POST"], prefix: "/api/prepare/", run: handlePrepare },
+  { methods: ["POST"], path: "/api/sync", run: handleSync },
+  { methods: ["GET"], prefix: "/api/sync/events", run: handleSyncEvents },
+  { methods: ["POST"], path: "/api/backup", run: handleSaveBackup },
+  { methods: ["GET"], path: "/api/backups", run: handleListBackups },
+  { methods: ["GET"], prefix: "/api/backup?", run: handleReadBackup },
+];
+
+function findRoute(method, url) {
+  return ROUTES.find(
+    (r) => r.methods.includes(method) && (r.path ? url === r.path : url.startsWith(r.prefix)),
+  );
+}
+
+// The gate (gate.mjs) in front of every route. The ts.net name and pairing
+// token are only looked up for a request that isn't from this computer, so
+// the usual case costs nothing and a broken Tailscale can't slow it down.
+async function admit(req, res) {
+  let name = "";
+  let token = "";
+  if (!fromLoopback(req, PORT)) {
+    name = await tailnetName(PORT);
+    // A name we don't know yet: the phone may be the first to use a tailnet
+    // that came up after the server started, so ask Tailscale once.
+    if (!isTailnetHost(req.headers.host, name)) name = await tailnetName(PORT, { refresh: true });
+    // Proxied with a loopback Host is held to pairing too (gate.mjs).
+    if (isTailnetHost(req.headers.host, name) || isProxied(req)) token = await pairToken();
+  }
+  const verdict = checkRequest(req, { port: PORT, tailnetName: name, token });
+  if (verdict.ok) return true;
+  // Another device turned away, or paired, says so in the log: "isn't paired"
+  // on a phone has several causes (an old QR code, the camera opening a
+  // different browser from the one the reader uses) and only this tells them
+  // apart. Never the token or the cookie's value, only whether one came.
+  if (token) {
+    const ua = String(req.headers["user-agent"] || "").replace(/\s+/g, " ").slice(0, 160);
+    const pathOnly = String(req.url || "").split("?")[0];
+    console.warn(
+      `Phone ${verdict.redirect ? "paired" : `refused (${verdict.status})`}: ${req.method} ${pathOnly}` +
+        ` cookie=${/(?:^|;\s*)stele_pair=/.test(req.headers.cookie || "") ? "sent" : "none"}` +
+        ` pair=${new URL(req.url || "/", "http://x").searchParams.has("pair") ? "yes" : "no"} — ${ua}`,
+    );
+  }
+  if (verdict.redirect) {
+    res.writeHead(302, { Location: verdict.redirect, "Set-Cookie": verdict.setCookie, "Cache-Control": "no-store" });
+    res.end();
+    return false;
+  }
+  if (String(req.url || "").startsWith("/api/")) {
+    sendJson(res, verdict.status, { error: verdict.error });
+  } else {
+    res.writeHead(verdict.status, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end(verdict.error);
+  }
+  return false;
+}
+
 createServer(async (req, res) => {
   try {
-    if (req.method === "POST" && req.url === "/api/import-url") {
-      await handleImportUrl(req, res);
-      return;
-    }
-    if (req.method === "GET" && req.url === "/api/cookies") {
-      await handleGetCookies(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/cookies") {
-      await handleSaveCookies(req, res);
-      return;
-    }
-    if (req.method === "GET" && req.url.startsWith("/api/lookup")) {
-      await handleLookup(req, res);
-      return;
-    }
-    if ((req.method === "GET" || req.method === "DELETE") && req.url.startsWith("/api/library/")) {
-      await handleLibrary(req, res, { videoDir: VIDEO_DIR });
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/locate") {
-      await handleLocate(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/translate") {
-      await handleTranslate(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/romanize") {
-      await handleRomanize(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/ocr-image") {
-      await handleOcrImage(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/zh-convert") {
-      await handleZhConvert(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/speak") {
-      await handleSpeak(req, res);
-      return;
-    }
-    if (req.method === "GET" && req.url === "/api/voices") {
-      await handleVoices(req, res);
-      return;
-    }
-    if (req.method === "GET" && req.url.startsWith("/api/health")) {
-      await handleHealth(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/prefs") {
-      await handlePrefs(req, res);
-      return;
-    }
-    if (req.method === "GET" && req.url.startsWith("/api/llm/models")) {
-      await handleLlm(req, res);
-      return;
-    }
-    if (req.url === "/api/llm" && ["GET", "POST", "DELETE"].includes(req.method)) {
-      await handleLlm(req, res, { onChange: forgetHealth });
-      return;
-    }
-    if (req.method === "GET" && req.url.startsWith("/api/strokes")) {
-      await handleStrokes(req, res);
-      return;
-    }
-    if (req.url === "/api/tailscale" && (req.method === "GET" || req.method === "POST")) {
-      await handleTailscale(req, res, { port: PORT });
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/sync") {
-      await handleSync(req, res);
-      return;
-    }
-    if (req.method === "GET" && req.url.startsWith("/api/sync/events")) {
-      handleSyncEvents(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/backup") {
-      await handleSaveBackup(req, res);
-      return;
-    }
-    if (req.method === "GET" && req.url === "/api/backups") {
-      await handleListBackups(req, res);
-      return;
-    }
-    if (req.method === "GET" && req.url.startsWith("/api/backup?")) {
-      await handleReadBackup(req, res);
+    if (!(await admit(req, res))) return;
+
+    const route = findRoute(req.method, req.url);
+    if (route) {
+      await route.run(req, res);
       return;
     }
 

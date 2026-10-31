@@ -21,6 +21,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { sendJson, readJsonBody, runCommand } from "./util.mjs";
+import { pairToken, PAIR_PARAM, isProxied } from "./gate.mjs";
 
 // STELE_TAILSCALE_BIN points at another binary — the tests and the sandbox
 // use a stand-in, since the reader's real tailnet is already set up.
@@ -177,8 +178,42 @@ export function signIn() {
   });
 }
 
+// This machine's ts.net name, for the request gate (gate.mjs): a phone
+// arriving through `tailscale serve` carries it in `Host`. Remembered, and
+// asked again only when a request names a host we don't recognise — at most
+// every 10 seconds, so a page hammering the server with made-up hosts can't
+// make it run the CLI per request. "" when there's no tailnet.
+let knownName = "";
+let askedAt = 0;
+let asking = null;
+const REASK_MS = 10_000;
+
+export async function tailnetName(port, { refresh = false } = {}) {
+  if (!refresh || Date.now() - askedAt < REASK_MS) return knownName;
+  asking ||= tailscaleStatus(port)
+    .then((s) => (knownName = s.dnsName || ""))
+    .catch(() => knownName)
+    .finally(() => {
+      askedAt = Date.now();
+      asking = null;
+    });
+  return asking;
+}
+
+// The address with the pairing token, for the QR code. Only ever handed to
+// the computer itself: it is the key a new device trades for its cookie.
+export async function pairUrl(url) {
+  if (!url) return "";
+  const u = new URL(url);
+  u.searchParams.set(PAIR_PARAM, await pairToken());
+  return u.href;
+}
+
 // The computer itself, not a phone arriving through `tailscale serve`.
+// A request that came through a proxy (gate.mjs: X-Forwarded-*, Forwarded,
+// Tailscale-User-Login) is another device even if Host reads as loopback.
 export function fromThisComputer(req) {
+  if (isProxied(req)) return false;
   const host = String(req.headers.host || "").replace(/:\d+$/, "").toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
 }
@@ -187,7 +222,10 @@ export function fromThisComputer(req) {
 export async function handleTailscale(req, res, { port }) {
   const here = fromThisComputer(req) ? "computer" : "remote";
   if (req.method === "GET") {
-    sendJson(res, 200, { ...(await tailscaleStatus(port)), here });
+    const status = await tailscaleStatus(port);
+    if (status.dnsName) knownName = status.dnsName;
+    const pair = here === "computer" && status.url ? { pairUrl: await pairUrl(status.url) } : {};
+    sendJson(res, 200, { ...status, ...pair, here });
     return;
   }
   // As /api/llm: a JSON content type forces a CORS preflight this server never
@@ -214,5 +252,8 @@ export async function handleTailscale(req, res, { port }) {
     return;
   }
   const result = await act();
-  sendJson(res, result.ok ? 200 : 409, { ...result, status: await tailscaleStatus(port) });
+  const status = await tailscaleStatus(port);
+  if (status.dnsName) knownName = status.dnsName;
+  const pair = status.url ? { pairUrl: await pairUrl(status.url) } : {};
+  sendJson(res, result.ok ? 200 : 409, { ...result, status: { ...status, ...pair, here } });
 }

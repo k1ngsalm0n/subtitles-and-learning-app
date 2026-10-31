@@ -9,9 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand, sendJson, HttpError } from "./util.mjs";
+import { PYTHON_BIN } from "./device.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const OCR_SCRIPT = path.join(__dirname, "ocr_image.py");
 
 // A generous ceiling for a screenshot — a 4K phone grab is a few MB. Well under

@@ -153,6 +153,8 @@ const els = {
   cookieFileSection: document.querySelector("#cookieFileSection"),
   cookieBrowser: document.querySelector("#cookieBrowser"),
   cookiesTxt: document.querySelector("#cookiesTxt"),
+  cookieFileState: document.querySelector("#cookieFileState"),
+  removeCookieFile: document.querySelector("#removeCookieFile"),
   saveCookies: document.querySelector("#saveCookies"),
   cookieStatus: document.querySelector("#cookieStatus"),
   cardModal: document.querySelector("#cardModal"),
@@ -476,6 +478,7 @@ function bindEvents() {
   els.cookieModeBrowser.addEventListener("click", () => setCookieMode("browser"));
   els.cookieModeFile.addEventListener("click", () => setCookieMode("file"));
   els.saveCookies.addEventListener("click", saveCookieSettings);
+  els.removeCookieFile.addEventListener("click", removeCookieFile);
 }
 
 // Browsers don't report a localStorage quota, but ~5 MB is the near-universal
@@ -1586,15 +1589,50 @@ function setCookieMode(mode) {
   els.cookieStatus.textContent = "";
 }
 
+// The server never sends a saved cookie file back, only that one exists and
+// how many cookies it holds; the box is for pasting a replacement.
+function showCookieFile(data) {
+  const saved = Boolean(data?.hasFile);
+  els.cookieFileState.hidden = !saved;
+  els.removeCookieFile.hidden = !saved;
+  els.cookieFileState.textContent = saved
+    ? `A cookie file is saved (${data.cookieCount} cookie${data.cookieCount === 1 ? "" : "s"}). Paste a new one to replace it.`
+    : "";
+  els.cookiesTxt.placeholder = saved ? "Paste a replacement cookies.txt" : "# Netscape HTTP Cookie File";
+}
+
 async function loadCookieSettings() {
   try {
     const res = await api("/api/cookies");
     const data = await res.json();
     setCookieMode(data.mode || "none");
     if (data.browser) els.cookieBrowser.value = data.browser;
-    if (data.cookiesTxt) els.cookiesTxt.value = data.cookiesTxt;
+    showCookieFile(data);
   } catch {
     // server unavailable — leave defaults
+  }
+}
+
+async function postCookies(body) {
+  const res = await api("/api/cookies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Save failed");
+  return data;
+}
+
+async function removeCookieFile() {
+  if (!confirm("Remove the saved cookie file?")) return;
+  try {
+    const data = await postCookies({ mode: "none", removeFile: true });
+    setCookieMode(data.mode || "none");
+    showCookieFile(data);
+    els.cookieStatus.textContent = "Removed.";
+  } catch (err) {
+    els.cookieStatus.textContent = err.message;
   }
 }
 
@@ -1610,12 +1648,9 @@ async function saveCookieSettings() {
   if (mode === "file") body.cookiesTxt = els.cookiesTxt.value;
 
   try {
-    const res = await api("/api/cookies", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error("Save failed");
+    const data = await postCookies(body);
+    els.cookiesTxt.value = "";
+    showCookieFile(data);
     els.cookieStatus.textContent = "Saved.";
   } catch (err) {
     els.cookieStatus.textContent = err.message;
