@@ -198,6 +198,110 @@ def get_opus(model_name):
     return _opus_cache[model_name]
 
 
+# --- CTranslate2 -------------------------------------------------------------
+#
+# On the CPU — where translation runs unless TRANSLATE_DEVICE says otherwise —
+# the same models run through CTranslate2 instead of torch. Measured on a
+# 16-core Core Ultra, beam 5, 200 FLORES sentences: NLLB es→en 384 s → 42 s at
+# the same chrF++ (55.1 both), Opus zh→en 40 s → 6 s (50.0 → 49.5; float32
+# gets 49.8 at twice the time, so int8 it is). A 42-minute, 1,151-line video
+# had spent seven minutes in the offline translator with every core busy.
+# CTranslate2 is already installed — faster-whisper runs on it.
+#
+# Each model is converted once, on first use (≈12 s for NLLB, 5 s for an Opus
+# model), into STELE_CT2_DIR. Anything going wrong — no ctranslate2, a failed
+# conversion, a model it can't read — falls back to torch for that model, so
+# this can only ever make translation faster. TRANSLATE_ENGINE=torch forces
+# the old path.
+CT2_DIR = os.environ.get("STELE_CT2_DIR") or os.path.join(
+    os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"),
+    "stele",
+    "ct2",
+)
+_ct2_cache = {}
+_ct2_failed = set()
+
+
+def _ct2_wanted():
+    engine = os.environ.get("TRANSLATE_ENGINE", "").strip().lower()
+    if engine == "torch":
+        return False
+    # torch keeps the GPU: CTranslate2's CUDA build is a separate question, and
+    # the GPU path is already fast.
+    return _select_device() == "cpu"
+
+
+def get_ct2(model_name):
+    """A CTranslate2 Translator for `model_name`, or None to use torch."""
+    if model_name in _ct2_cache:
+        return _ct2_cache[model_name]
+    if model_name in _ct2_failed or not _ct2_wanted():
+        return None
+    try:
+        import ctranslate2
+
+        path = os.path.join(CT2_DIR, model_name.replace("/", "--") + "-int8")
+        if not os.path.isfile(os.path.join(path, "model.bin")):
+            from ctranslate2.converters import TransformersConverter
+
+            sys.stderr.write(f"Converting {model_name} for CTranslate2 (once) …\n")
+            sys.stderr.flush()
+            os.makedirs(CT2_DIR, exist_ok=True)
+            # Convert beside the target and rename, so an interrupted
+            # conversion never leaves a half-written model that looks done.
+            tmp = f"{path}.part-{os.getpid()}"
+            TransformersConverter(model_name).convert(tmp, quantization="int8", force=True)
+            os.replace(tmp, path)
+        translator = ctranslate2.Translator(path, device="cpu", compute_type="int8")
+    except Exception as exc:  # noqa: BLE001 - any failure means "use torch"
+        sys.stderr.write(f"CTranslate2 unavailable for {model_name} ({exc}); using torch.\n")
+        sys.stderr.flush()
+        _ct2_failed.add(model_name)
+        return None
+    _ct2_cache[model_name] = translator
+    return translator
+
+
+def _ct2_translate(translator, tokenizer, pieces, target_token=None):
+    """Translate already-split pieces with CTranslate2.
+
+    The tokenizer is the model's own, so source tokens (NLLB's language code,
+    an Opus `>>xxx<<` prefix in the text) come out exactly as torch sees them.
+    NLLB's target language goes in as the first decoded token, which is what
+    `forced_bos_token_id` does on the torch side.
+    """
+    tokens = [
+        tokenizer.convert_ids_to_tokens(tokenizer.encode(piece, truncation=True, max_length=512))
+        for piece in pieces
+    ]
+    results = translator.translate_batch(
+        tokens,
+        beam_size=NUM_BEAMS,
+        max_decoding_length=256,
+        no_repeat_ngram_size=NO_REPEAT_NGRAM,
+        max_batch_size=BATCH_SIZE,
+        target_prefix=[[target_token]] * len(tokens) if target_token else None,
+    )
+    out = []
+    for result in results:
+        hyp = result.hypotheses[0]
+        if target_token and hyp and hyp[0] == target_token:
+            hyp = hyp[1:]
+        out.append(tokenizer.decode(tokenizer.convert_tokens_to_ids(hyp), skip_special_tokens=True))
+    return out
+
+
+_tokenizers = {}
+
+
+def get_tokenizer(model_name):
+    """The tokenizer alone — the CTranslate2 path needs no torch model."""
+    if model_name not in _tokenizers:
+        cls = MarianTokenizer if model_name != MODEL_NAME else AutoTokenizer
+        _tokenizers[model_name] = cls.from_pretrained(model_name)
+    return _tokenizers[model_name]
+
+
 # These models are trained on single sentences. Hand one a whole paragraph and
 # it does not truncate so much as give up partway: at 240 characters of ordinary
 # Chinese prose the tail of the line simply stopped appearing in the output,
@@ -279,8 +383,17 @@ def translate_batch_opus(texts, route):
         return []
     # A route from OPUS_ROUTES, or a bare model name for a single-pair model.
     model_name = route["model"] if isinstance(route, dict) else route
-    tokenizer, model, device = get_opus(model_name)
     prefix = opus_prefix(route)
+
+    translator = get_ct2(model_name)
+    if translator is not None:
+        tokenizer = get_tokenizer(model_name)
+        return _translate_split(
+            texts,
+            lambda pieces: _ct2_translate(translator, tokenizer, [prefix + p for p in pieces]),
+        )
+
+    tokenizer, model, device = get_opus(model_name)
 
     def run_pieces(pieces):
         inputs = tokenizer(
@@ -477,6 +590,15 @@ def translate_batch(texts, src_lang, tgt_lang):
     """
     if not texts:
         return []
+
+    translator = get_ct2(MODEL_NAME)
+    if translator is not None:
+        tokenizer = get_tokenizer(MODEL_NAME)
+        tokenizer.src_lang = src_lang
+        return _translate_split(
+            texts, lambda pieces: _ct2_translate(translator, tokenizer, pieces, tgt_lang)
+        )
+
     tokenizer, _ = get_model()
     tokenizer.src_lang = src_lang
     tgt_id = tokenizer.convert_tokens_to_ids(tgt_lang)
@@ -663,7 +785,12 @@ def serve():
         # its first request, being as small). NLLB — the 2.4 GB many-language
         # fallback — loads lazily on the first request that needs it, so most
         # sessions never pay its load time or memory.
-        get_opus(OPUS_ZH_EN)
+        # On the CPU that means CTranslate2's copy (converted here the first
+        # time); torch's is only loaded if that isn't available.
+        if get_ct2(OPUS_ZH_EN) is not None:
+            get_tokenizer(OPUS_ZH_EN)
+        else:
+            get_opus(OPUS_ZH_EN)
     except Exception as exc:  # model download/load failure
         sys.stdout.write(json.dumps({"ready": False, "error": str(exc)}) + "\n")
         sys.stdout.flush()

@@ -20,7 +20,14 @@ lifting — speech-to-text and offline translation — runs through Python.
 - **Translation:** offline, routed per pair — Marian Opus-MT
   (`Helsinki-NLP/opus-mt-zh-en` / `opus-mt-en-zh`, ~310 MB each, fast on CPU)
   for the app's zh↔en pairs, NLLB-200 (`facebook/nllb-200-distilled-600M`) as
-  the fallback for other languages. All via `transformers`/`torch`. The pairs
+  the fallback for other languages. On the CPU (the default) both run through
+  **CTranslate2** int8, converted once per model into `~/.cache/stele/ct2`
+  (`STELE_CT2_DIR`) on first use; `torch` is the fallback and what a GPU uses.
+  Measured on 200 FLORES sentences: NLLB es→en 384 s → 42 s at the same chrF++
+  (55.1), Opus zh→en 40 s → 6 s (50.0 → 49.5; float32 49.8 at twice the time).
+  A 1,151-line, 42-minute video went from ~7 minutes on every core to 75 s on
+  four. `TRANSLATE_ENGINE=torch` forces the old path. That video was in the
+  offline translator at all because it is over the chat model's 400 lines. The pairs
   live in `OPUS_ROUTES` (translate.py), one line per (from, to): a model and,
   for multi-target models, a `token` prepended to every sentence as `>>id<<`.
   `opus-mt-en-zh` is one of those and ran without its token for months — it

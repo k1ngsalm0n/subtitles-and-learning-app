@@ -243,8 +243,15 @@ function speechCheck({ has, voices, prefs }) {
 }
 
 // --- Translation and word lookups ------------------------------------------
-function llmCheck({ llm: ready, llmProvider, llmModel, llmFailure, prefs }) {
+function llmCheck({ has, llm: ready, llmProvider, llmModel, llmFailure, prefs }) {
   const on = ready && prefs.llm !== "off";
+  // The offline translator runs on CTranslate2 when it can (translate.py):
+  // 5-10x faster on the CPU at the same quality. Without it, torch still
+  // translates, just slowly enough that a long video sits for minutes.
+  const slow =
+    has && has("transformers") && !has("ctranslate2")
+      ? " The offline translator is running on torch, several times slower than it could: `uv sync` installs CTranslate2."
+      : "";
   // Configured, switched on — and failing. Every lookup and translation falls
   // back to the offline translator without a word, so this row is the only
   // place that says so.
@@ -255,7 +262,7 @@ function llmCheck({ llm: ready, llmProvider, llmModel, llmFailure, prefs }) {
       label: "Translation and word meanings",
       state: FALLBACK,
       using: `the offline translator — the chat model (${llmProvider}) stopped working at ${when}`,
-      detail: `${llmFailure.reason} Until it answers again, word meanings and translations quietly use the offline translator, which is more literal.`,
+      detail: `${llmFailure.reason} Until it answers again, word meanings and translations quietly use the offline translator, which is more literal.${slow}`,
       fix: null,
       fixNote: null,
       action: { id: "llm-setup", label: "Change provider or key" },
@@ -272,9 +279,10 @@ function llmCheck({ llm: ready, llmProvider, llmModel, llmFailure, prefs }) {
     label: "Translation and word meanings",
     state: on ? BEST : FALLBACK,
     using,
-    detail: on
+    detail:
+      (on
       ? "Everyday phrases come out as what they mean rather than word by word, less common names are recognised, and word lookups come with real explanations."
-      : "Free, private and quick, but it translates literally. 你别给我戴高帽子了 — “stop flattering me” — comes back as “Don't put your hat on me”, and 她的中文说得很地道 as “Her Chinnese laguage says a lot”. Common names are fine; unusual ones get spelled out a syllable at a time. Word lookups give a bare meaning with no explanation.",
+      : "Free, private and quick, but it translates literally. 你别给我戴高帽子了 — “stop flattering me” — comes back as “Don't put your hat on me”, and 她的中文说得很地道 as “Her Chinnese laguage says a lot”. Common names are fine; unusual ones get spelled out a syllable at a time. Word lookups give a bare meaning with no explanation.") + slow,
     fix: null,
     fixNote: null,
     // Not a terminal command any more: the key is pasted into a dialog, which

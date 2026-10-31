@@ -32,6 +32,7 @@ MODULES = [
     "whisper",
     "transformers",
     "torch",
+    "ctranslate2",
 ]
 
 
