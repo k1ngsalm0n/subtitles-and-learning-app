@@ -29,18 +29,30 @@ test("every language in the table has a name and a Flores-200 code (#32)", () =>
   assert.equal(new Set(codes).size, codes.length, "duplicate language codes");
 });
 
-test("the translate bar only offers languages the table describes (#32)", () => {
-  const codes = new Set(table.languages.map((l) => l.code));
-  const unknown = (table.offered || []).filter((code) => !codes.has(code));
-  assert.deepEqual(unknown, [], "`offered` names languages missing from `languages`");
-
-  // CHINESE-ONLY (temporary, #65): `offered` trims the bar to a subset, so the
-  // invariant is "the UI never offers a language the server can't translate".
-  // Dropping the key offers them all, and this still holds.
+test("the translate bar lists exactly the rows marked offered (#32)", () => {
+  // `offered` is a flag on each row (one line per language, so languages can
+  // be added in parallel without touching a shared list). The invariant is
+  // "the UI never offers a language that hasn't passed its gates"; with no row
+  // marked, every language is offered, and this still holds.
+  const marked = table.languages.filter((l) => l.offered).map((l) => l.code);
+  assert.ok(!("offered" in table), "`offered` moved onto the rows; a top-level list would be ignored");
   assert.deepEqual(
     LANGUAGES.map((l) => l.code),
-    table.offered || [...codes],
+    marked.length ? marked : table.languages.map((l) => l.code),
   );
+  assert.ok(marked.includes("zh") && marked.includes("en"), "Chinese and English are study languages");
+});
+
+test("per-language fields have the shapes their readers expect", () => {
+  // ocr: a RapidOCR PP-OCRv5 lang_type, or null for "no model reads it"
+  // (server/languages.py). whisper: Whisper's code, or null. inaudible: text.
+  const OCR = new Set(["cyrillic", "eslav", "arabic", "devanagari", "el", "korean", "th", "latin", "ta", "te", null]);
+  for (const row of table.languages) {
+    if ("ocr" in row) assert.ok(OCR.has(row.ocr), `${row.code}: unknown ocr model ${row.ocr}`);
+    if ("whisper" in row) assert.ok(row.whisper === null || /^[a-z]{2,3}$/.test(row.whisper), `${row.code}: whisper`);
+    if ("inaudible" in row) assert.equal(typeof row.inaudible, "string", `${row.code}: inaudible`);
+    if ("offered" in row) assert.equal(row.offered, true, `${row.code}: offered is true or absent`);
+  }
 });
 
 test("server/translate.py builds its map from the table, not its own copy (#32)", () => {

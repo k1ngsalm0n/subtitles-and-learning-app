@@ -21,7 +21,7 @@ import { renderCardFace, cardShowsStrokes } from "./cardface.mjs";
 import { openTemplateEditor, deleteTemplate } from "./templates.mjs";
 import { lookupWord } from "./lookup.mjs";
 import { parseSubtitle } from "./subtitle.mjs";
-import { detectLanguage } from "./languages.mjs";
+import { detectLanguage, meaningLanguage } from "./languages.mjs";
 import { showToast } from "./toast.mjs";
 import { escapeHtml } from "./util.mjs";
 import { api } from "./backend.mjs";
@@ -562,7 +562,7 @@ async function prefetch(draft) {
   if (!draft.translation && draft.word) {
     setFieldLoading("translation", true);
     jobs.push(
-      lookupWord(draft.word, lang, draft.example || "")
+      lookupWord(draft.word, lang, draft.example || "", meaningLanguage(lang, _els.translateTo?.value))
         .then((result) => {
           done("translation", result.meaning || (result.defs || [])[0] || "");
           done("pinyin", result.pronunciation || "");
@@ -573,7 +573,7 @@ async function prefetch(draft) {
 
   if (!draft.exampleTranslation && draft.example) {
     setFieldLoading("exampleTranslation", true);
-    const to = _els.translateTo?.value || "en";
+    const to = meaningLanguage(lang, _els.translateTo?.value);
     const srt = `1\n00:00:00,000 --> 00:00:02,000\n${draft.example}\n`;
     jobs.push(
       api("/api/translate", {

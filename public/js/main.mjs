@@ -958,7 +958,9 @@ function setupImagesMode() {
     try {
       const res = await api("/api/ocr-image", {
         method: "POST",
-        headers: { "Content-Type": file.type },
+        // The study language picks the OCR model on the server: Cyrillic,
+        // Arabic, Devanagari and others each have their own (ocr_engine.py).
+        headers: { "Content-Type": file.type, "X-Stele-Language": state.learningLang || "" },
         body: file,
       });
       const data = await res.json().catch(() => ({}));
@@ -1445,7 +1447,7 @@ async function openSource(source, { at = null, play = false } = {}) {
   if (entry.language) {
     const lang = entry.language.toLowerCase();
     state.learningLang = lang === "chinese" ? "zh" : lang;
-    syncTranslateLangs(els);
+    syncTranslateLangs(els, entry.translationLanguage || "");
   }
   // The session is what a reload brings back (restoreSession).
   saveSession({

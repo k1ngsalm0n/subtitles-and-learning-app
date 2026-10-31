@@ -12,6 +12,8 @@
 // per spoken line with contiguous timing. Plain (non-rolling) tracks keep their
 // original timing and only lose markup and exact consecutive duplicates.
 
+import { languageRow } from "./languages.mjs";
+
 // Word-timing tags / <c> spans are the unambiguous signature of YouTube's
 // rolling auto-captions; their presence switches on the line-collapsing path.
 const ROLLING_RE = /<\d{2}:\d{2}:\d{2}[.,]\d{3}>|<\/?c[\s>]/;
@@ -517,8 +519,26 @@ const SPEECH_LED_COVERAGE = 0.5;
 
 // Shown instead of Whisper's garbled guesses at speech it can't actually make
 // out (dialect shouted over a storm). Translates cleanly ("(INDISTINCT
-// VOICE)"), so it needs no special-casing downstream.
+// VOICE)"), so it needs no special-casing downstream. This is the Chinese one;
+// each language's own is the `inaudible` field of its row in the language
+// table (unintelligibleFor), and a language without one gets a neutral "(…)".
 export const UNINTELLIGIBLE = "（聽不清楚的聲音）";
+export function unintelligibleFor(language = "zh") {
+  if (!language || language === "zh") return UNINTELLIGIBLE;
+  return languageRow(language)?.inaudible || "(…)";
+}
+
+// Whether a transcribed line has enough of a language in it to be speech:
+// two Han characters for Chinese (a word's worth — Whisper counting numbers
+// over storm noise, or a lone "哇", has fewer), and four letters elsewhere,
+// where one letter is no evidence of anything.
+export function hasSpeechText(text, language = "zh") {
+  const chars = [...String(text || "")];
+  if (!language || language === "zh" || language === "ja") {
+    return chars.filter((ch) => ch >= "㐀" && ch <= "鿿").length >= 2;
+  }
+  return chars.filter((ch) => /\p{L}/u.test(ch)).length >= 4;
+}
 // Whisper's per-segment confidence (avg_logprob): clean Chinese speech scores
 // around -0.1 to -0.4; garbled attempts at unintelligible audio score below
 // -1. Measured on the two test videos, the gap is wide — -0.8 splits it.
@@ -545,7 +565,8 @@ const UNINTELLIGIBLE_JOIN_GAP = 2;
 // and merge adjacent placeholders. Runs on Whisper's raw segments (before
 // refineSegments, which strips the logprob/wordProb fields). Segments without
 // either (the openai-whisper CLI fallback) pass through untouched.
-export function markUnintelligible(segments) {
+export function markUnintelligible(segments, language = "zh") {
+  const UNINTELLIGIBLE = unintelligibleFor(language);
   const out = [];
   for (const seg of segments) {
     const garbled =
@@ -589,12 +610,13 @@ const MIN_GAP_FILL_SECONDS = 1;
 //     speech fills their gaps.
 //
 // Implausible speech segments are dropped first — impossibly slow ones (see
-// MIN_SPEECH_CPS: a long silence hallucination) and ones with fewer than two
-// CJK characters (Whisper counting numbers over storm noise, lone "哇"
-// interjections; the app is Chinese-scoped, #65) — so garbage can neither
-// pollute the output nor sway the coverage decision. Both inputs and the
-// result are [{start, end, text}] sorted by start.
-export function mergeCaptionSpeech(captionSegments, speechSegments) {
+// MIN_SPEECH_CPS: a long silence hallucination) and ones with too little of
+// the language in them (hasSpeechText: Whisper counting numbers over storm
+// noise, lone "哇" interjections) — so garbage can neither pollute the output
+// nor sway the coverage decision. Both inputs and the result are
+// [{start, end, text}] sorted by start.
+export function mergeCaptionSpeech(captionSegments, speechSegments, language = "zh") {
+  const UNINTELLIGIBLE = unintelligibleFor(language);
   // Unintelligible placeholders are filler, not content: they must neither
   // sway the who-leads decision nor ever displace a caption — they only claim
   // time that nothing else does, at the very end.
@@ -605,9 +627,8 @@ export function mergeCaptionSpeech(captionSegments, speechSegments) {
     const text = String(seg.text || "").trim();
     if (text === UNINTELLIGIBLE) return false;
     const duration = Math.max(seg.end - seg.start, 0.01);
-    const cjk = [...text].filter((ch) => ch >= "㐀" && ch <= "鿿").length;
     return (
-      cjk >= 2 &&
+      hasSpeechText(text, language) &&
       [...text].length / duration >= MIN_SPEECH_CPS &&
       !HALLUCINATION_RE.test(text)
     );

@@ -10,6 +10,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand, sendJson, HttpError } from "./util.mjs";
 import { PYTHON_BIN } from "./device.mjs";
+import { isLanguageCode, languageName } from "./languages.mjs";
+
+// A header value that is a code in the language table, or "".
+export function ocrLanguage(value) {
+  const code = String(value || "").trim().toLowerCase();
+  return isLanguageCode(code) ? code : "";
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OCR_SCRIPT = path.join(__dirname, "ocr_image.py");
@@ -59,11 +66,23 @@ export async function handleOcrImage(req, res) {
 
   try {
     await fs.writeFile(file, bytes);
-    const result = await runCommand(PYTHON_BIN, [OCR_SCRIPT, file], {
-      timeoutMs: TIMEOUT_MS,
-    });
+    // The study language picks the recognition model (ocr_engine.py). It rides
+    // in a header because the body is the image itself; only a table code gets
+    // through, so nothing the page sends can read as an option.
+    const language = ocrLanguage(req.headers["x-stele-language"]);
+    const result = await runCommand(
+      PYTHON_BIN,
+      [OCR_SCRIPT, file, ...(language ? ["--language", language] : [])],
+      { timeoutMs: TIMEOUT_MS },
+    );
     // The recogniser logs to stderr, so stdout is the JSON and nothing else.
     const data = JSON.parse(result.stdout.trim() || "{}");
+    if (data.error === "no_ocr_model") {
+      throw new HttpError(
+        422,
+        `Stele can't read ${languageName(language)} text in images yet — no recognition model reads its script.`,
+      );
+    }
     if (data.error) throw new HttpError(500, data.error);
     sendJson(res, 200, { lines: data.lines || [] });
   } catch (error) {

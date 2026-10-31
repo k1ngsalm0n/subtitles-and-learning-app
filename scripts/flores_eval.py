@@ -224,7 +224,7 @@ def main():
     elif args.languages:
         codes = [c.strip() for c in args.languages.split(",") if c.strip()]
     else:
-        codes = [c for c in (TABLE.get("offered") or []) if c != args.target]
+        codes = [l["code"] for l in TABLE["languages"] if l.get("offered") and l["code"] != args.target]
         if not codes:
             parser.error("nothing to do — pass --languages or --all")
 

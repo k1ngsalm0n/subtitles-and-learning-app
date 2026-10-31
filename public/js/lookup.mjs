@@ -32,14 +32,18 @@ function persist() {
   }
 }
 
-export async function lookupWord(word, lang = "zh", context = "") {
+// `to` is the language the meaning is written in — the reader's own (the
+// translate bar's target). English for a Chinese learner, Chinese for an
+// English one.
+export async function lookupWord(word, lang = "zh", context = "", to = "en") {
   const store = getCache();
   // Include context in the key: the server ranks definitions by the sentence,
-  // so the same word in a different sentence is a different answer.
-  const key = `${lang}:${word}:${context}`;
+  // so the same word in a different sentence is a different answer. English
+  // meanings keep the key they always had, so existing entries stay valid.
+  const key = `${lang}:${to === "en" ? "" : `${to}:`}${word}:${context}`;
   if (store[key]) return store[key];
 
-  const params = new URLSearchParams({ word, lang, context });
+  const params = new URLSearchParams({ word, lang, context, to });
   let result;
   try {
     const res = await api(`/api/lookup?${params}`);

@@ -25,6 +25,12 @@ import { importPlan, probeMachine, PYTHON_BIN, venvTool } from "./device.mjs";
 // JS — it touches no DOM — so importing it here is safe.
 import { percentOf } from "../public/js/importstream.mjs";
 import { detectLanguage } from "../public/js/languages.mjs";
+import {
+  isOffered,
+  notOfferedMessage,
+  toTableCode,
+  translationTarget,
+} from "./languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
 import { translateSrtWithLlm } from "./llmTranslate.mjs";
 import { onImported } from "./prepare.mjs";
@@ -77,9 +83,10 @@ const ZH_CONVERT_SCRIPT = path.join(__dirname, "zh_convert.py");
 const ZH_SCRIPT = process.env.ZH_SCRIPT || "trad";
 
 // Convert subtitle text to Traditional Chinese via OpenCC (zh_convert.py).
-// Best-effort: any failure returns the text unchanged.
-async function toTraditional(srt) {
-  if (ZH_SCRIPT !== "trad" || !srt) return srt;
+// Best-effort: any failure returns the text unchanged. Chinese only: any other
+// study language passes through untouched (and costs no Python spawn).
+async function toTraditional(srt, language = "zh") {
+  if (language !== "zh" || ZH_SCRIPT !== "trad" || !srt) return srt;
   try {
     const result = await runCommand(PYTHON_BIN, [ZH_CONVERT_SCRIPT], {
       timeoutMs: 60_000,
@@ -234,22 +241,8 @@ const DENO_JS_RUNTIME = existsSync(VENV_DENO)
   ? ["--js-runtimes", `deno:${VENV_DENO}`]
   : [];
 
-// CHINESE-ONLY (temporary): transcription is locked to Chinese, so only the
-// Chinese mapping is live. The full map is preserved below for when we restore
-// multi-language support — see issue #65.
-const WHISPER_LANG_TO_CODE = {
-  chinese: "zh",
-  // afrikaans: "af", arabic: "ar", azerbaijani: "az", bengali: "bn",
-  // bulgarian: "bg", catalan: "ca", czech: "cs", danish: "da",
-  // dutch: "nl", english: "en", esperanto: "eo", estonian: "et", finnish: "fi",
-  // french: "fr", german: "de", greek: "el", hebrew: "he", hindi: "hi",
-  // hungarian: "hu", indonesian: "id", irish: "ga", italian: "it",
-  // japanese: "ja", korean: "ko", latvian: "lv", lithuanian: "lt",
-  // malay: "ms", norwegian: "nb", persian: "fa", polish: "pl",
-  // portuguese: "pt", romanian: "ro", russian: "ru", slovak: "sk",
-  // slovenian: "sl", spanish: "es", swedish: "sv", tagalog: "tl",
-  // thai: "th", turkish: "tr", ukrainian: "uk", urdu: "ur", vietnamese: "vi",
-};
+// Whisper's language names and codes ("chinese", "no") become the table's
+// codes through toTableCode (languages.mjs), which reads the language table.
 
 // Python's socket layer has no happy-eyeballs: on a network that advertises
 // IPv6 but black-holes it, every request hangs until the kernel gives up
@@ -447,12 +440,18 @@ async function remember(url, result) {
     translation: result.translation || "",
     words: result.words || [],
     language: result.language || "",
+    translationLanguage: result.translationLanguage || "",
     source: result.source || "",
     duration,
   });
   // With Claude as the chat model, it prepares the new video's words in the
-  // background (prepare.mjs); the reader isn't kept waiting for it.
-  if (saved) onImported(saved.id).catch(() => {});
+  // background (prepare.mjs); the reader isn't kept waiting for it. Chinese
+  // into English only, for now: its prompt asks for pinyin and its line
+  // fixes are English, which would overwrite an English video's Chinese
+  // translation (docs/adding-a-language.md lists it as a per-language step).
+  const preparable =
+    saved && saved.language === "zh" && (saved.translationLanguage || "en") === "en";
+  if (preparable) onImported(saved.id).catch(() => {});
   return saved;
 }
 
@@ -488,6 +487,11 @@ export function importInProgress() {
 export async function handleImportUrl(req, res) {
   const body = await readJsonBody(req);
   const url = normalizeExternalUrl(body.url);
+  // The reader's translation language (the translate bar's target): what the
+  // study language is translated into, unless it *is* the study language —
+  // then translationTarget picks another. A request joining an import already
+  // running gets that import's choice.
+  const preferred = toTableCode(body.translateTo);
   await rejectPrivateHost(url);
 
   const key = importKey(url.href);
@@ -547,37 +551,45 @@ export async function handleImportUrl(req, res) {
 
     // No language in the metadata, and a human-made track that might be the
     // original or a translation: listen instead of guessing from the title.
-    // A confident "zh" also spares transcription its own detection pass.
-    let spokenZh = false;
+    // A confident answer also spares transcription its own detection pass.
+    // What the speech is, when the import listened confidently: handed to
+    // transcription so it skips its own vote (transcriptionHint).
+    let spokenHint = null;
     if (needsListening(meta) && videoPath) {
       report.stage("Listening for the language\u2026");
       const detection = await detectSpokenLanguage(url.href, videoPath);
-      origBase = studyBase(detection, meta);
-      // Only when it was really heard as Chinese: studying a Chinese track over
-      // English audio says nothing about what Whisper would be transcribing.
-      spokenZh = spokenBase(detection) === "zh";
+      // The reader's own language decides between the spoken language and a
+      // subtitle track in another (an English song with Chinese lyrics).
+      origBase = studyBase(detection, meta, preferred || "en");
+      spokenHint = transcriptionHint(detection);
     }
+    // The translation language when the study language is already known; a
+    // transcription that hears something else re-derives it from what it heard.
+    const knownTarget = translationTarget(toTableCode(origBase), preferred);
 
     // A subtitle track from the platform is the best source when it exists —
     // human-made, correctly timed, and free. Everything below is fallback.
     report.stage("Looking for existing subtitles\u2026");
-    const subtitle = await getExistingSubtitle(url.href, workspace, meta, origBase);
+    const subtitle = await getExistingSubtitle(url.href, workspace, meta, origBase, preferred);
 
     if (subtitle) {
-      const subtitles = await toTraditional(subtitle.text);
+      const language = toTableCode(subtitle.lang);
+      const target = translationTarget(language, preferred);
+      const subtitles = await toTraditional(subtitle.text, language);
       // A creator-provided translation (subtitle.translation) is already aligned
       // to the source and is more accurate than machine translation — use it as
       // is. Otherwise fall back to machine translation on the clean source text.
       let translation = subtitle.translation || "";
-      if (!translation && subtitle.lang && subtitle.lang !== "en") {
+      if (!translation && language && language !== target) {
         report.stage("Translating the subtitles\u2026");
-        translation = await translateSrt(subtitles, subtitle.lang);
+        translation = await translateSrt(subtitles, language, target);
       }
       report.done({
         title: meta.title,
         videoUrl,
         source: subtitle.source,
-        language: subtitle.lang || "",
+        language: language || "",
+        translationLanguage: translation ? target : "",
         subtitles,
         translation,
       });
@@ -587,7 +599,13 @@ export async function handleImportUrl(req, res) {
     // No usable source track — but the uploader may still have shipped English
     // subtitles, which make a better translation than the machine one. Fetched
     // alongside the transcription; a failure only costs that preference.
-    const uploaderTranslation = getUploaderTranslation(url.href, workspace, meta).catch(
+    const uploaderTranslation = getUploaderTranslation(
+      url.href,
+      workspace,
+      meta,
+      toTableCode(origBase),
+      knownTarget,
+    ).catch(
       (err) => {
         console.warn(`Uploader subtitles skipped (${String(err.message || err).split("\n")[0]})`);
         return "";
@@ -640,7 +658,7 @@ export async function handleImportUrl(req, res) {
       const now = Date.now();
       if (!provisional.length || now - lastPartialAt < PARTIAL_INTERVAL_MS) return;
       lastPartialAt = now;
-      report.partial(segmentsToSrt(markUnintelligible(provisional)));
+      report.partial(segmentsToSrt(markUnintelligible(provisional, toTableCode(origBase) || "zh")));
     };
     const onSpeechSegment = (segment) => {
       provisional.push(segment);
@@ -688,7 +706,7 @@ export async function handleImportUrl(req, res) {
           audioPath,
           onSpeechProgress,
           onSpeechSegment,
-          { language: spokenZh ? "zh" : null, music: isMusic(meta) },
+          { language: spokenHint, music: isMusic(meta) },
         );
         // Awaited later by whichever path consumes it; without this a
         // rejection during the OCR pass would surface as unhandled.
@@ -714,11 +732,17 @@ export async function handleImportUrl(req, res) {
       // here; either way the captions pass is what the line follows now.
       phase = speechPromise && plan.concurrent ? "both" : "captions";
       paint();
-      const ocr = await ocrCaptions(videoPath, (progress) => {
-        ocrProgress = progress;
-        paint();
-      });
+      const ocr = await ocrCaptions(
+        videoPath,
+        (progress) => {
+          ocrProgress = progress;
+          paint();
+        },
+        toTableCode(origBase),
+      );
       if (ocr) {
+        const ocrLanguage = ocr.language;
+        const ocrTarget = translationTarget(ocrLanguage, preferred);
         // Captions only cover what's written on screen; many news videos also
         // have uncaptioned speech (an anchor narrating between captioned
         // clips). Fill those gaps with Whisper — captions win where the two
@@ -746,7 +770,8 @@ export async function handleImportUrl(req, res) {
           // are left untouched — their times were measured off the screen.
           const merged = mergeCaptionSpeech(
             segments,
-            refineSegments(markUnintelligible(speech.segments)),
+            refineSegments(markUnintelligible(speech.segments, ocrLanguage)),
+            ocrLanguage,
           );
           if (merged.length !== segments.length) source = "ocr+whisper";
           segments = merged;
@@ -763,21 +788,27 @@ export async function handleImportUrl(req, res) {
         // No refine pass here: speech was already refined, and caption blocks
         // were paced within their real display windows — a character-count
         // re-timing on top would fabricate different boundaries again.
-        const transcript = await toTraditional(segmentsToSrt(segments, { refine: false }));
+        const transcript = await toTraditional(
+          segmentsToSrt(segments, { refine: false }),
+          ocrLanguage,
+        );
         // Caption segments carry no timings; only the spoken ones do.
         const words = speechWordsOutsideCaptions(speechWords, segments);
         report.stage("Translating\u2026");
         const { subtitles, translation } = await withUploaderTranslation(
           transcript,
           words,
-          await uploaderTranslation,
-          () => translateSrt(transcript, "zh"),
+          ocrTarget === knownTarget ? await uploaderTranslation : "",
+          () => translateSrt(transcript, ocrLanguage, ocrTarget),
+          ocrLanguage,
+          ocrTarget,
         );
         report.done({
           title: meta.title,
           videoUrl,
           source,
-          language: "zh",
+          language: ocrLanguage,
+          translationLanguage: translation ? ocrTarget : "",
           subtitles,
           translation,
           words,
@@ -803,19 +834,25 @@ export async function handleImportUrl(req, res) {
       report,
       onSpeechProgress,
       onSpeechSegment,
-      { language: spokenZh ? "zh" : null, music: isMusic(meta) },
+      { language: spokenHint, music: isMusic(meta) },
+      preferred,
     );
     const { subtitles, translation } = await withUploaderTranslation(
       whisperResult.subtitles,
       whisperResult.words || [],
-      await uploaderTranslation,
+      // The uploader's track was fetched for the language expected before
+      // transcription; it only applies if what was heard wants the same one.
+      whisperResult.target === knownTarget ? await uploaderTranslation : "",
       async () => whisperResult.translation,
+      whisperResult.language,
+      whisperResult.target,
     );
     report.done({
       title: meta.title,
       videoUrl,
       source: "whisper",
       language: whisperResult.language,
+      translationLanguage: translation ? whisperResult.target : "",
       subtitles,
       translation,
       // Absent on the openai-whisper CLI fallback, which reports no word
@@ -971,18 +1008,36 @@ export function spokenBase(detection) {
   return code === "yue" ? "zh" : baseLang(code);
 }
 
-// The language to study, given what was heard. Normally the spoken one — but
-// this app teaches Chinese (#65), so an English song or talk that carries
-// uploaded Chinese subtitles is studied in Chinese, with its English track (if
-// any) as the translation. Studying the original there meant either English
-// text with no Chinese in it, or "Only Chinese is supported" once the audio
-// went to Whisper; a learner wants the Chinese lyrics. "" abstains.
-export function studyBase(detection, meta) {
+// The language to study, given what was heard and the reader's translation
+// language (`target`, the one they read already). Normally the spoken one —
+// but not when the reader already speaks it, or Stele can't study it: an
+// English song with uploaded Chinese subtitles, imported by a reader who
+// translates into English, is studied in Chinese with its English track as the
+// translation. Studying the original there meant English text with no Chinese
+// in it; a learner wants the Chinese lyrics. A reader who translates into
+// Chinese studies the same song in English. "" abstains.
+export function studyBase(detection, meta, target = "en") {
   const spoken = spokenBase(detection);
-  if (spoken && spoken !== "zh" && meta.manual.some((k) => baseLang(k) === "zh")) {
-    return "zh";
-  }
-  return spoken;
+  if (!spoken) return "";
+  const spokenCode = toTableCode(spoken);
+  if (spokenCode !== target && isOffered(spokenCode)) return spoken;
+  const other = meta.manual
+    .map(baseLang)
+    .find((b) => b !== spoken && toTableCode(b) !== target && isOffered(toTableCode(b)));
+  return other || spoken;
+}
+
+// The language to hand transcription so it can skip its own vote, from a
+// confident detection — or null to let it vote. Chinese always (as before);
+// another offered language only when the windows showed no sign of Chinese,
+// because transcribe.py's own vote would rescue Chinese behind a music bed or
+// storm noise that lost the raw vote (ZH_ACCEPT_PROB, ZH_WINDOW_PROB there).
+export function transcriptionHint(detection) {
+  const code = toTableCode(spokenBase(detection));
+  if (!code) return null;
+  if (code === "zh") return "zh";
+  if ((detection.zhAvg ?? 0) >= 0.25 || (detection.zhMax ?? 0) >= 0.5) return null;
+  return isOffered(code) ? code : null;
 }
 
 // How purely Chinese a subtitle text is: the share of its letters that are
@@ -1318,10 +1373,11 @@ async function downloadSubTracks(url, dir, langs, { auto = true } = {}) {
 // such a track when it was the only one and turned out to be the translation
 // (see pickSourceTrack) — a Chinese song with English lyrics. Their wording
 // beats machine-translating Whisper's reading of the song, so the caller lays
-// it over the transcript with preferHumanTranslation. Transcription is
-// Chinese-only for now (#65), hence "zh" as the source.
-async function getUploaderTranslation(url, workspace, meta) {
-  const lang = pickHumanTranslation(meta, "zh", "en");
+// it over the transcript with preferHumanTranslation. `source` is the language
+// expected before transcription ("" when unknown), `target` the translation
+// language.
+async function getUploaderTranslation(url, workspace, meta, source, target) {
+  const lang = pickHumanTranslation(meta, source, target);
   if (!lang) return "";
   // Its own folder: OCR and Whisper write files into the workspace too.
   const dir = path.join(workspace, "uploader-subs");
@@ -1338,25 +1394,36 @@ async function getUploaderTranslation(url, workspace, meta) {
 // (preferHumanTranslation). With no uploader track it's the machine
 // translation untouched. `machine` is a thunk so a re-cut that needs only a few
 // leftover lines translated doesn't pay for the whole transcript.
-async function withUploaderTranslation(transcript, words, uploader, machine) {
+//
+// The re-cut is Chinese-only: it gives every Han character its own time and
+// slides cuts between them, which has no meaning for a spaced alphabet. Any
+// other language keeps its own cues and has the uploader's lines hung on them.
+async function withUploaderTranslation(
+  transcript,
+  words,
+  uploader,
+  machine,
+  language = "zh",
+  target = "en",
+) {
   if (!uploader) return { subtitles: transcript, translation: await machine() };
-  const cues = regridToHuman(transcript, uploader, words);
+  const cues = language === "zh" ? regridToHuman(transcript, uploader, words) : null;
   if (!cues) {
     return {
       subtitles: transcript,
       translation: preferHumanTranslation(transcript, uploader, await machine()),
     };
   }
-  return overHumanLines(cues);
+  return overHumanLines(cues, language, target);
 }
 
 // Re-cut cues (regridToHuman) as { subtitles, translation }: each line's
 // translation is the uploader's own, and only the leftover Chinese they
 // didn't translate goes through the machine translator.
-async function overHumanLines(cues) {
+async function overHumanLines(cues, language = "zh", target = "en") {
   const leftovers = cues.filter((cue) => cue.human == null);
   const machineLines = leftovers.length
-    ? srtTexts(await translateSrt(cuesToSrt(leftovers), "zh"))
+    ? srtTexts(await translateSrt(cuesToSrt(leftovers), language, target))
     : [];
   let next = 0;
   return {
@@ -1371,11 +1438,17 @@ async function overHumanLines(cues) {
 // its language, and — when the creator shipped their own target-language
 // subtitles — a ready-made translation aligned to it. Returns null when there's
 // nothing usable, so the caller falls back to transcribing the audio.
-async function getExistingSubtitle(url, workspace, meta, origBase) {
+async function getExistingSubtitle(url, workspace, meta, origBase, preferred = "") {
   const source = pickSourceTrack(meta, origBase);
   if (!source) return null;
   const sourceBase = baseLang(source.lang);
-  const human = pickHumanTranslation(meta, sourceBase, "en");
+  // A track in a language Stele can't study isn't used: the import goes on to
+  // transcription, where the audio decides — and is refused there, with a
+  // message naming the languages it can study, if it isn't offered either. A
+  // lone mislabelled track can't block a video whose speech is fine.
+  if (!isOffered(toTableCode(sourceBase))) return null;
+  const target = translationTarget(toTableCode(sourceBase), preferred);
+  const human = pickHumanTranslation(meta, sourceBase, target);
 
   // Several human-made Chinese tracks: fetch them all (they're small) and keep
   // the most purely Chinese, rather than whichever is listed first.
@@ -1420,13 +1493,15 @@ async function getExistingSubtitle(url, workspace, meta, origBase) {
         ? regridToHuman(text, cleaned, [], { empty: null })
         : null;
     if (cues?.length) {
-      ({ subtitles: text, translation } = await overHumanLines(cues));
+      ({ subtitles: text, translation } = await overHumanLines(cues, "zh", target));
     } else {
       const aligned = cleaned ? alignTranslationByTime(text, cleaned) : "";
       if (aligned.trim()) translation = aligned;
     }
   }
-  if (!translation && bilingualEnglish) translation = bilingualEnglish;
+  // The English half of a bilingual track is a translation only for a reader
+  // who reads English.
+  if (!translation && bilingualEnglish && target === "en") translation = bilingualEnglish;
 
   return {
     source: source.manual ? "subtitles" : "auto-subtitles",
@@ -1486,21 +1561,19 @@ async function runWhisper(baseArgs, opts) {
   }
 }
 
-// CHINESE-ONLY (temporary, #65): tag used to reject non-Chinese audio with a
-// user-facing message instead of transcribing it. HTTP 422 so the server's
-// error handler returns the message verbatim to the client.
-function unsupportedLanguageError(language) {
-  const err = new Error(
-    "Only Chinese is supported right now — this video's audio looks like " +
-      `"${language || "another language"}". Import a video that already has ` +
-      "subtitles, or try a Chinese one. (Multi-language support is paused; see #65.)",
-  );
+// A video in a language that isn't offered (the language table's `offered`
+// flags) is refused with a message naming what can be studied, instead of
+// being transcribed into a pipeline nobody has checked for it. HTTP 422 so the
+// server's error handler returns the message verbatim to the client.
+export function notOfferedError(language) {
+  const err = new Error(notOfferedMessage(toTableCode(language)));
   err.code = "UNSUPPORTED_LANGUAGE";
   err.status = 422;
   return err;
 }
 
-// Transcribe `audioPath` to an SRT plus an English translation. Prefer
+// Transcribe `audioPath` to an SRT plus a translation into the reader's
+// language (translationTarget of what was heard and `preferred`). Prefer
 // faster-whisper (same Whisper models, several-fold faster); fall back to the
 // openai-whisper CLI only if faster-whisper isn't installed. When the caller
 // already started a transcription (the concurrent OCR+Whisper path), pass its
@@ -1513,16 +1586,17 @@ async function transcribeWithWhisper(
   onProgress = null,
   onSegment = null,
   hints = {},
+  preferred = "",
 ) {
   try {
     // The callbacks only apply when we start the transcription here. A promise
     // handed in was spawned with its own already attached.
     const speech = await (speechPromise ||
       transcribeFastSegments(audioPath, onProgress, onSegment, hints));
-    return await finishFastTranscription(speech, report);
+    return await finishFastTranscription(speech, report, preferred);
   } catch (err) {
-    // Don't fall back to the CLI for a non-Chinese video — that would just
-    // transcribe the language we're rejecting. Surface it as-is.
+    // Don't fall back to the CLI for a language that isn't offered — that
+    // would just transcribe what we're refusing. Surface it as-is.
     if (err.code === "UNSUPPORTED_LANGUAGE") throw err;
     const missing =
       /No module named ['"]?faster_whisper|ModuleNotFoundError|faster[-_]whisper/i.test(
@@ -1532,7 +1606,7 @@ async function transcribeWithWhisper(
     console.warn(
       "faster-whisper unavailable; falling back to the openai-whisper CLI.",
     );
-    return transcribeWithWhisperCli(audioPath, workspace);
+    return transcribeWithWhisperCli(audioPath, workspace, preferred);
   }
 }
 
@@ -1584,10 +1658,18 @@ export function readTaggedLine({ onProgress = null, onSegment = null } = {}) {
 // Read burned-in (hardcoded) captions off the video frames via ocr_captions.py.
 // Returns {language, segments} or null when no legible captions were found —
 // the caller then falls back to the subtitle/transcription path.
-async function ocrCaptions(videoPath, onProgress = null) {
+//
+// `language` is the study language when the import already knows it (the
+// video's metadata, or listening): it picks the recognition model for its
+// script, and a language no model reads skips OCR entirely ("no_ocr_model").
+// "" runs the default model, which reads Chinese, Japanese and Latin script.
+async function ocrCaptions(videoPath, onProgress = null, language = "") {
+  // Not offered: transcription will refuse the video, so reading its frames
+  // first would only make the reader wait longer for that answer.
+  if (language && !isOffered(language)) return null;
   let result;
   try {
-    result = await runCommand(PYTHON_BIN, [OCR_SCRIPT, videoPath], {
+    result = await runCommand(PYTHON_BIN, [OCR_SCRIPT, videoPath, ...(language ? ["--language", language] : [])], {
       timeoutMs: 30 * 60_000,
       onStderrLine: onProgress ? readTaggedLine({ onProgress }) : null,
     });
@@ -1603,24 +1685,25 @@ async function ocrCaptions(videoPath, onProgress = null) {
   const line = result.stdout.trim().split("\n").filter(Boolean).at(-1);
   if (!line) throw new Error("caption OCR produced no output.");
   const data = JSON.parse(line);
-  if (data.error === "no_captions") return null;
-  // CHINESE-ONLY (temporary, #65). OCR now runs automatically on every URL
-  // import, so non-Chinese on-screen text (a watermark on an otherwise
-  // Chinese video, or a foreign video Whisper will reject anyway) must not
-  // hard-fail the import — treat it as "no captions" and fall through to
-  // transcription, which has its own language gate.
-  if (data.language !== "zh") {
-    console.warn("OCR captions don't look Chinese; falling back to transcription.");
+  if (data.error === "no_captions" || data.error === "no_ocr_model") return null;
+  // OCR runs automatically on every URL import, so on-screen text that isn't
+  // in the study language (a watermark on an otherwise Chinese video), or is
+  // in a language that can't be studied, must not hard-fail the import —
+  // treat it as "no captions" and fall through to transcription, which has
+  // its own language gate.
+  const found = toTableCode(data.language);
+  if (!found || found === "unknown" || !isOffered(found)) {
+    console.warn(`OCR captions don't read as ${language || "Chinese"}; falling back to transcription.`);
     return null;
   }
-  return data;
+  return { ...data, language: found };
 }
 
 // faster-whisper path: one Python process, one pass (language detected up front
 // so the Traditional-Chinese prompt is applied without a second pass), JSON out.
 // Returns the raw timed segments; used directly by the OCR hybrid, which needs
 // them pre-SRT to interleave with caption segments.
-// `hints.language` "zh" skips transcribe.py's own detection: the import already
+// `hints.language` (a table code) skips transcribe.py's own detection: the import already
 // listened and was confident (spokenBase). `hints.music` lets it pick the
 // model it uses for songs (isMusic).
 async function transcribeFastSegments(audioPath, onProgress = null, onSegment = null, hints = {}) {
@@ -1638,11 +1721,11 @@ async function transcribeFastSegments(audioPath, onProgress = null, onSegment = 
   const line = result.stdout.trim().split("\n").filter(Boolean).at(-1);
   if (!line) throw new Error("faster-whisper produced no output.");
   const data = JSON.parse(line);
-  // CHINESE-ONLY (temporary, #65): transcribe.py reports non-Chinese audio here
-  // instead of transcribing it. Surface a tagged error so the caller can show a
+  // transcribe.py reports audio in a language that isn't offered here instead
+  // of transcribing it. Surface a tagged error so the caller can show a
   // friendly message and skip the openai-whisper CLI fallback.
-  if (data.error === "unsupported_language") throw unsupportedLanguageError(data.language);
-  return { language: data.language || "unknown", segments: data.segments || [] };
+  if (data.error === "unsupported_language") throw notOfferedError(data.language);
+  return { language: toTableCode(data.language) || "unknown", segments: data.segments || [] };
 }
 
 // Every word Whisper timed, flattened across segments and ordered by time, for
@@ -1678,19 +1761,20 @@ function speechWordsOutsideCaptions(words, segments) {
 }
 
 // Turn raw faster-whisper segments into the final result: SRT (normalised to
-// Traditional), plus an English translation.
-async function finishFastTranscription({ language, segments }, report = null) {
+// Traditional when Chinese), plus a translation into the reader's language.
+async function finishFastTranscription({ language, segments }, report = null, preferred = "") {
+  const code = toTableCode(language);
   const subtitles = await toTraditional(
-    segmentsToSrt(markUnintelligible(segments)),
+    segmentsToSrt(markUnintelligible(segments, code)),
+    code,
   );
-  const lowerLang = language.toLowerCase();
-  const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
+  const target = translationTarget(code, preferred);
   report?.stage("Translating\u2026");
-  const translation = await translateSrt(subtitles, langCode);
-  return { language, subtitles, translation, words: collectWords(segments) };
+  const translation = await translateSrt(subtitles, code, target);
+  return { language: code, target, subtitles, translation, words: collectWords(segments) };
 }
 
-async function transcribeWithWhisperCli(audioPath, workspace) {
+async function transcribeWithWhisperCli(audioPath, workspace, preferred = "") {
   const check = await runCommand(WHISPER_BIN, ["--help"], {
     timeoutMs: 10_000,
     allowFailure: true,
@@ -1715,12 +1799,16 @@ async function transcribeWithWhisperCli(audioPath, workspace) {
   );
 
   const transcribeJson = await readFirstJson(transcribeDir);
-  const language = transcribeJson.language || "unknown";
+  const language = toTableCode(transcribeJson.language) || "unknown";
 
-  // CHINESE-ONLY (temporary, #65): match transcribe.py and reject non-Chinese
-  // audio here too, rather than transcribing a language we aren't focusing on.
-  if (language !== "zh" && language.toLowerCase() !== "chinese") {
-    throw unsupportedLanguageError(language);
+  // Match transcribe.py: refuse a language that isn't offered rather than
+  // hand the reader a transcript nothing downstream has been checked for.
+  if (!isOffered(language)) throw notOfferedError(language);
+  const target = translationTarget(language, preferred);
+  if (language !== "zh") {
+    const subtitles = segmentsToSrt(transcribeJson.segments || []);
+    const translation = await translateSrt(subtitles, language, target);
+    return { language, target, subtitles, translation };
   }
   // Re-run with the Traditional Chinese prompt to bias output.
   const zhDir = path.join(workspace, "transcribe-zh");
@@ -1737,12 +1825,9 @@ async function transcribeWithWhisperCli(audioPath, workspace) {
   );
   const zhJson = await readFirstJson(zhDir);
   const subtitles = segmentsToSrt(zhJson.segments || []);
+  const translation = await translateSrt(subtitles, language, target);
 
-  const lowerLang = language.toLowerCase();
-  const langCode = WHISPER_LANG_TO_CODE[lowerLang] || lowerLang;
-  const translation = await translateSrt(subtitles, langCode);
-
-  return { language, subtitles, translation };
+  return { language, target, subtitles, translation };
 }
 
 // The chat model first, when one is configured and switched on — the same
@@ -1752,22 +1837,22 @@ async function transcribeWithWhisperCli(audioPath, workspace) {
 // inside a Chinese line ("非常非常 honoured") dropped. translateSrtWithLlm
 // returns null on any doubt (no key, switched off, over 400 lines, a bad
 // batch), and then the offline model runs as before.
-async function translateSrt(srtText, fromCode) {
-  if (!fromCode || fromCode === "en") return "";
+async function translateSrt(srtText, fromCode, toCode = "en") {
+  if (!fromCode || fromCode === toCode) return "";
   try {
-    const viaLlm = await translateSrtWithLlm(srtText, fromCode, "en");
+    const viaLlm = await translateSrtWithLlm(srtText, fromCode, toCode);
     if (viaLlm) return viaLlm;
   } catch (err) {
-    console.warn(`Chat-model translation failed (${fromCode} -> en); using the offline model:`, err.message);
+    console.warn(`Chat-model translation failed (${fromCode} -> ${toCode}); using the offline model:`, err.message);
   }
   try {
     // Shared worker keeps the model loaded between requests (see
     // translateWorker.mjs); the first call may still pause to download it.
-    return await translateViaWorker(srtText, fromCode, "en");
+    return await translateViaWorker(srtText, fromCode, toCode);
   } catch (err) {
     // Don't fail the whole import — transcription is still useful — but make
     // the failure visible instead of silently returning an empty translation.
-    console.error(`Translation failed (${fromCode} -> en):`, err.message);
+    console.error(`Translation failed (${fromCode} -> ${toCode}):`, err.message);
     return "";
   }
 }

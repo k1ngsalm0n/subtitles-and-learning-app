@@ -38,7 +38,18 @@ so screen furniture can be told apart from captions:
 
 Prints one line of JSON to stdout, same shape as transcribe.py:
 {"language": "zh", "segments": [{"start", "end", "text"}]}
-or {"error": "no_captions"} when nothing legible was found.
+or {"error": "no_captions"} when nothing legible was found, or
+{"error": "no_ocr_model", "language": ...} when no recognition model reads the
+study language's script (Hebrew, Bengali) — skipped rather than read as
+look-alike garbage.
+
+`--language xx` names the study language when the import knows it: it picks
+the recognition model (ocr_engine.py) and what counts as text in the probe and
+the result. Without it, the default model runs and the result is "zh" when it
+reads as Chinese, as before OCR knew about other languages. Most of the
+furniture rules below were tuned on Chinese news; they are measured in
+fractions of the frame and seconds on screen, so they carry over, but the
+Latin-only rule is Chinese-only by construction.
 Diagnostics go to stderr.
 """
 
@@ -51,6 +62,7 @@ import tempfile
 from difflib import SequenceMatcher
 
 import happy_eyeballs  # noqa: F401 — RFC 8305 connect race (see module docstring)
+import languages
 
 # Frames sampled per second — every sampled frame is OCR'd. 1 fps is roughly
 # 0.5 s of CPU per video-second on a modest machine; set OCR_FPS=0.5 to halve
@@ -146,6 +158,13 @@ RUN_GAP_TOLERANCE = 2.5
 # text (~a few seconds instead of the full per-frame pass).
 PROBE_FRAMES = 8
 PROBE_MIN_HITS = 2
+# In an alphabet one letter is no evidence; a probe hit needs a line with at
+# least this many letters of the study language's script (a short word or two).
+PROBE_MIN_LETTERS = 6
+# A non-Chinese result counts as the study language when at least this share of
+# its letters are in that language's script; otherwise it's the wrong model's
+# reading of something else, and the import falls back to transcription.
+SCRIPT_SHARE = 0.5
 
 
 # Progress goes to stderr, tagged, so server/import.mjs can pick it out of the
@@ -838,12 +857,22 @@ def _video_duration(video_path):
         return 0.0
 
 
-def _probe_finds_text(engine, video_path, workspace):
-    """OCR a handful of frames spread across the video: is there Chinese text?
+def _probe_line_hit(text, language=None):
+    """Whether one OCR'd line is evidence of on-screen text in `language`:
+    two or more CJK characters for Chinese (or an unknown language, as
+    before), PROBE_MIN_LETTERS letters of the script otherwise."""
+    if not language or languages.uses_han(language):
+        return sum(1 for ch in text if "㐀" <= ch <= "鿿") >= 2
+    return languages.script_letters(text, language) >= PROBE_MIN_LETTERS
 
-    Counts a frame as a hit when any line has two or more CJK characters
-    (captions and news furniture both qualify — the point is only to skip
-    videos with no burned-in text at all, e.g. vlogs and lectures).
+
+def _probe_finds_text(engine, video_path, workspace, language=None):
+    """OCR a handful of frames spread across the video: is there text in the
+    study language?
+
+    Counts a frame as a hit when any line passes _probe_line_hit (captions and
+    news furniture both qualify — the point is only to skip videos with no
+    burned-in text at all, e.g. vlogs and lectures).
     """
     import cv2
 
@@ -870,18 +899,17 @@ def _probe_finds_text(engine, video_path, workspace):
         img = cv2.imread(frame)
         if img is None:
             continue
-        cjk_line = any(
-            sum(1 for ch in text if "㐀" <= ch <= "鿿") >= 2
+        if any(
+            _probe_line_hit(text, language)
             for _y, text, *_rest in _read_lines(engine, img)
-        )
-        if cjk_line:
+        ):
             hits += 1
             if hits >= PROBE_MIN_HITS:
                 return True
     return False
 
 
-def _build_engine():
+def _build_engine(language=None):
     """RapidOCR on the best engine here (ocr_engine.py: OpenVINO, else
     onnxruntime), optionally held to a thread budget — onnxruntime only.
 
@@ -901,18 +929,18 @@ def _build_engine():
         threads = int(os.environ.get("OCR_THREADS", "-1"))
     except ValueError:
         threads = -1
-    return build_engine(threads)
+    return build_engine(threads, language)
 
 
-def read_captions(video_path):
+def read_captions(video_path, language=None):
     import cv2
 
-    engine = _build_engine()
+    engine = _build_engine(language)
     workspace = tempfile.mkdtemp(prefix="stele-ocr-")
     try:
-        if not _probe_finds_text(engine, video_path, workspace):
+        if not _probe_finds_text(engine, video_path, workspace, language):
             sys.stderr.write(
-                "OCR: probe found no on-screen Chinese text; skipping full pass\n"
+                f"OCR: probe found no on-screen {language or 'Chinese'} text; skipping full pass\n"
             )
             return []
         frames = _extract_frames(video_path, workspace)
@@ -935,26 +963,57 @@ def read_captions(video_path):
         shutil.rmtree(workspace, ignore_errors=True)
 
 
-def main():
-    if len(sys.argv) != 2:
-        sys.stderr.write("usage: ocr_captions.py VIDEO\n")
-        return 2
-    segments = read_captions(sys.argv[1])
+def script_share(segments, language):
+    """The share of the captions' letters written in `language`'s script."""
+    text = "".join(ch for s in segments for ch in s["text"] if ch.isalpha())
+    if not text:
+        return 0.0
+    return languages.script_letters(text, language) / len(text)
+
+
+def label_captions(segments, language=None):
+    """(language, segments): what the captions are in, and the segments worth
+    studying. "unknown" when they don't read as the expected language — the
+    import then treats them as no captions and transcribes instead.
+
+    Chinese (or no language given) is judged as it always was: CJK share, and
+    a segment with no CJK at all is a misread graphic or attribution fragment
+    ("MA&AP"), not study material. Any other language: the share of letters in
+    its script, and a segment with fewer than two such letters ("12:30", a
+    lone logo letter) is dropped the same way."""
+    if not language or language == "zh":
+        found = "zh" if cjk_ratio(segments) >= 0.2 else "unknown"
+        if found == "zh":
+            segments = [s for s in segments if any("㐀" <= ch <= "鿿" for ch in s["text"])]
+        return found, segments
+    if script_share(segments, language) < SCRIPT_SHARE:
+        return "unknown", segments
+    return language, [s for s in segments if languages.script_letters(s["text"], language) >= 2]
+
+
+def main(argv=None):
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("video")
+    ap.add_argument("--language", default="", help="the study language, when known")
+    args = ap.parse_args(argv)
+    language = args.language or None
+    from ocr_engine import can_read
+
+    if language and not can_read(language):
+        sys.stderr.write(f"OCR: no recognition model reads {language}; skipping caption OCR\n")
+        json.dump({"error": "no_ocr_model", "language": language}, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+    segments = read_captions(args.video, language)
     if not segments:
         json.dump({"error": "no_captions"}, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")
         return 0
-    # The app is Chinese-only for now (issue #65); mirror transcribe.py's
-    # signal when the on-screen text clearly isn't Chinese.
-    language = "zh" if cjk_ratio(segments) >= 0.2 else "unknown"
-    if language == "zh":
-        # In a Chinese video a segment with no CJK at all is a misread
-        # graphic or attribution fragment ("MA&AP"), not study material.
-        segments = [
-            s for s in segments if any("㐀" <= ch <= "鿿" for ch in s["text"])
-        ]
+    found, segments = label_captions(segments, language)
     json.dump(
-        {"language": language, "segments": segments},
+        {"language": found, "segments": segments},
         sys.stdout,
         ensure_ascii=False,
     )

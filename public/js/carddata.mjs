@@ -22,6 +22,10 @@ export const BUILTIN_TEMPLATE_IDS = {
 // counts, since a sentence that says it twice gives it away twice.
 
 const HAN = /\p{Script=Han}/u;
+// Scripts that write words without spaces: any substring can be a word there.
+// Everywhere else a word is only found whole — "cat" is not in "concatenate".
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}]/u;
+const LETTER = /[\p{L}\p{M}]/u;
 
 function occurrences(sentence, word) {
   const text = String(sentence || "");
@@ -29,9 +33,16 @@ function occurrences(sentence, word) {
   if (!text || !needle) return [];
   const hay = text.toLowerCase();
   const find = needle.toLowerCase();
+  const chars = [...needle];
+  const wholeStart = LETTER.test(chars[0]) && !UNSPACED.test(chars[0]);
+  const wholeEnd = LETTER.test(chars.at(-1)) && !UNSPACED.test(chars.at(-1));
   const spans = [];
-  for (let at = hay.indexOf(find); at !== -1; at = hay.indexOf(find, at + find.length)) {
-    spans.push([at, at + find.length]);
+  for (let at = hay.indexOf(find); at !== -1; at = hay.indexOf(find, at + 1)) {
+    const end = at + find.length;
+    if (wholeStart && LETTER.test(hay[at - 1] || "")) continue;
+    if (wholeEnd && LETTER.test(hay[end] || "")) continue;
+    spans.push([at, end]);
+    at = end - 1;
   }
   return spans;
 }

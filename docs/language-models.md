@@ -48,7 +48,9 @@ Notes:
   language *group* or a `deu_eng_…` list (e.g. `…-inc`, `…-zle`,
   `…gem-fra_ita_por_spa`) expects `>>hin<<`, `>>rus<<`, `>>por<<` etc. at the
   start of every source sentence, or it picks a target language itself.
-  `translate_batch_opus` doesn't do this today.
+  `translate_batch_opus` prepends it from the route's `token` in
+  `OPUS_ROUTES` (`server/translate.py`); the existing en→zh model needed one
+  too (`cmn_Hant`) and had been running without.
 - The old single-pair `opus-mt-xx-en` models (2020) are mostly superseded by
   the `tc-big`/`tc-bible-big` ones above; the leaderboard has no FLORES row
   for most of them, so measure before keeping one.
@@ -102,7 +104,8 @@ a bigger job than the others.
 
 Consequence for `_resolve_model`: "small on CPU" is fine for the European
 languages and Japanese, but Arabic, Hindi and Urdu want medium even on a CPU.
-A per-language minimum belongs in the same place the music→medium rule lives.
+That minimum is `WHISPER_MIN_MODEL` in `server/transcribe.py`, beside the
+music→medium rule — one line per language.
 
 ## OCR: RapidOCR's PP-OCRv5 recognition models
 

@@ -17,6 +17,7 @@ import platform
 import sys
 
 import happy_eyeballs  # noqa: F401 — RFC 8305 connect race (see module docstring)
+import languages
 
 # Which Whisper model to load. "auto" (the default) sizes the model to the
 # machine so the app runs well out of the box on anyone's hardware — see
@@ -28,14 +29,34 @@ MODEL = os.environ.get("WHISPER_MODEL", "auto")
 ZH_PROMPT = "以下是繁體中文的內容。"
 
 
-# CHINESE-ONLY (temporary): the app is scoped to Chinese for now, so audio in
-# any other language is rejected rather than transcribed. Remove this guard and
-# restore the general transcription path when re-enabling other languages.
-# See https://github.com/k1ngsalm0n/subtitles-and-learning-app/issues/65
+# Audio in a language that isn't offered (public/data/languages.json) is
+# refused rather than transcribed: the rest of the pipeline hasn't been checked
+# for it, and the import tells the reader which languages it can study.
 class UnsupportedLanguage(Exception):
     def __init__(self, language):
         self.language = language
         super().__init__(f"unsupported transcription language: {language}")
+
+
+def choose_language(language, zh_avg, zh_max, offered=None):
+    """The table code to transcribe as, from the vote (_detect_language).
+
+    Chinese first, by its own looser rules: zh wins outright, or holds a solid
+    average while the winner is a low-confidence guess, or one window is sure
+    (ZH_ACCEPT_PROB, ZH_WINDOW_PROB). Those exist because Chinese behind storm
+    noise or a music bed loses the raw vote to a guess — a typhoon report voted
+    "en" — and checking the winner first would transcribe it as English.
+    Otherwise the winner, if it is offered. Raises UnsupportedLanguage when it
+    isn't, or when Whisper can't transcribe it at all."""
+    offered = languages.offered() if offered is None else offered
+    if "zh" in offered and (
+        language == "zh" or zh_avg >= ZH_ACCEPT_PROB or zh_max >= ZH_WINDOW_PROB
+    ):
+        return "zh"
+    code = languages.table_code(language)
+    if code not in offered or languages.whisper_code(code) is None:
+        raise UnsupportedLanguage(code)
+    return code
 
 
 def _select_device():
@@ -91,7 +112,25 @@ def _apple_silicon():
     return platform.system() == "Darwin" and platform.machine() == "arm64"
 
 
-def _resolve_model(device, music=False):
+# The smallest Whisper model worth running for a language, whatever the device:
+# one line per language, added by the session that adds it. Whisper's error
+# rate drops steeply from small to medium for some languages (FLEURS: Arabic
+# 30.6 -> 20.4 WER), so on a CPU, where "auto" picks small, they are raised to
+# this. docs/language-models.md has the numbers. Empty until a language needs
+# it; e.g. {"ar": "medium", "hi": "medium", "ur": "medium"}.
+WHISPER_MIN_MODEL = {}
+# Smallest to largest, for comparing a choice against a minimum. A name not in
+# this list (a custom path, distil-*) is left alone.
+MODEL_SIZES = ["tiny", "base", "small", "medium", "large-v3"]
+
+
+def _at_least(model_name, minimum):
+    if model_name not in MODEL_SIZES or minimum not in MODEL_SIZES:
+        return model_name
+    return max(model_name, minimum, key=MODEL_SIZES.index)
+
+
+def _resolve_model(device, music=False, language=None):
     """Resolve the model name, expanding "auto" to fit the actual device.
 
     The goal is a good experience on any machine without manual tuning:
@@ -110,11 +149,18 @@ def _resolve_model(device, music=False):
       * GPU       -> "large-v3" when there's VRAM for it (best accuracy, and the
                      GPU keeps it fast), stepping down to medium/small on smaller
                      cards. VRAM is checked live so a busy GPU doesn't OOM.
+      * Then a language's own minimum (WHISPER_MIN_MODEL), when the
+        transcription's language is known: a language small transcribes badly
+        gets the bigger model even on a CPU.
     A concrete WHISPER_MODEL always wins over this.
     """
     requested = os.environ.get("WHISPER_MODEL", "auto")
     if requested and requested != "auto":
         return requested
+    return _at_least(_auto_model(device, music), WHISPER_MIN_MODEL.get(language or ""))
+
+
+def _auto_model(device, music):
     if device != "cuda":
         return "medium" if music and _apple_silicon() else "small"
     free = _free_vram_mib()
@@ -244,48 +290,54 @@ def _detect_language(model, audio):
 def _transcribe_on(device, audio, known_language=None, music=False):
     from faster_whisper import WhisperModel
 
-    # Resolve "auto" against the *actual* device, so a GPU->CPU OOM retry also
-    # drops to a CPU-appropriate (smaller) model instead of re-loading the big one.
-    model_name = _resolve_model(device, music)
-    sys.stderr.write(f"transcribing with model={model_name} on {device}\n")
-    sys.stderr.flush()
     # Detect the language up front so we can transcribe ONCE with the right
     # prompt, instead of the old detect-then-re-run-for-Traditional two passes.
     # Detection runs on DETECT_MODEL (see above) and, when the audio is
     # rejected, the transcription model is never loaded at all.
-    detector = WhisperModel(
-        DETECT_MODEL, device=device, compute_type=_compute_type(),
-        cpu_threads=_cpu_threads(),
-    ) if model_name == DETECT_MODEL or known_language != "zh" else None
-    if known_language == "zh":
+    known = languages.table_code(known_language) if known_language else ""
+    if known and (known not in languages.offered() or languages.whisper_code(known) is None):
+        raise UnsupportedLanguage(known)
+    detector = None
+    if known:
         # The import already listened (detect(), above) and was confident; the
         # same vote over the same windows would only say it again.
-        sys.stderr.write("language: zh (already detected by the import)\n")
+        language = known
+        sys.stderr.write(f"language: {language} (already detected by the import)\n")
         sys.stderr.flush()
     else:
-        language, prob, zh_avg, zh_max = _detect_language(detector, audio)
+        detector = WhisperModel(
+            DETECT_MODEL, device=device, compute_type=_compute_type(),
+            cpu_threads=_cpu_threads(),
+        )
+        voted, prob, zh_avg, zh_max = _detect_language(detector, audio)
         sys.stderr.write(
-            f"language vote: {language} p={prob:.2f} "
+            f"language vote: {voted} p={prob:.2f} "
             f"(zh avg={zh_avg:.2f} max={zh_max:.2f})\n"
         )
         sys.stderr.flush()
-
-        # CHINESE-ONLY (temporary): reject non-Chinese audio so we don't emit a
-        # garbage transcript in a language we aren't focusing on yet. See #65.
-        if language != "zh" and zh_avg < ZH_ACCEPT_PROB and zh_max < ZH_WINDOW_PROB:
-            raise UnsupportedLanguage(language)
+        # Raises UnsupportedLanguage for a language that isn't offered, before
+        # the (bigger) transcription model is ever loaded.
+        language = choose_language(voted, zh_avg, zh_max)
+    # Resolved once the language is known (it may raise the size), and against
+    # the *actual* device, so a GPU->CPU OOM retry also drops to a
+    # CPU-appropriate (smaller) model instead of re-loading the big one.
+    model_name = _resolve_model(device, music, language)
+    sys.stderr.write(f"transcribing {language} with model={model_name} on {device}\n")
+    sys.stderr.flush()
     model = (
         detector
-        if model_name == DETECT_MODEL
+        if detector is not None and model_name == DETECT_MODEL
         else WhisperModel(
             model_name, device=device, compute_type=_compute_type(),
             cpu_threads=_cpu_threads(),
         )
     )
-    segments, info = model.transcribe(
+    segments, _info = model.transcribe(
         audio,
-        language="zh",
-        initial_prompt=ZH_PROMPT,
+        language=languages.whisper_code(language),
+        # The Traditional-Chinese bias is Chinese-only; other languages get no
+        # prompt (a prompt in the wrong language drags the output toward it).
+        initial_prompt=ZH_PROMPT if language == "zh" else None,
         beam_size=5,
         # --- Anti-hallucination settings ---
         # Whisper's worst failure mode on short clips (news intros, music stings,
@@ -323,11 +375,6 @@ def _transcribe_on(device, audio, known_language=None, music=False):
         # Alignment pins each segment to when its words are actually spoken.
         word_timestamps=True,
     )
-    # --- General multi-language path (restore when re-enabling, see #65): ---
-    # prompt = ZH_PROMPT if language == "zh" else None
-    # segments, info = model.transcribe(
-    #     audio, language=language, initial_prompt=prompt, beam_size=5,
-    # )
     duration = len(audio) / SAMPLE_RATE
     _emit_progress(0.0, duration)
     segs = []
@@ -384,7 +431,9 @@ def _transcribe_on(device, audio, known_language=None, music=False):
     # window skipped by no_speech_threshold), so finish the bar explicitly
     # rather than leaving it stalled at 97%.
     _emit_progress(duration, duration)
-    return {"language": info.language, "segments": segs}
+    # The table's code, not Whisper's ("nb", not "no"): every caller downstream
+    # speaks the table's codes.
+    return {"language": language, "segments": segs}
 
 
 def _detect_on(device, audio):
@@ -396,7 +445,7 @@ def _detect_on(device, audio):
     )
     language, prob, zh_avg, zh_max = _detect_language(detector, audio)
     return {
-        "language": language,
+        "language": languages.table_code(language),
         "probability": round(prob, 3),
         "zhAvg": round(zh_avg, 3),
         "zhMax": round(zh_max, 3),
@@ -426,7 +475,7 @@ def transcribe(audio_path, known_language=None, music=False):
         try:
             return _transcribe_on(device, audio, known_language, music)
         except UnsupportedLanguage:
-            raise  # not a device problem — CPU wouldn't help, and #65 gates it
+            raise  # not a device problem — CPU wouldn't help
         except Exception as exc:  # OOM / driver — CPU still works
             sys.stderr.write(
                 f"faster-whisper on {device} failed ({exc}); retrying on CPU.\n"
@@ -449,7 +498,7 @@ def main():
     ap.add_argument(
         "--language",
         help="skip detection: the caller already knows the audio is this language "
-        "(only 'zh' is acted on, since that's all the Chinese-only gate lets through)",
+        "(a table code; one that isn't offered is refused as unsupported)",
     )
     args = ap.parse_args()
     if args.detect:
@@ -459,7 +508,7 @@ def main():
     try:
         result = transcribe(args.audio, args.language, args.music)
     except UnsupportedLanguage as exc:
-        # Structured, machine-readable signal for server/import.mjs (see #65).
+        # Structured, machine-readable signal for server/import.mjs.
         json.dump(
             {"error": "unsupported_language", "language": exc.language},
             sys.stdout,

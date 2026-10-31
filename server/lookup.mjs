@@ -8,6 +8,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sendJson, runCommand } from "./util.mjs";
 import { PYTHON_BIN } from "./device.mjs";
+import { isLanguageCode, languageName } from "./languages.mjs";
+import { translateViaWorker } from "./translateWorker.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "data");
@@ -126,7 +128,9 @@ export function numberedToAccent(pinyin) {
 // Ollama. Which one, and the key, come from llmConfig.mjs: chosen in the app's
 // setup dialog, or from the LLM_* vars in .env. Asked per call so a key pasted
 // into the dialog works on the next click.
-async function lookupWithLlm(word, lang, context, dictDefs) {
+// `to` is the language the answer is written in: the reader's own (English for
+// a Chinese learner, Chinese for an English one).
+async function lookupWithLlm(word, lang, context, dictDefs, to = "en") {
   const config = await getLlmConfig();
   if (!config) return null;
   const LLM_MODEL = config.model;
@@ -138,8 +142,9 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
   // changing the prompt refreshes answers. Bump the version token on any prompt
   // edit. v2: literal `meaning` + meaning/explanation consistency. v3: added
   // partOfSpeech. v4: explanation is about the word only, no sentence retelling.
-  // v5: force English output.
-  const key = `${LLM_MODEL}:v5:${lang}:${word}:${context || ""}`;
+  // v5: force English output. Another answer language is its own key; English
+  // keeps the v5 key so every answer cached before it still counts.
+  const key = `${LLM_MODEL}:v5:${lang}:${to === "en" ? "" : `to-${to}:`}${word}:${context || ""}`;
   const known = await cache.get(key);
   if (known) return known;
 
@@ -148,8 +153,9 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
   // `explanation`. This stops the model from inventing a new literal meaning
   // for money/idiom-heavy lines (e.g. 万里 = "thousands of dollars") and then
   // contradicting itself between the two fields.
+  const answerIn = to === "en" ? "ENGLISH" : languageName(to);
   const rules =
-    "Write meaning, explanation, and partOfSpeech in ENGLISH, regardless of the word's language. " +
+    `Write meaning, explanation, and partOfSpeech in ${answerIn}, regardless of the word's language. ` +
     "meaning must be the word's literal/dictionary sense, NOT a reading of the whole sentence; " +
     "if the word is used figuratively here, keep the literal meaning in `meaning` and explain the figurative use in `explanation`. " +
     "The explanation must stay consistent with `meaning` — never assert a different meaning there. ";
@@ -172,7 +178,7 @@ async function lookupWithLlm(word, lang, context, dictDefs) {
     : "You are a language tutor. Given a word and the sentence it appeared in, return JSON: " +
       '{"pronunciation": string, "meaning": string, "explanation": string, "partOfSpeech": string}. ' +
       "pronunciation: romanization (pinyin for Chinese, romaji for Japanese, else IPA). " +
-      "meaning: short English gloss of the word for THIS context. " +
+      `meaning: short ${answerIn} gloss of the word for THIS context. ` +
       rules +
       "explanation: 1-2 sentences ABOUT THE WORD itself — what it is and what it is used for here. Do NOT paraphrase, retell, or summarize the sentence; focus only on the word's role/function. Add a brief grammar/usage note if helpful. " +
       posSpec + " Keep it concise.";
@@ -247,9 +253,36 @@ async function rankWithContext(word, context, defs, lang) {
 
 // ---- Public lookup: run the layers in order -------------------------------
 
-export async function lookupWord(word, lang, context) {
+// The offline answer for a word with no dictionary entry (every language but
+// Chinese has none): the word put through the offline translator. A gloss,
+// not an explanation — but a meaning in the reader's language rather than
+// nothing at all, which is what a non-Chinese lookup gave without a chat model.
+async function translateWord(word, lang, to) {
+  if (!lang || lang === to) return null;
+  const key = `nllb-word:${lang}:${to}:${word}`;
+  const known = await cache.get(key);
+  if (known) return known;
+  try {
+    const srt = await translateViaWorker(`1\n00:00:00,000 --> 00:00:01,000\n${word}\n`, lang, to);
+    const meaning = String(srt || "")
+      .split(/\r?\n/)
+      .filter((line) => line.trim() && !/^\d+$/.test(line.trim()) && !line.includes("-->"))
+      .join(" ")
+      .trim();
+    if (!meaning) return null;
+    const result = { word, pronunciation: "", meaning, source: "nllb" };
+    await cache.set(key, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+export async function lookupWord(word, lang, context, to = "en") {
   let dictResult = null;
-  if (lang === "zh") {
+  // CC-CEDICT is Chinese with English definitions, so it answers only a
+  // reader who reads English.
+  if (lang === "zh" && to === "en") {
     const map = await loadDict();
     const hits = map.get(word);
     if (hits) {
@@ -269,8 +302,9 @@ export async function lookupWord(word, lang, context) {
     }
   }
 
-  // Claude prepared this word for this line (mcp.mjs): answer at once.
-  const note = await preparedNote(word, context).catch(() => null);
+  // Claude prepared this word for this line (mcp.mjs): answer at once. Its
+  // notes are written in English (prepare.mjs), so only for an English reader.
+  const note = to === "en" ? await preparedNote(word, context).catch(() => null) : null;
   if (note) {
     return {
       word,
@@ -282,7 +316,7 @@ export async function lookupWord(word, lang, context) {
     };
   }
 
-  const llm = await lookupWithLlm(word, lang, context, dictResult?.defs);
+  const llm = await lookupWithLlm(word, lang, context, dictResult?.defs, to);
   if (llm) {
     return {
       ...llm,
@@ -306,6 +340,8 @@ export async function lookupWord(word, lang, context) {
   }
 
   if (dictResult) return dictResult;
+  const offline = await translateWord(word, lang, to);
+  if (offline) return offline;
   return { word, pronunciation: "", meaning: "", source: "none" };
 }
 
@@ -314,10 +350,12 @@ export async function handleLookup(req, res) {
   const word = (url.searchParams.get("word") || "").trim();
   const lang = (url.searchParams.get("lang") || "zh").trim();
   const context = url.searchParams.get("context") || "";
+  const wanted = (url.searchParams.get("to") || "en").trim();
+  const to = isLanguageCode(wanted) ? wanted : "en";
   if (!word) {
     sendJson(res, 400, { error: "A word is required." });
     return;
   }
-  const result = await lookupWord(word, lang, context);
+  const result = await lookupWord(word, lang, context, to);
   sendJson(res, 200, result);
 }

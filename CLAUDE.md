@@ -20,7 +20,12 @@ lifting — speech-to-text and offline translation — runs through Python.
 - **Translation:** offline, routed per pair — Marian Opus-MT
   (`Helsinki-NLP/opus-mt-zh-en` / `opus-mt-en-zh`, ~310 MB each, fast on CPU)
   for the app's zh↔en pairs, NLLB-200 (`facebook/nllb-200-distilled-600M`) as
-  the fallback for other languages. All via `transformers`/`torch`.
+  the fallback for other languages. All via `transformers`/`torch`. The pairs
+  live in `OPUS_ROUTES` (translate.py), one line per (from, to): a model and,
+  for multi-target models, a `token` prepended to every sentence as `>>id<<`.
+  `opus-mt-en-zh` is one of those and ran without its token for months — it
+  wrote Simplified; it now gets `>>cmn_Hant<<` (`>>cmn_Hans<<` with
+  `ZH_SCRIPT=off`). `docs/language-models.md` has the model to use per pair.
 - **Word lookups:** any OpenAI-compatible chat API (currently free Groq,
   `openai/gpt-oss-120b` — Groq retired `llama-3.3-70b-versatile`, and a dead
   model fails *silently* into the NLLB fallback), falls back to NLLB.
@@ -207,11 +212,12 @@ decide. A confident "zh" is passed on as `--language zh`, so transcription
 skips its own vote. `pickSourceTrack` never takes an auto-translated track
 (`isTranslatedTrack`: `zh-Hans-en` beside `en`) as an original — with the
 language now known as zh, the music video's machine-translated Chinese would
-otherwise have been studied as its source. Heard as something other than
-Chinese, a video with an uploaded Chinese track is studied *in Chinese*
-(`studyBase`) with its English track as the translation — an English song with
-Chinese lyrics is Chinese study material, and the alternative was "Only Chinese
-is supported". With several human Chinese tracks, all are fetched and the most
+otherwise have been studied as its source. Heard as a language the reader
+already reads (their translate-bar target) or one Stele can't study, a video
+with an uploaded track in an offered language is studied in *that* language
+(`studyBase`) — an English song with Chinese lyrics is Chinese study material
+for a reader of English, and English study material for a reader of Chinese.
+With several human Chinese tracks, all are fetched and the most
 purely Chinese one wins (`chineseShare`): a channel's bare `zh` track can carry
 pinyin and English on every line.
 
@@ -342,8 +348,34 @@ NLLB Flores-200 code. `languages.mjs` imports it as a JSON module (so
 off disk; all three used to keep their own copy behind a "keep in sync" comment
 (#32). It sits under `public/` because the browser fetches it, which is why
 `.gitignore` anchors the corpora rule to `/data/` — a bare `data/` matched this
-one too. `offered` is the subset the translate bar lists; deleting the key
-offers all 44 again, which is most of restoring multi-language support (#65).
+one too. Each row may carry `offered: true` (Chinese and English so far),
+`whisper` (Whisper's code when it differs — `no` for `nb` — or null),
+`ocr` (an OCR model override, or null for none) and `inaudible` (the
+placeholder for unclear speech, in the language). With no row offered, all 44
+are. Fields sit on the rows rather than in shared lists so languages can be
+added in parallel, one line each; `docs/adding-a-language.md` is the
+checklist. `server/languages.mjs` and `server/languages.py` are the two
+servers' readers of it.
+
+**Study languages: "offered" is the gate.** A language is studyable when its
+row is offered, and the import refuses anything else with a message naming
+what is (`notOfferedMessage`, HTTP 422) — at transcription (`choose_language`
+in transcribe.py, which still lets Chinese win on its looser rules *first*: a
+typhoon report votes "en" from the storm bed), and a subtitle track in a
+language that isn't offered falls through to transcription so the audio
+decides. Every import carries the reader's translate-bar target
+(`translateTo`); the translation goes into it, unless it's the study language,
+then English — and English goes to Chinese (`translationTarget`, mirrored by
+`defaultTarget` in the page). The result carries `translationLanguage`, which
+the bar shows when the video opens, and word meanings are asked for in that
+language too (`/api/lookup?to=`; with no chat model, a word with no dictionary
+entry gets the offline translator's gloss rather than nothing). Chinese-only
+by design: Traditional conversion, pinyin/tones, jieba, `regridToHuman`,
+bilingual-track splitting, CC-CEDICT (zh→en readers only), and Claude's
+background preparation (zh→en imports only: its prompt asks for pinyin and its
+line fixes are English, which would overwrite an English video's Chinese).
+`WHISPER_MIN_MODEL` (transcribe.py) raises "auto" to a language's minimum
+Whisper size, beside the music rule; it is empty until a language needs it.
 
 Detection (`detectLanguage`) covers all 44 — function words for the 30
 Latin-script ones plus diacritics for the short inputs, and script tests
@@ -370,20 +402,28 @@ the obvious one and the only one that needs measuring:
   silently reverts torch to CPU; it agrees with sacrebleu 2.6.0 to 0.0000 and
   `test/test_chrf.py` pins the golden values.
 - **Transcription.** Whisper covers 41 of the 44. Esperanto and Irish are
-  genuinely absent; Norwegian is only a code mismatch (Whisper says `no`, the
-  table says `nb`) and needs mapping, not a model. `transcribe.py` also has a
-  hard Chinese-only guard (`UnsupportedLanguage`) to remove.
-- **OCR — the narrowest gate, and the one that fails silently.** `RapidOCR()`
-  is constructed with no arguments, so it runs the default `ch` recognition
-  model. Verified by rendering text and reading it back: Chinese, Japanese and
+  genuinely absent (`whisper: null`); Norwegian is only a code mismatch, mapped
+  by the row's `whisper: "no"`.
+- **OCR — the narrowest gate, and the one that fails silently.** The
+  recognition model now follows the study language's script (`OCR_BY_SCRIPT`
+  in languages.py, the script being the Flores code's suffix): the default
+  model (RapidOCR 3.9's PP-OCRv6 multi, which also reads Latin and Japanese)
+  for Han, Latin and Japanese, a PP-OCRv5 mobile model for Cyrillic, Arabic,
+  Devanagari, Greek, Hangul and Thai, and *none* for Hebrew and Bengali —
+  caption OCR is skipped (`no_ocr_model`) and screenshots say so rather than
+  return garbage. Caption OCR takes `--language`, screenshots an
+  `X-Stele-Language` header; RapidOCR wants enums, not strings, for
+  `ocr_version`/`model_type`. The measurements below predate this, on the old
+  default: Chinese, Japanese and
   Latin script (including ł, ř, ğ, ș, å, ñ) all read correctly; Vietnamese
   loses stacked tone marks and Hungarian confuses ű/ú. Korean returns nothing.
   Cyrillic, Greek, Arabic, Devanagari, Thai and Hebrew return **plausible
   latin-ish garbage** — Russian "мы должны попробовать" comes back as "Mbl".
   That is non-empty, so it flows downstream and gets translated as if it were
   text. RapidOCR ships separate `cyrillic`/`arabic`/`korean`/`el`/`devanagari`/
-  `th`/`latin` recognition models; using them means passing a `lang_type`
-  instead of relying on the default. There is no Hebrew or Bengali model at all.
+  `th`/`latin` recognition models — the ones the table now picks. There is no
+  Hebrew or Bengali model at all. `test/test_ocr_engine.py` checks every model
+  named against the installed RapidOCR's own list, without downloading.
 
 **One door to the server.** Every `/api/…` request from the page goes through
 `api()` in `public/js/backend.mjs`, never `fetch` directly. On a computer it
