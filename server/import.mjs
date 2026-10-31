@@ -37,6 +37,7 @@ import { onImported } from "./prepare.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
   cleanCaptions,
+  sentenceCaptions,
   alignTranslationByTime,
   dedupeContinuationLines,
   preferHumanTranslation,
@@ -592,6 +593,7 @@ export async function handleImportUrl(req, res) {
         translationLanguage: translation ? target : "",
         subtitles,
         translation,
+        words: subtitle.words || [],
       });
       return;
     }
@@ -1460,10 +1462,17 @@ async function getExistingSubtitle(url, workspace, meta, origBase, preferred = "
   const fileFor = await downloadSubTracks(url, workspace, want);
 
   const candidates = [];
+  // A speech-recognition track is cut on a timer, mid-phrase; regrouped into
+  // sentences by its own word timings (captions.mjs), which also feed the
+  // karaoke highlight. Human tracks keep the uploader's cuts.
+  let words = [];
   for (const lang of siblings) {
     const file = fileFor(lang);
     if (!file) continue;
-    const candidate = cleanCaptions(await readFile(file, "utf8"));
+    const raw = await readFile(file, "utf8");
+    const sentences = source.manual ? null : sentenceCaptions(raw, sourceBase);
+    if (sentences) words = sentences.words;
+    const candidate = sentences?.srt || cleanCaptions(raw);
     if (candidate.trim()) candidates.push(candidate);
   }
   let text = pickCleanestTrack(candidates);
@@ -1508,6 +1517,7 @@ async function getExistingSubtitle(url, workspace, meta, origBase, preferred = "
     lang: sourceBase || null,
     text,
     translation,
+    words,
   };
 }
 

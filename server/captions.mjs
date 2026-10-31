@@ -132,6 +132,142 @@ export function cleanCaptions(text) {
   return entries.length ? toSrt(entries) : "";
 }
 
+// --- Speech-recognition tracks, cut into sentences -------------------------
+//
+// YouTube's own speech recognition cuts its captions on a timer, not at
+// sentences: "Hoy tenemos una misión en pleno corazón / de Santo Domingo." A
+// study line that stops mid-phrase can't be read, translated or saved as a
+// card's example. The Chinese path never met this — a Chinese video without a
+// human track is transcribed by Whisper, which cuts at sentences — so these
+// tracks went through as cut, and the first Spanish and English imports showed
+// it on every line.
+//
+// The track carries what's needed to do better: every word's start time
+// (`Hoy<00:00:00.520><c> tenemos</c>…`, the first word starting with its cue)
+// and, nowadays, sentence punctuation. So the words are read back out with
+// their times and regrouped: a line ends at a sentence end or a pause, and a
+// sentence that runs on is cut at its last comma. The word times also go to the
+// karaoke highlight, which had nothing to go on for these tracks.
+
+const TIMESTAMP_RE = /<(\d{2}:\d{2}:\d{2}[.,]\d{3})>/;
+const SENTENCE_END_RE = /[.?!…]["'”’»)\]]*$/;
+const CLAUSE_END_RE = /[,;:]["'”’»)\]]*$/;
+// A word is said within this long; a longer silence after it is a pause.
+const WORD_SPAN = 0.9;
+// A gap this long between one word's end and the next word starts a new line.
+const PAUSE = 0.6;
+// A sentence longer than either is cut at its last comma. One with no comma
+// runs on to the hard limit first: a cut wherever the count happens to land
+// split "se nos cruce por / el camino" and stranded "así." on a line alone.
+const MAX_WORDS = 20;
+const MAX_SECONDS = 8;
+const HARD_WORDS = 32;
+const HARD_SECONDS = 14;
+// Languages written without spaces between words: their tracks aren't made of
+// space-separated words, and their own path (Whisper, or a human track) cuts
+// them already.
+const UNSPACED = new Set(["zh", "ja", "th", "lo", "my", "km"]);
+
+function toSeconds(stamp) {
+  const [h, m, s] = stamp.replace(",", ".").split(":");
+  return Number(h) * 3600 + Number(m) * 60 + Number(s);
+}
+
+// Every spoken word of a rolling track, in order, with its start time. In a
+// rolling cue the last line is the new one (the line above it repeats the
+// previous cue), and the 10 ms "bridge" cues only repeat — so only a cue's
+// last line, and only when it isn't what was read already, adds words.
+export function captionWords(text) {
+  const words = [];
+  let last = "";
+  for (const cue of parseCues(text)) {
+    if (cue.end - cue.start < 0.02) continue;
+    const raw = [...cue.lines].reverse().find((line) => line.trim()) || "";
+    const plain = normalizeLine(raw);
+    if (!plain || plain === last) continue;
+    last = plain;
+    // "Hoy<t1><c> tenemos</c><t2><c> una</c>" → ["Hoy", t1, " tenemos", t2, " una"]
+    const parts = raw.split(TIMESTAMP_RE);
+    for (let i = 0; i < parts.length; i += 2) {
+      const start = i === 0 ? cue.start : toSeconds(parts[i - 1]);
+      for (const word of normalizeLine(parts[i]).split(" ")) {
+        if (word) words.push({ start, text: word, lineEnd: cue.end });
+      }
+    }
+  }
+  // Sound tags — [música], [Music], [Aplausos] — aren't words anyone said.
+  const spoken = [];
+  let inTag = false;
+  for (const word of words) {
+    if (word.text.startsWith("[")) inTag = true;
+    if (!inTag) spoken.push(word);
+    if (word.text.endsWith("]")) inTag = false;
+  }
+  for (let i = 0; i < spoken.length; i++) {
+    const next = spoken[i + 1];
+    const limit = next ? next.start : spoken[i].lineEnd;
+    spoken[i].end = Math.max(spoken[i].start + 0.05, Math.min(limit, spoken[i].start + WORD_SPAN));
+  }
+  return spoken.map(({ start, end, text }) => ({ start, end, text }));
+}
+
+// Group timed words into study lines.
+export function sentenceLines(words) {
+  const lines = [];
+  let current = [];
+  const flush = (count = current.length) => {
+    if (count > 0) lines.push(current.slice(0, count));
+    current = current.slice(count);
+  };
+  for (const word of words) {
+    const previous = current[current.length - 1];
+    if (previous && word.start - previous.end > PAUSE) flush();
+    current.push(word);
+    if (SENTENCE_END_RE.test(word.text)) {
+      flush();
+      continue;
+    }
+    const span = word.end - current[0].start;
+    const tooLong = current.length >= MAX_WORDS || span > MAX_SECONDS;
+    const mustCut = current.length >= HARD_WORDS || span > HARD_SECONDS;
+    if (tooLong) {
+      // The last comma that leaves at least three words on each side.
+      let cut = -1;
+      for (let i = current.length - 4; i >= 2; i--) {
+        if (CLAUSE_END_RE.test(current[i].text)) {
+          cut = i + 1;
+          break;
+        }
+      }
+      if (cut > 0) flush(cut);
+      else if (mustCut) flush();
+    }
+  }
+  flush();
+  return lines.map((group) => ({
+    start: group[0].start,
+    end: group[group.length - 1].end,
+    text: group.map((w) => w.text).join(" "),
+  }));
+}
+
+// A speech-recognition track as sentence lines plus its word timings, or null
+// when it can't be (not a rolling track, a language without spaces, or no
+// words) — the caller then keeps cleanCaptions().
+export function sentenceCaptions(text, language = "") {
+  if (UNSPACED.has(String(language).toLowerCase().split("-")[0])) return null;
+  if (!ROLLING_RE.test(String(text))) return null;
+  const words = captionWords(text);
+  if (!words.length) return null;
+  const lines = sentenceLines(words);
+  return {
+    srt: toSrt(lines),
+    // Whisper's convention, which the karaoke highlight reads: a Latin word
+    // carries its leading space.
+    words: words.map((w) => ({ start: w.start, end: w.end, word: ` ${w.text}` })),
+  };
+}
+
 function nearestByStart(cues, start) {
   let best = -1;
   let bestDist = Infinity;

@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   cleanCaptions,
+  captionWords,
+  sentenceCaptions,
+  sentenceLines,
   alignTranslationByTime,
   dedupeContinuationLines,
   dropUnreadableGlimpses,
@@ -481,4 +484,104 @@ test("density is judged on the text left after repeated lines are removed", () =
   assert.equal(shown.at(-1).text, "目前罩的話就那一顆");
   // The other way round loses it, which is why import.mjs dedupes first.
   assert.equal(dropUnreadableGlimpses(segments).length, 1);
+});
+
+// --- Speech-recognition tracks, cut into sentences --------------------------
+
+// The opening of a real Spanish auto-caption track (O1-t4Vrvoz0), as YouTube
+// sends it: each long cue's last line is new, the line above repeats, and the
+// 10 ms cues only repeat.
+const ES_ASR = [
+  "WEBVTT",
+  "Kind: captions",
+  "Language: es",
+  "",
+  "00:00:00.280 --> 00:00:02.590 align:start position:0%",
+  SP,
+  "Hoy<00:00:00.520><c> tenemos</c><00:00:01.000><c> una</c><00:00:01.280><c> misión</c><00:00:01.719><c> en</c><00:00:01.959><c> pleno</c><00:00:02.320><c> corazón</c>",
+  "",
+  "00:00:02.590 --> 00:00:02.600 align:start position:0%",
+  "Hoy tenemos una misión en pleno corazón",
+  SP,
+  "",
+  "00:00:02.600 --> 00:00:03.669 align:start position:0%",
+  "Hoy tenemos una misión en pleno corazón",
+  "de<00:00:02.760><c> Santo</c><00:00:03.040><c> Domingo.</c>",
+  "",
+  "00:00:03.669 --> 00:00:03.679 align:start position:0%",
+  "de Santo Domingo.",
+  SP,
+  "",
+  "00:00:03.679 --> 00:00:04.870 align:start position:0%",
+  "de Santo Domingo.",
+  "Probar<00:00:03.929><c> [música]</c><00:00:04.240><c> toda</c><00:00:04.480><c> la</c><00:00:04.600><c> comida</c>",
+  "",
+  "00:00:04.870 --> 00:00:04.880 align:start position:0%",
+  "Probar [música] toda la comida",
+  SP,
+  "",
+  "00:00:04.880 --> 00:00:10.629 align:start position:0%",
+  "Probar [música] toda la comida",
+  "dominicana<00:00:05.359><c> que</c><00:00:05.480><c> podamos.</c>",
+  "",
+  "00:00:10.629 --> 00:00:10.639 align:start position:0%",
+  SP,
+  SP,
+  "",
+  "00:00:10.639 --> 00:00:12.190 align:start position:0%",
+  SP,
+  "Sí.",
+  "",
+].join("\n");
+
+test("speech-recognition words come out once each, timed, without sound tags", () => {
+  const words = captionWords(ES_ASR);
+  assert.deepEqual(
+    words.map((w) => w.text),
+    "Hoy tenemos una misión en pleno corazón de Santo Domingo. Probar toda la comida dominicana que podamos. Sí.".split(" "),
+  );
+  assert.equal(words[0].start, 0.28, "the first word starts with its cue");
+  assert.equal(words[1].start, 0.52);
+  assert.equal(words.at(-1).start, 10.639, "a one-word line has no timing tag but is still a word");
+  for (let i = 0; i < words.length; i++) {
+    assert.ok(words[i].end > words[i].start);
+    if (words[i + 1]) assert.ok(words[i].end <= words[i + 1].start);
+  }
+});
+
+test("a timer-cut track is regrouped into sentences", () => {
+  const { srt, words } = sentenceCaptions(ES_ASR, "es");
+  const lines = srt.trim().split("\n\n").map((b) => b.split("\n"));
+  assert.deepEqual(
+    lines.map((l) => l[2]),
+    [
+      "Hoy tenemos una misión en pleno corazón de Santo Domingo.",
+      "Probar toda la comida dominicana que podamos.",
+      "Sí.",
+    ],
+  );
+  assert.equal(lines[0][1], "00:00:00,280 --> 00:00:03,679");
+  // Whisper's word convention, which the karaoke highlight reads.
+  assert.equal(words[0].word, " Hoy");
+});
+
+test("a pause ends a line even without punctuation", () => {
+  const w = (text, start) => ({ text, start, end: start + 0.3 });
+  const lines = sentenceLines([w("so", 0), w("anyway", 0.4), w("right", 3), w("then", 3.4)]);
+  assert.deepEqual(lines.map((l) => l.text), ["so anyway", "right then"]);
+});
+
+test("a run-on sentence is cut at its last comma, and only forced past the hard limit", () => {
+  const w = (text, i) => ({ text, start: i * 0.3, end: i * 0.3 + 0.25 });
+  const withComma = Array.from({ length: 24 }, (_, i) => w(i === 9 ? "x," : "x", i));
+  assert.deepEqual(sentenceLines(withComma).map((l) => l.text.split(" ").length), [10, 14]);
+  const noComma = Array.from({ length: 40 }, (_, i) => w("x", i));
+  const cut = sentenceLines(noComma).map((l) => l.text.split(" ").length);
+  assert.ok(cut[0] > 20 && cut[0] <= 32, `no comma: ran on to the hard limit, got ${cut[0]}`);
+});
+
+test("human tracks, plain tracks and unspaced languages are left alone", () => {
+  assert.equal(sentenceCaptions("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello there.\n", "en"), null);
+  assert.equal(sentenceCaptions(ES_ASR, "zh"), null);
+  assert.equal(sentenceCaptions(ES_ASR, "ja-orig"), null);
 });
