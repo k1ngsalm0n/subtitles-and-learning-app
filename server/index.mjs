@@ -20,6 +20,7 @@ import { handleStrokes } from "./strokes.mjs";
 import { handleLocate } from "./locate.mjs";
 import { handleLibrary } from "./library.mjs";
 import { handlePrepare } from "./prepare.mjs";
+import { handleUpdate } from "./update.mjs";
 import { handleClaudeCode } from "./claudecode.mjs";
 import { handleSync, handleSyncEvents } from "./sync.mjs";
 import { handleTailscale, tailnetName } from "./tailscale.mjs";
@@ -73,6 +74,7 @@ const ROUTES = [
   { methods: ["GET", "POST"], path: "/api/claude-code", run: handleClaudeCode },
   { methods: ["GET"], path: "/api/prepare", run: handlePrepare },
   { methods: ["POST"], prefix: "/api/prepare/", run: handlePrepare },
+  { methods: ["POST"], prefix: "/api/update/", run: handleUpdate },
   { methods: ["POST"], path: "/api/sync", run: handleSync },
   { methods: ["GET"], prefix: "/api/sync/events", run: handleSyncEvents },
   { methods: ["POST"], path: "/api/backup", run: handleSaveBackup },

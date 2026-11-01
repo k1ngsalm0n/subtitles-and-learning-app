@@ -1898,20 +1898,26 @@ async function transcribeWithWhisperCli(audioPath, workspace, preferred = "") {
 // problem leaves the transcript as it was heard. A fix may come back in the
 // other script, so Chinese goes through the Traditional conversion again.
 async function fixTranscript(srt, language, report = null) {
-  if (!language || !srt) return srt;
+  report?.stage("Checking the transcript for misheard words\u2026");
+  return (await recheckTranscript(srt, language)).srt;
+}
+
+// The same check, with what it changed: also the Update button's first step
+// (update.mjs). Never throws; a failed check returns the transcript as it was.
+export async function recheckTranscript(srt, language) {
+  if (!language || !srt) return { srt, fixes: [] };
   try {
-    report?.stage("Checking the transcript for misheard words\u2026");
     const { srt: fixed, fixes } = await fixTranscriptSrt(srt, language, {
       placeholder: languageRow(language)?.inaudible || "",
     });
-    if (!fixes.length) return srt;
+    if (!fixes.length) return { srt, fixes };
     console.log(
-      `Transcript fixes (${language}): ${fixes.map((f) => `#${f.line} ${f.from} → ${f.to}`).join(" | ")}`,
+      `Transcript fixes (${language}): ${fixes.map((f) => `#${f.line} ${f.from} \u2192 ${f.to}`).join(" | ")}`,
     );
-    return await toTraditional(fixed, language);
+    return { srt: await toTraditional(fixed, language), fixes };
   } catch (err) {
     console.warn(`Transcript check skipped (${String(err.message || err).split("\n")[0]})`);
-    return srt;
+    return { srt, fixes: [] };
   }
 }
 

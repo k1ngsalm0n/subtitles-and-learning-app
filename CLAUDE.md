@@ -148,6 +148,19 @@ lifting — speech-to-text and offline translation — runs through Python.
   after such an import, then every 30 minutes. A refusal stops the sweep until
   the next one. The page shows it when the video is opened from the Videos
   list (a reload restores the session's own copy). `STELE_RETRANSLATE=off`.
+- **Update, for a saved video.** With a video from the Videos list open, the
+  translate bar's button reads *Update* (`syncTranslateButton`) and posts to
+  `POST /api/update/<id>` (`update.mjs`): the saved transcript is checked for
+  misheard words again (machine-made sources only, `recheckTranscript` in
+  import.mjs), translated again, and both are **saved** into the library entry
+  and the session — the plain Translate never saved, so reopening brought the
+  import's translation back. A chat model that's set up but doesn't answer
+  doesn't hand the job to the offline translator: the reply is a 503 saying
+  why, any transcript fixes are kept, and the entry is marked for
+  retranslate.mjs. Streettalk, with Claude: 39 s for 162 lines, 5 words fixed
+  (芳琳→芳齡, 平感覺→憑感覺, 星星人類→新新人類 among them, all Groq misses), and
+  2:22 "brush the phone" became "scrolling on my phone". A From changed by
+  hand falls back to translating what's on screen, unsaved.
 - **Misheard words are fixed before translating** (`transcriptFix.mjs`). An
   old import of a street interview read 「那你去過哪些國家？」「我目前沒有出過果」 —
   果 (fruit) for 國 (country), same syllable — and translated it "I haven't

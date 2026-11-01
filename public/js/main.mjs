@@ -82,6 +82,7 @@ import {
   syncTranslateLangs,
   swapLanguages,
   runTranslation,
+  syncTranslateButton,
 } from "./translate.mjs";
 import {
   renderAll,
@@ -1255,6 +1256,7 @@ function handleVideoInput(event) {
   // A local file isn't a library source; cards made from it carry no link.
   state.currentSourceId = null;
   renderVideos();
+  syncTranslateButton(els);
   // A blob video can't be brought back after a reload, so drop any saved
   // import session — otherwise a refresh would resurrect the old imported
   // transcript over this local video.
@@ -1322,6 +1324,7 @@ function restoreSession() {
     );
   }
   state.currentSourceId = source.id;
+  syncTranslateButton(els);
   if (session.learningLang) {
     state.learningLang = session.learningLang;
     syncTranslateLangs(els);
