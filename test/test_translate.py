@@ -85,13 +85,29 @@ class OpusRouteTableTest(unittest.TestCase):
     """OPUS_ROUTES: (from, to) -> model, plus a target token for multi-target
     group models (docs/language-models.md)."""
 
-    def test_only_the_chinese_pairs_are_routed_so_far(self):
-        from translate import OPUS_ROUTES, opus_route
+    # Not a fixed list of pairs: each language PR adds its own lines, and a
+    # list here would make every one of them edit this test.
+    def test_routes_are_well_formed_and_cover_the_chinese_pairs(self):
+        from translate import LANG_CODE_MAP, OPUS_ROUTES, opus_route
 
-        self.assertEqual(set(OPUS_ROUTES), {("zh", "en"), ("en", "zh")})
-        self.assertIsNone(opus_route("ja", "en"))
-        for route in OPUS_ROUTES.values():
-            self.assertTrue(route["model"].startswith("Helsinki-NLP/"))
+        self.assertLessEqual({("zh", "en"), ("en", "zh")}, set(OPUS_ROUTES))
+        self.assertIsNone(opus_route("ja", "en"), "Japanese stays on NLLB (language-models.md)")
+        for (src, tgt), route in OPUS_ROUTES.items():
+            self.assertIn(src, LANG_CODE_MAP)
+            self.assertIn(tgt, LANG_CODE_MAP)
+            self.assertTrue(route["model"].startswith("Helsinki-NLP/opus-mt-"))
+            self.assertLessEqual(set(route), {"model", "token"})
+
+    def test_spanish_routes(self):
+        from translate import opus_prefix, opus_route
+
+        # Single-target models: no >>id<< token.
+        self.assertEqual(opus_route("es", "en")["model"], "Helsinki-NLP/opus-mt-tc-bible-big-roa-en")
+        self.assertEqual(opus_route("en", "es")["model"], "Helsinki-NLP/opus-mt-tc-big-en-es")
+        self.assertEqual(opus_prefix(opus_route("es", "en")), "")
+        self.assertEqual(opus_prefix(opus_route("en", "es")), "")
+        # No dedicated model into Chinese: NLLB (or the chat model).
+        self.assertIsNone(opus_route("es", "zh"))
 
     def test_token_is_prepended_and_follows_the_chinese_script(self):
         from unittest import mock

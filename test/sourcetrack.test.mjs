@@ -9,6 +9,7 @@ import {
   studyBase,
   chineseShare,
   isMusic,
+  refusedUpFront,
 } from "../server/import.mjs";
 
 const CHINESE_MV =
@@ -112,4 +113,21 @@ test("YouTube's Music category marks a song; speech categories don't", () => {
     assert.equal(isMusic({ categories: [c] }), false, c);
   }
   assert.equal(isMusic({}), false, "no categories in the metadata");
+});
+
+// Esperanto stands in for "a language Stele doesn't study": Whisper can't
+// transcribe it, so it won't be offered by a later language PR.
+test("a language YouTube names twice and Stele can't study is refused before downloading", () => {
+  const t = (meta) => refusedUpFront({ language: "", manual: [], auto: [], ...meta });
+  // Metadata and speech recognition agree.
+  assert.equal(t({ language: "eo", auto: ["eo-orig", "eo", "en-eo"] }), "eo");
+  // Either one alone is not enough: the audio still decides, later.
+  assert.equal(t({ language: "eo", auto: ["eo"] }), "");
+  assert.equal(t({ language: "", auto: ["eo-orig"] }), "");
+  assert.equal(t({ language: "eo", auto: ["en-orig"] }), "");
+  // The uploader's track in a language Stele studies keeps it going.
+  assert.equal(t({ language: "eo", auto: ["eo-orig"], manual: ["zh-TW"] }), "");
+  // Offered languages are never refused.
+  assert.equal(t({ language: "en", auto: ["en-orig"] }), "");
+  assert.equal(t({ language: "zh", auto: ["zh-orig"] }), "");
 });

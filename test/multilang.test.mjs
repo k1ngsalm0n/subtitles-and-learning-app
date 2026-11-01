@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 
 import {
   isOffered,
+  languageName,
   notOfferedMessage,
   offeredCodes,
   toTableCode,
@@ -22,13 +23,16 @@ import {
 import { ocrLanguage } from "../server/ocr.mjs";
 import { defaultTarget, meaningLanguage } from "../public/js/languages.mjs";
 
-test("Chinese and English are offered; others are refused by name", () => {
+// Not a fixed list: each language PR adds one, and a list here would make
+// every one of them edit this test (and conflict with each other).
+test("offered languages come from the table; others are refused by name", () => {
   assert.ok(isOffered("zh") && isOffered("en"));
   assert.ok(!isOffered("fr"));
-  assert.deepEqual(offeredCodes(), ["zh", "en"]);
+  const codes = offeredCodes();
+  assert.deepEqual(codes.slice(0, 2), ["zh", "en"], "Chinese and English lead");
   const message = notOfferedMessage("fr");
   assert.match(message, /French/);
-  assert.match(message, /Chinese and English/);
+  for (const code of codes) assert.match(message, new RegExp(languageName(code)));
   const err = notOfferedError("fr");
   assert.equal(err.status, 422);
   assert.equal(err.code, "UNSUPPORTED_LANGUAGE");

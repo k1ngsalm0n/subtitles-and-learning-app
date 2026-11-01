@@ -63,7 +63,7 @@
     { "code": "ru", "name": "Russian", "nllb": "rus_Cyrl" },
     { "code": "sk", "name": "Slovak", "nllb": "slk_Latn" },
     { "code": "sl", "name": "Slovenian", "nllb": "slv_Latn" },
-    { "code": "es", "name": "Spanish", "nllb": "spa_Latn" },
+    { "code": "es", "name": "Spanish", "nllb": "spa_Latn", "offered": true, "inaudible": "(inaudible)" },
     { "code": "sv", "name": "Swedish", "nllb": "swe_Latn" },
     { "code": "tl", "name": "Tagalog", "nllb": "tgl_Latn" },
     { "code": "th", "name": "Thai", "nllb": "tha_Thai" },
