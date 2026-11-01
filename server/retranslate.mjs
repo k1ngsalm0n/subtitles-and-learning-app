@@ -19,6 +19,7 @@ import { readFile } from "node:fs/promises";
 import { libraryDir } from "./library.mjs";
 import { libraryIds } from "./prepared.mjs";
 import { writePrivate } from "./prefs.mjs";
+import { chatHealth } from "./chat.mjs";
 import { llmTranslationAvailable, translateSrtWithLlm } from "./llmTranslate.mjs";
 
 const EVERY_MS = 30 * 60_000;
@@ -49,7 +50,11 @@ export async function retranslateOffline({ translate = translateSrtWithLlm } = {
       if (!entry?.translatedOffline || !entry.subtitles || !entry.language) continue;
       const to = entry.translationLanguage || "en";
       const translation = await translate(entry.subtitles, entry.language, to).catch(() => null);
-      if (!translation) break;
+      if (!translation) {
+        const why = chatHealth()?.reason || "no usable answer";
+        console.log(`Couldn't translate "${entry.title || id}" again yet (${why}); trying again in 30 minutes.`);
+        break;
+      }
       // Read again: the entry may have been re-imported while the model worked.
       const now = await readEntry(id);
       if (!now?.translatedOffline || now.subtitles !== entry.subtitles) continue;
