@@ -1595,33 +1595,66 @@ async function openWordBubble(anchor, line, els) {
           : escapeHtml(result.pronunciation)
       }</div>`
     : "";
-  const meaningHtml = result.meaning
-    ? `<div class="bubble-meaning">${escapeHtml(result.meaning)}</div>`
-    : "";
-  const explanationHtml = result.explanation
-    ? `<div class="bubble-explanation">${escapeHtml(result.explanation)}</div>`
+  // Four sections, in the order a learner builds the word up: what each
+  // character means, the word they make, how this video uses it, then every
+  // dictionary sense. Each appears only when there is something to put in it.
+  const section = (title, body) =>
+    `<section class="bubble-section"><h3 class="bubble-heading">${title}</h3>${body}</section>`;
+  const chars = result.characters || [];
+  const charsHtml = chars.length
+    ? section(
+        "Each character",
+        `<ul class="bubble-chars">${chars
+          .map(
+            (c) => `<li><span class="bubble-char">${escapeHtml(c.char)}</span><span class="bubble-char-text">${
+              c.pinyin
+                ? `<span class="bubble-char-pron">${
+                    lang === "zh" ? tonedPinyinHtml(c.pinyin, escapeHtml) : escapeHtml(c.pinyin)
+                  }</span>`
+                : ""
+            }<span class="bubble-char-meaning">${escapeHtml(c.meaning || "—")}</span></span></li>`,
+          )
+          .join("")}</ul>`,
+      )
     : "";
   const defs = result.defs || [];
-  // The single definition is only shown here as a fallback when there's no
-  // meaning line; otherwise it would just repeat the meaning (which already is
-  // that definition) and print it twice.
-  const defsHtml = defs.length > 1
-    ? `<details class="bubble-dict"><summary>All definitions (${defs.length})</summary><ol class="bubble-defs">${defs.map(d => `<li>${escapeHtml(d)}</li>`).join("")}</ol></details>`
-    : defs.length === 1 && !result.explanation && !result.meaning
-      ? `<div class="bubble-meaning">${escapeHtml(defs[0])}</div>`
-      : "";
-  // Part-of-speech tag at the bottom (meaning-first). Only the LLM path provides
-  // it, so the tag is simply omitted when absent.
+  // A lone definition is the meaning when there is no other.
+  const meaning = result.meaning || (defs.length === 1 ? defs[0] : "");
+  // Part of speech beside the meaning; only the chat model provides it.
   const posHtml = result.partOfSpeech
-    ? `<div class="bubble-tag">${escapeHtml(result.partOfSpeech)}</div>`
+    ? ` <span class="bubble-tag">${escapeHtml(result.partOfSpeech)}</span>`
+    : "";
+  const wordHtml = meaning
+    ? section(chars.length ? "Together" : "Meaning", `<div class="bubble-meaning">${escapeHtml(meaning)}${posHtml}</div>`)
+    : "";
+  const explanationHtml = result.explanation
+    ? section("In this video", `<div class="bubble-explanation">${escapeHtml(result.explanation)}</div>`)
+    : "";
+  // Only when it adds something: a single definition is already the meaning.
+  // Long lists start folded after the first few, so the pop-up stays short.
+  const SHOWN = 5;
+  const item = (d) => `<li>${escapeHtml(d)}</li>`;
+  const defsHtml = defs.length > 1
+    ? section(
+        `All definitions (${defs.length})`,
+        `<ol class="bubble-defs">${defs.slice(0, SHOWN).map(item).join("")}</ol>${
+          defs.length > SHOWN
+            ? `<details class="bubble-dict"><summary>${defs.length - SHOWN} more</summary><ol class="bubble-defs" start="${SHOWN + 1}">${defs.slice(SHOWN).map(item).join("")}</ol></details>`
+            : ""
+        }`,
+      )
+    : "";
+  const nothing = !charsHtml && !wordHtml && !explanationHtml && !defsHtml
+    ? `<div class="bubble-meaning muted">No meaning found.</div>`
     : "";
   bubble.innerHTML = `
     <div class="bubble-word">${escapeHtml(word)}${speakButtonsHtml()}</div>
     ${pron}
-    ${meaningHtml}
+    ${charsHtml}
+    ${wordHtml}
     ${explanationHtml}
     ${defsHtml}
-    ${posHtml}
+    ${nothing}
     ${bubbleActionsHtml(true)}`;
   paintKnownButton(bubble);
   positionBubble(bubble);

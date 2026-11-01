@@ -2,9 +2,10 @@ import { api } from "./backend.mjs";
 
 const CACHE_KEY = "stele.lookupCache";
 const CACHE_VERSION_KEY = "stele.lookupCacheVersion";
-// 11: explanation describes the word only + forced English output; bump to
+// 11: explanation describes the word only + forced English output. 12: each
+// character of a Chinese word (`characters`). Bump to
 // drop stale entries.
-const CACHE_VERSION = 11;
+const CACHE_VERSION = 12;
 
 let cache;
 function getCache() {

@@ -278,7 +278,87 @@ async function translateWord(word, lang, to) {
   }
 }
 
+// ---- Each character of a Chinese word -------------------------------------
+
+// Definitions that say nothing about what a character means on its own:
+// a surname, a pointer to another form, a word it only appears inside.
+const NOT_A_MEANING = /^(surname |variant of |old variant of |archaic variant of |used in |see |CL:|classifier for |abbr\. for |also written |Japanese variant|Taiwan pr\.)/i;
+
+function tidyDef(def) {
+  // "(bound form) row; line" -> "row; line": the label is for lexicographers.
+  return def
+    .replace(/^\((?:bound form|literary|coll\.|dialect|old)\)\s*/i, "")
+    .replace(/\s*\(bound form\)/gi, "")
+    .trim();
+}
+
+// Without tone marks: a word's neutral-tone syllable (頭髮 tóu fa) still names
+// the reading of 髮 fà.
+const toneless = (syllable) => syllable.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+// A Han character, Basic block and Extension A.
+const HAN = /^[㐀-䶿一-鿿]$/u;
+
+// Each character of a Chinese word with its reading and a short meaning, from
+// CC-CEDICT. The reading is the one this word uses: 行 in 银行 is háng
+// ("row; line of business"), not xíng ("to walk"), so the syllables of the
+// word's own pinyin pick the entry. With no pinyin to go by (a word the
+// dictionary lacks), the first entry that has a real meaning. Empty for a
+// single character or anything that isn't all Han — there is nothing to break
+// down. `dict` is the map loadDict builds; `wordPinyin` is numbered
+// ("yin2 hang2") or accented ("yín háng").
+export function characterBreakdown(word, wordPinyin, dict) {
+  const chars = [...word];
+  if (chars.length < 2 || !chars.every((c) => HAN.test(c))) return [];
+  const syllables = String(wordPinyin || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((s) => (/[1-5]$/.test(s) ? numberedToAccent(s) : s).toLowerCase());
+  const usable = syllables.length === chars.length;
+  // Short senses first-come: a usage note ("used with 得 or 不 after a verb to
+  // express…") is a paragraph, not a meaning, and is kept only if it's all
+  // there is.
+  const meaningsOf = (e) => {
+    const all = e.defs.filter((d) => !NOT_A_MEANING.test(d)).map(tidyDef).filter(Boolean);
+    const short = all.filter((d) => d.length <= 40);
+    return short.length ? short : all;
+  };
+  return chars.map((char, i) => {
+    // Capitalised pinyin is a name (Zhāng the surname), never the meaning.
+    const entries = (dict.get(char) || []).filter((e) => !/^[A-Z]/.test(e.rawPinyin));
+    const exact = usable ? entries.filter((e) => e.pinyin.toLowerCase() === syllables[i]) : [];
+    const matching = exact.length || !usable
+      ? exact
+      : entries.filter((e) => toneless(e.pinyin.toLowerCase()) === toneless(syllables[i]));
+    const entry =
+      matching.find((e) => meaningsOf(e).length) ||
+      entries.find((e) => meaningsOf(e).length) ||
+      entries[0];
+    if (!entry) return { char, pinyin: usable ? syllables[i] : "", meaning: "" };
+    return {
+      char,
+      pinyin: exact.includes(entry) ? syllables[i] : entry.pinyin,
+      meaning: meaningsOf(entry).slice(0, 3).join("; "),
+    };
+  });
+}
+
+// The pop-up shows a word's characters first, then the word, then how it's
+// used in the video, then every definition. The breakdown comes from the
+// dictionary whichever layer answered, so it is attached here, after them.
+// English only: CC-CEDICT's definitions are English.
 export async function lookupWord(word, lang, context, to = "en") {
+  const result = await lookupLayers(word, lang, context, to);
+  if (lang !== "zh" || to !== "en") return result;
+  const map = await loadDict();
+  const hits = map.get(word) || [];
+  const own = hits.find((e) => !/^[A-Z]/.test(e.rawPinyin)) || hits[0];
+  const characters = characterBreakdown(word, own?.rawPinyin || result.pronunciation, map);
+  return characters.length ? { ...result, characters } : result;
+}
+
+async function lookupLayers(word, lang, context, to = "en") {
   let dictResult = null;
   // CC-CEDICT is Chinese with English definitions, so it answers only a
   // reader who reads English.

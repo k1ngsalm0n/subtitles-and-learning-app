@@ -49,6 +49,15 @@ lifting — speech-to-text and offline translation — runs through Python.
   in a dropdown, preferring a Qwen. That endpoint only asks **loopback**
   addresses — it fetches a URL the page hands it, so anything wider would let a
   page probe the reader's network through the server.
+- **The word pop-up has four sections**, in the order a learner builds a
+  word up: *Each character* (a Chinese word's characters, each with the
+  reading this word gives it and a short CC-CEDICT meaning —
+  `characterBreakdown` in lookup.mjs, attached after whichever layer answered;
+  行 in 银行 is háng, not xíng), *Together* (the word's meaning), *In this
+  video* (the explanation for the clicked line) and *All definitions*. The
+  breakdown needs the full CC-CEDICT: `npm run sync` now downloads it to
+  `data/cedict.u8` (`SKIP_DICT=1` to skip) — it used to be a separate script,
+  so installs ran on the 66-entry seed and most words had no definitions.
 - **Claude, with no key:** "Claude (your subscription)" is the first choice in
   that dialog. It has no key and no address: `chat.mjs` runs Claude Code's
   headless mode (`claude -p`, no tools, no MCP servers, at most 3 at once, run
