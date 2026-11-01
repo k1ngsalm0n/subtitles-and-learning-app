@@ -2,6 +2,7 @@ import { readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +34,8 @@ import {
   translationTarget,
 } from "./languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
-import { translateSrtWithLlm } from "./llmTranslate.mjs";
+import { llmCouldTranslate, translateSrtWithLlm } from "./llmTranslate.mjs";
+import { retranslateSoon } from "./retranslate.mjs";
 import { fixTranscriptSrt } from "./transcriptFix.mjs";
 import { onImported } from "./prepare.mjs";
 import { refineSegments } from "./segment.mjs";
@@ -446,7 +448,12 @@ async function remember(url, result) {
     translationLanguage: result.translationLanguage || "",
     source: result.source || "",
     duration,
+    // The chat model was set up but didn't answer (a rate limit, the daily
+    // cap), so the offline model translated: retranslate.mjs redoes it later.
+    // Not when an uploader's lines are part of it — those stay as written.
+    ...(translatedOffline(result) ? { translatedOffline: true } : {}),
   });
+  if (saved?.translatedOffline) retranslateSoon();
   // With Claude as the chat model, it prepares the new video's words in the
   // background (prepare.mjs); the reader isn't kept waiting for it. Chinese
   // into English only, for now: its prompt asks for pinyin and its line
@@ -487,7 +494,20 @@ export function importInProgress() {
   return importsRunning > 0;
 }
 
-export async function handleImportUrl(req, res) {
+// What one import's translation was made of, for remember(): set by
+// translateSrt and withUploaderTranslation, wherever in the import they run.
+const importTranslation = new AsyncLocalStorage();
+
+function translatedOffline(result) {
+  const made = importTranslation.getStore();
+  return Boolean(result.translation && made?.offline && !made.uploader);
+}
+
+export function handleImportUrl(req, res) {
+  return importTranslation.run({ offline: false, uploader: false }, () => importUrl(req, res));
+}
+
+async function importUrl(req, res) {
   const body = await readJsonBody(req);
   const url = normalizeExternalUrl(body.url);
   // The reader's translation language (the translate bar's target): what the
@@ -1422,6 +1442,8 @@ async function withUploaderTranslation(
   target = "en",
 ) {
   if (!uploader) return { subtitles: transcript, translation: await machine() };
+  const made = importTranslation.getStore();
+  if (made) made.uploader = true;
   const cues = language === "zh" ? regridToHuman(transcript, uploader, words) : null;
   if (!cues) {
     return {
@@ -1908,6 +1930,8 @@ async function translateSrt(srtText, fromCode, toCode = "en") {
   } catch (err) {
     console.warn(`Chat-model translation failed (${fromCode} -> ${toCode}); using the offline model:`, err.message);
   }
+  const made = importTranslation.getStore();
+  if (made && (await llmCouldTranslate(srtText).catch(() => false))) made.offline = true;
   try {
     // Shared worker keeps the model loaded between requests (see
     // translateWorker.mjs); the first call may still pause to download it.

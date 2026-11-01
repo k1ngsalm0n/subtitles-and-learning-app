@@ -138,6 +138,14 @@ export async function llmTranslationAvailable() {
   return llm !== "off" ? config : null;
 }
 
+// Whether a chat model would have taken this SRT: one is on, and it's within
+// the line ceiling. An offline translation of one that would is worth redoing
+// once the model answers again (retranslate.mjs); one past the ceiling isn't.
+export async function llmCouldTranslate(srt) {
+  const cues = parseCues(srt);
+  return Boolean(cues.length && cues.length <= MAX_LINES && (await llmTranslationAvailable()));
+}
+
 // Returns a translated SRT, or null to mean "use the offline translator".
 export async function translateSrtWithLlm(srt, from, to) {
   const config = await llmTranslationAvailable();

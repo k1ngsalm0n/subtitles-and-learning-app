@@ -135,6 +135,19 @@ lifting — speech-to-text and offline translation — runs through Python.
   is caught rather than shifting every later translation onto the wrong cue.
   Falls back to the offline path on *any* doubt — no key, `LLM_TRANSLATE=off`,
   over 400 lines, a bad response, a timeout. Configured in `.env`.
+- **An offline translation is redone when the chat model is back**
+  (`retranslate.mjs`). An import that can't reach the chat model (Groq's
+  per-minute or daily cap, a timeout, a bad batch) still translates offline,
+  and the video used to keep that for good: 我的愛好就是刷手機 stayed "My hobby is
+  to brush the phone" (刷手機 is scrolling on it; the chat model, an hour later,
+  said "scrolling on my phone"). The importer now marks such an entry
+  `translatedOffline` (AsyncLocalStorage carries the mark from `translateSrt`
+  to `remember`; never when an uploader's lines are in the translation, nor
+  past the 400-line ceiling or with "Offline only"), and a sweep redoes marked
+  entries one video at a time, between imports: two minutes after startup and
+  after such an import, then every 30 minutes. A refusal stops the sweep until
+  the next one. The page shows it when the video is opened from the Videos
+  list (a reload restores the session's own copy). `STELE_RETRANSLATE=off`.
 - **Misheard words are fixed before translating** (`transcriptFix.mjs`). An
   old import of a street interview read 「那你去過哪些國家？」「我目前沒有出過果」 —
   果 (fruit) for 國 (country), same syllable — and translated it "I haven't
