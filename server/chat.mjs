@@ -129,7 +129,16 @@ export async function askClaudeCode({ system, user, model = "sonnet", timeoutMs 
 }
 
 // The text of the model's JSON answer, or null for "fall back".
-export async function chatJson(config, { system, user, timeoutMs = 60_000 }) {
+// `patient`: wait out a rate limit (HTTP 429) for as long as the provider
+// asks, up to RATE_LIMIT_WAIT_MS, rather than fail at once. For background
+// work — an import's translation and transcript check — where a minute's wait
+// beats the offline fallback; never for a word lookup someone is waiting on.
+// Groq's free plan allows 8,000 tokens a minute, which one video's batches
+// sent together use up: the second half of a translation used to fail at once
+// and send the whole video to the offline translator.
+const RATE_LIMIT_WAIT_MS = 90_000;
+
+export async function chatJson(config, { system, user, timeoutMs = 60_000, patient = false }) {
   if (config.provider === "claude") {
     const answer = await askClaudeCode({
       system: `${system}\nReply with the JSON object only: no prose, no code fence.`,
@@ -147,7 +156,7 @@ export async function chatJson(config, { system, user, timeoutMs = 60_000 }) {
     return jsonText(answer.text);
   }
 
-  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+  const send = () => fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -164,17 +173,30 @@ export async function chatJson(config, { system, user, timeoutMs = 60_000 }) {
     }),
     signal: AbortSignal.timeout(timeoutMs),
   }).catch(() => null);
+  let response = await send();
+  const giveUpAt = Date.now() + RATE_LIMIT_WAIT_MS;
+  while (patient && response?.status === 429) {
+    const wait = retryAfterMs(response.headers);
+    if (wait === null || Date.now() + wait > giveUpAt) break;
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    response = await send();
+  }
   if (!response) {
     failed(config.provider, "The provider didn't answer (offline, or too slow).");
     return null;
   }
   if (!response.ok) {
+    // A per-day limit is a different answer from a per-minute one: waiting a
+    // minute won't help. Groq names it in the message ("tokens per day (TPD)").
+    const said = response.status === 429 ? await response.text().catch(() => "") : "";
     failed(
       config.provider,
       response.status === 401 || response.status === 403
         ? "The provider refused the key (it may have been deleted or expired)."
         : response.status === 429
-          ? "The provider's rate limit was reached."
+          ? /per day|\b(TPD|RPD)\b|daily/i.test(said)
+            ? "The provider's daily limit was reached; it resets within a day."
+            : "The provider's rate limit was reached."
           : response.status === 404
             ? "The provider doesn't know that model any more."
             : `The provider answered ${response.status}.`,
@@ -185,4 +207,22 @@ export async function chatJson(config, { system, user, timeoutMs = 60_000 }) {
   const content = payload?.choices?.[0]?.message?.content || null;
   if (content) answered();
   return content;
+}
+
+// How long a 429 asks us to wait, in ms: `retry-after` in seconds (or an HTTP
+// date), else the token budget's reset ("48.2s", "1m3s"). Null when it doesn't
+// say. A little slack on top, since a reset given to the millisecond is the
+// moment the budget *starts* refilling.
+export function retryAfterMs(headers) {
+  const after = headers.get("retry-after");
+  if (after) {
+    const seconds = Number(after);
+    if (Number.isFinite(seconds)) return seconds * 1000 + 250;
+    const at = Date.parse(after);
+    if (Number.isFinite(at)) return Math.max(0, at - Date.now()) + 250;
+  }
+  const reset = headers.get("x-ratelimit-reset-tokens") || headers.get("x-ratelimit-reset-requests");
+  const m = String(reset || "").match(/^(?:(\d+)m)?([\d.]+)s$/);
+  if (m) return (Number(m[1] || 0) * 60 + Number(m[2])) * 1000 + 250;
+  return null;
 }

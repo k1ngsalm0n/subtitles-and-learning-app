@@ -25,6 +25,22 @@ def text_of(tokens):
 
 
 class TestRomanize(unittest.TestCase):
+    def test_every_reading_lists_a_polyphone_s_other_readings(self):
+        # transcriptFix.mjs checks a fix sounds like the original; pypinyin
+        # reads 睡覺 (Traditional) as shuì jué, so it needs 覺's jiào too.
+        proc = subprocess.run(
+            [sys.executable, SCRIPT],
+            input=json.dumps({"lang": "zh", "lines": ["睡覺"], "every_reading": True}),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        (line,) = json.loads(proc.stdout)["tokens"]
+        self.assertEqual(line[0], ["睡", "shuì"])
+        self.assertIn("jiào", line[1][1].split("|"))
+        # Without the flag, one reading as before.
+        self.assertNotIn("|", run("zh", ["睡覺"])[0][1][1])
+
     def test_chinese_pinyin_per_character_with_tones(self):
         (line,) = run("zh", ["天氣"])
         self.assertEqual(line, [["天", "tiān"], ["氣", "qì"]])

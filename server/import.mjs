@@ -27,12 +27,14 @@ import { percentOf } from "../public/js/importstream.mjs";
 import { detectLanguage } from "../public/js/languages.mjs";
 import {
   isOffered,
+  languageRow,
   notOfferedMessage,
   toTableCode,
   translationTarget,
 } from "./languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
 import { translateSrtWithLlm } from "./llmTranslate.mjs";
+import { fixTranscriptSrt } from "./transcriptFix.mjs";
 import { onImported } from "./prepare.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
@@ -581,7 +583,12 @@ export async function handleImportUrl(req, res) {
     if (subtitle) {
       const language = toTableCode(subtitle.lang);
       const target = translationTarget(language, preferred);
-      const subtitles = await toTraditional(subtitle.text, language);
+      let subtitles = await toTraditional(subtitle.text, language);
+      // YouTube's speech-recognition captions mishear like Whisper does; an
+      // uploader's own track is what they meant to write and is left alone.
+      if (subtitle.source === "auto-subtitles") {
+        subtitles = await fixTranscript(subtitles, language, report);
+      }
       // A creator-provided translation (subtitle.translation) is already aligned
       // to the source and is more accurate than machine translation — use it as
       // is. Otherwise fall back to machine translation on the clean source text.
@@ -795,9 +802,10 @@ export async function handleImportUrl(req, res) {
         // No refine pass here: speech was already refined, and caption blocks
         // were paced within their real display windows — a character-count
         // re-timing on top would fabricate different boundaries again.
-        const transcript = await toTraditional(
-          segmentsToSrt(segments, { refine: false }),
+        const transcript = await fixTranscript(
+          await toTraditional(segmentsToSrt(segments, { refine: false }), ocrLanguage),
           ocrLanguage,
+          report,
         );
         // Caption segments carry no timings; only the spoken ones do.
         const words = speechWordsOutsideCaptions(speechWords, segments);
@@ -1795,9 +1803,10 @@ function speechWordsOutsideCaptions(words, segments) {
 // Traditional when Chinese), plus a translation into the reader's language.
 async function finishFastTranscription({ language, segments }, report = null, preferred = "") {
   const code = toTableCode(language);
-  const subtitles = await toTraditional(
-    segmentsToSrt(markUnintelligible(segments, code)),
+  const subtitles = await fixTranscript(
+    await toTraditional(segmentsToSrt(markUnintelligible(segments, code)), code),
     code,
+    report,
   );
   const target = translationTarget(code, preferred);
   report?.stage("Translating\u2026");
@@ -1859,6 +1868,29 @@ async function transcribeWithWhisperCli(audioPath, workspace, preferred = "") {
   const translation = await translateSrt(subtitles, language, target);
 
   return { language, target, subtitles, translation };
+}
+
+// Misheard and misread words fixed by the chat model (transcriptFix.mjs), when
+// one is configured: 「我目前沒有出過果」 is 國, and the translation of the
+// wrong one is wrong too, so this runs first. Never fails an import — a
+// problem leaves the transcript as it was heard. A fix may come back in the
+// other script, so Chinese goes through the Traditional conversion again.
+async function fixTranscript(srt, language, report = null) {
+  if (!language || !srt) return srt;
+  try {
+    report?.stage("Checking the transcript for misheard words\u2026");
+    const { srt: fixed, fixes } = await fixTranscriptSrt(srt, language, {
+      placeholder: languageRow(language)?.inaudible || "",
+    });
+    if (!fixes.length) return srt;
+    console.log(
+      `Transcript fixes (${language}): ${fixes.map((f) => `#${f.line} ${f.from} → ${f.to}`).join(" | ")}`,
+    );
+    return await toTraditional(fixed, language);
+  } catch (err) {
+    console.warn(`Transcript check skipped (${String(err.message || err).split("\n")[0]})`);
+    return srt;
+  }
 }
 
 // The chat model first, when one is configured and switched on — the same

@@ -135,6 +135,43 @@ lifting — speech-to-text and offline translation — runs through Python.
   is caught rather than shifting every later translation onto the wrong cue.
   Falls back to the offline path on *any* doubt — no key, `LLM_TRANSLATE=off`,
   over 400 lines, a bad response, a timeout. Configured in `.env`.
+- **Misheard words are fixed before translating** (`transcriptFix.mjs`). An
+  old import of a street interview read 「那你去過哪些國家？」「我目前沒有出過果」 —
+  果 (fruit) for 國 (country), same syllable — and translated it "I haven't
+  done anything yet". With a chat model configured, every *machine-made*
+  transcript (Whisper, OCR, YouTube's speech-recognition captions; never an
+  uploader's own track) goes to it 20 lines at a time with 3 lines of context
+  either side, and it returns only the lines it would change. Models fix
+  well and *reword* too — 芳琳 (misheard 芳齡) became 幾歲, 二十一 became
+  二十一歲, "a Sevilla" became "en Sevilla" — so every change is checked
+  before it's kept: small (≤35% of the letters), never the inaudible
+  placeholder, and **alike**: Chinese must keep the same number of syllables,
+  each matching in pinyin with tones dropped (any reading of a polyphone —
+  pypinyin reads Traditional 睡覺 as shuì jué — and near pairs like lin/ling;
+  `every_reading` in romanize.py); Latin/Cyrillic/Greek scripts diff word by
+  word and every changed stretch must be spelled like the one it replaces
+  (haber/a ver, should of/should've pass; a/en, ellos/él don't). A Chinese
+  fix refused for sound is asked about once more, with the pinyin heard. Allowing one
+  added syllable for a character Whisper dropped (從 → 從事) let in more
+  rewordings than fixes, so it's refused, as are OCR look-alikes (週未 → 週末).
+  `scripts/transcript_fix_eval.mjs` scores it on `transcript_fix_cases.json`
+  (zh/en/es dialogues with errors and colloquial controls that must not change,
+  plus 78 real lines of that interview). Groq gpt-oss-120b, 2026-11-01: zh 19/25
+  fixed, en 12/12, es 9/9, **0 false alarms in 216 correct lines**. Same
+  switches as line translation plus `LLM_TRANSCRIPT_FIX=off`, same 400-line
+  ceiling; a failed batch is just left uncorrected.
+
+  Groq's free plan allows **8,000 tokens a minute**, which one video's
+  translation batches sent together already used up — the second half failed
+  at once and the whole video went to the offline translator. `chatJson` now
+  takes `patient: true` from imports and translation: a 429 waits out
+  `retry-after` (or the `x-ratelimit-reset-*` header), up to 90 s. Word lookups
+  aren't patient — someone is waiting on those. There is also a **daily**
+  token cap, which a day of eval runs used up; What's running now says
+  "daily limit" rather than "rate limit" then, since waiting a minute won't
+  help. The prompt's hints name **no example pairs**: given "像 for 向", the
+  model turned a correct 像日語 into 向日語 on the first real import — it
+  applies a named pair in either direction (`zh-control-xiang` keeps it honest).
 - **Listening:** `POST /api/speak` (`speak.mjs`) returns a WAV. Two speeds —
   `rate: "fast" | "slow"`. `speakbuttons.mjs` is the one place that builds the
   pair — a drawn speaker plus the word underneath — and the transcript pop-up
