@@ -467,15 +467,21 @@ function renderRubyTranscript(tokens, text, markOf, words) {
       }
       let inner = "";
       let off = seg.index;
+      const readings = [];
       for (const ch of seg.segment) {
         const reading = pron.get(off) || "";
+        readings.push(reading);
         inner += rubyUnit(ch, reading, tones ? pinyinTone(reading) : 0);
         off += ch.length;
       }
+      // The word's pinyin as shown, one syllable per character, for the
+      // lookup: it was read with the whole line in view, so it knows 忍著 is
+      // rěn zhe, which picks each character's meaning in the pop-up.
+      const said = readings.every(Boolean) ? ` data-pinyin="${escapeHtml(readings.join(" "))}"` : "";
       // aria-label carries the bare word: the ruby annotations inside would
       // otherwise be read out as part of the name, so a screen reader would
       // announce "d o ng" before every character.
-      html += `<span class="word${savedClass(seg.segment)}" role="button" tabindex="-1" aria-label="${escapeHtml(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${length}" data-start="${charStart}">${inner}</span>`;
+      html += `<span class="word${savedClass(seg.segment)}" role="button" tabindex="-1" aria-label="${escapeHtml(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${length}" data-start="${charStart}"${said}>${inner}</span>`;
       charStart += length;
     }
     return html;
@@ -1585,6 +1591,7 @@ async function openWordBubble(anchor, line, els) {
     lang,
     context,
     meaningLanguage(lang, _els?.translateTo?.value || state.translateTo),
+    anchor.dataset.pinyin || "",
   );
   if (bubble.hidden) return;
 

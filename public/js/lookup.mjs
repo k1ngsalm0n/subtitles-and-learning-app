@@ -3,9 +3,10 @@ import { api } from "./backend.mjs";
 const CACHE_KEY = "stele.lookupCache";
 const CACHE_VERSION_KEY = "stele.lookupCacheVersion";
 // 11: explanation describes the word only + forced English output. 12: each
-// character of a Chinese word (`characters`). Bump to
+// character of a Chinese word (`characters`). 13: readable definitions and
+// the transcript's reading. Bump to
 // drop stale entries.
-const CACHE_VERSION = 12;
+const CACHE_VERSION = 13;
 
 let cache;
 function getCache() {
@@ -36,7 +37,8 @@ function persist() {
 // `to` is the language the meaning is written in — the reader's own (the
 // translate bar's target). English for a Chinese learner, Chinese for an
 // English one.
-export async function lookupWord(word, lang = "zh", context = "", to = "en") {
+// `pinyin` is the word's reading as the transcript shows it, when it has one.
+export async function lookupWord(word, lang = "zh", context = "", to = "en", pinyin = "") {
   const store = getCache();
   // Include context in the key: the server ranks definitions by the sentence,
   // so the same word in a different sentence is a different answer. English
@@ -45,6 +47,7 @@ export async function lookupWord(word, lang = "zh", context = "", to = "en") {
   if (store[key]) return store[key];
 
   const params = new URLSearchParams({ word, lang, context, to });
+  if (pinyin) params.set("pinyin", pinyin);
   let result;
   try {
     const res = await api(`/api/lookup?${params}`);

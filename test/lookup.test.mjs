@@ -1,7 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseCedictLine, numberedToAccent, characterBreakdown } from "../server/lookup.mjs";
+import {
+  parseCedictLine,
+  numberedToAccent,
+  characterBreakdown,
+  breakdownFor,
+  readableDef,
+  looksTraditional,
+  glyphMeaning,
+} from "../server/lookup.mjs";
 
 test("parseCedictLine parses a well-formed CC-CEDICT line", () => {
   const entry = parseCedictLine("中國 中国 [Zhong1 guo2] /China/Middle Kingdom/");
@@ -50,7 +58,8 @@ test("numberedToAccent converts the u: digraph to ü", () => {
   assert.equal(numberedToAccent("nu:3"), "nǚ");
 });
 
-// Real CC-CEDICT lines, so the test sees what the dictionary actually holds.
+// Real CC-CEDICT lines, so the tests see what the dictionary actually holds.
+// Every case here is one the audit of the reader's imported videos turned up.
 function dictOf(lines) {
   const dict = new Map();
   for (const line of lines) {
@@ -72,27 +81,125 @@ const DICT = dictOf([
   "張 张 [Zhang1] /surname Zhang/",
   "張 张 [zhang1] /to open up; to spread/sheet of paper/classifier for flat objects, sheet/",
   "了 了 [liao3] /to finish/(used with 得[de2] or 不[bu4] after a verb to express (im)possibility, as in 忘不了[wang4 bu5 liao3] \"cannot forget\")/",
+  "了 了 [le5] /(completed action marker)/",
   "解 解 [jie3] /to divide; to break up; to split/",
+  "麼 么 [me5] /suffix, used to form interrogative 什麼|什么[shen2 me5], what?, indefinite 這麼|这么[zhe4 me5] thus, etc/",
+  "什 什 [shen2] /what/",
+  "他 他 [ta1] /(third-person singular) (since the early 20th century, usu. male) he; him; his/other; another; some other (as in 他日[ta1 ri4] and 他人[ta1 ren2])/",
+  "們 们 [men5] /plural marker for pronouns, and nouns referring to individuals/",
+  "鐘 钟 [zhong1] /a (large) bell (CL:架[jia4])/clock (CL:座[zuo4])/amount of time; time/(after a number) o'clock/",
+  "點 点 [dian3] /to touch briefly; to tap/to mark with a dot/point; dot; spot; speck/(after a number) o'clock/a small amount; a bit/",
+  "點鐘 点钟 [dian3 zhong1] /(indicating time of day) o'clock/",
+  "六 六 [liu4] /six/6/",
+  "之 之 [zhi1] /(possessive particle, literary equivalent of 的[de5])/him/her/it/",
+  "後 后 [hou4] /back; behind; rear/afterwards; after; later/",
+  "之後 之后 [zhi1 hou4] /afterwards; following; later/after/",
+  "吳 吴 [Wu2] /surname Wu/area comprising southern Jiangsu, northern Zhejiang and Shanghai/",
+  "青 青 [qing1] /blue or green/",
+  "餚 肴 [yao2] /variant of 肴[yao2]/",
+  "肴 肴 [yao2] /meat dishes; mixed viands/",
+  "菜 菜 [cai4] /dish (type of food); vegetable/",
+  "傢 家 [jia1] /used in 傢伙|家伙[jia1 huo5] and 傢俱|家俱[jia1 ju4]/",
+  "家 家 [jia1] /home; family; household/",
+  "人 人 [ren2] /person; people/",
+  "倖 幸 [xing4] /trusted/intimate/variant of 幸[xing4]/",
+  "幸 幸 [xing4] /fortunate/lucky/",
+  "運 运 [yun4] /to move; to transport/fortune; luck/",
+  "中 中 [zhong1] /within; among; in/middle/",
+  "午 午 [wu3] /7th earthly branch: 11 a.m.-1 p.m., noon, 5th solar month (6th June-6th July), year of the Horse/ancient Chinese compass point: 180° (south)/",
+  "第 第 [di4] /(prefix indicating ordinal number, as in 第六[di4 liu4] \"sixth\")/(literary) grade; rank/",
+  "一 一 [yi1] /one; single; a (article)/",
+  "上 上 [shang4] /(bound form) up; upper; above; previous/to go up/",
+  "上 上 [shang3] /used in 上聲|上声[shang3 sheng1]/",
+  "晚 晚 [wan3] /evening; night/late/",
+  "著 着 [zhao1] /a move in chess (Taiwan pr. [zhuo2])/trick; tactic/",
+  "著 着 [zhe5] /aspect particle indicating action in progress or ongoing state/",
+  "著 著 [zhu4] /to make known; to show/to write/",
+  "忍 忍 [ren3] /to bear; to endure/",
+  "貓 猫 [mao1] /cat (CL:隻|只[zhi1])/(loanword) (coll.) modem/",
+  "小 小 [xiao3] /small; tiny/",
 ]);
 
-test("characterBreakdown reads each character the way the word says it", () => {
+test("readableDef turns CC-CEDICT's shorthand into words, in the reader's script", () => {
+  const def = "suffix, used to form interrogative 什麼|什么[shen2 me5], what?";
+  assert.equal(readableDef(def), "suffix, used to form interrogative 什麼 (shénme), what?");
+  assert.equal(readableDef(def, false), "suffix, used to form interrogative 什么 (shénme), what?");
+  assert.equal(readableDef(def, true, { pinyin: false }), "suffix, used to form interrogative 什麼, what?");
+  assert.equal(readableDef("cat (CL:隻|只[zhi1])"), "cat (measure word: 隻 (zhī))");
+  assert.equal(readableDef("a move in chess (Taiwan pr. [zhuo2])"), "a move in chess (Taiwan: zhuó)");
+});
+
+test("looksTraditional goes by glyphs that belong to one script only", () => {
+  assert.equal(looksTraditional("銀行", DICT), true);
+  assert.equal(looksTraditional("银行", DICT), false);
+  // 幸 is 倖's simplified form and also its own traditional one: no evidence.
+  assert.equal(looksTraditional("幸運", DICT), true);
+  assert.equal(looksTraditional("小人", DICT), true, "nothing to go by: the app's default");
+});
+
+test("each character is read the way the word says it", () => {
   // 行 in 銀行 is háng, a line of business — not xíng, to walk.
-  assert.deepEqual(characterBreakdown("銀行", "yin2 hang2", DICT), [
+  assert.deepEqual(breakdownFor("銀行", {}, DICT), [
     { char: "銀", pinyin: "yín", meaning: "silver; silver-colored; relating to money or currency" },
-    { char: "行", pinyin: "háng", meaning: "row; line; line of business; trade; profession; commercial firm" },
+    { char: "行", pinyin: "háng", meaning: "row; line; line of business; trade" },
   ]);
-  // Simplified, and accented pinyin from a chat model, work the same way.
-  assert.equal(characterBreakdown("银行", "yín háng", DICT)[1].pinyin, "háng");
+  // A word the dictionary lacks takes the transcript's pinyin: 忍著 is rěn
+  // zhe, and the particle gets a learner's note rather than "a move in chess".
+  assert.deepEqual(breakdownFor("忍著", { pinyin: "rěn zhe" }, DICT)[1], {
+    char: "著",
+    pinyin: "zhe",
+    meaning: "particle: an ongoing action or state (-ing)",
+  });
+  // A neutral tone matches by its letters, and a pointer-only reading
+  // (上 shǎng, "used in 上聲") loses to one with a meaning.
+  assert.deepEqual(breakdownFor("頭髮", { pinyin: "tóu fa" }, DICT)[1], { char: "髮", pinyin: "fà", meaning: "hair" });
+  assert.deepEqual(breakdownFor("晚上", { pinyin: "wǎn shang" }, DICT)[1], {
+    char: "上",
+    pinyin: "shàng",
+    meaning: "up; upper; above; previous",
+  });
 });
 
-test("characterBreakdown matches a neutral-tone syllable by its letters", () => {
-  const [, fa] = characterBreakdown("頭髮", "tou2 fa5", DICT);
-  assert.deepEqual(fa, { char: "髮", pinyin: "fà", meaning: "hair" });
+test("grammar characters get a learner's note, keyed by their reading", () => {
+  assert.equal(breakdownFor("什麼", { pinyin: "shén me" }, DICT)[1].meaning, "question suffix, as in 什麼 (what) and 這麼 (so)");
+  assert.equal(breakdownFor("什么", { pinyin: "shén me" }, DICT)[1].meaning, "question suffix, as in 什么 (what) and 这么 (so)");
+  assert.equal(breakdownFor("他們", { pinyin: "tā men" }, DICT)[1].meaning, "plural for people, as in 我們 (we)");
+  // Inside a word 得 is its ending, not the particle.
+  assert.equal(
+    breakdownFor("覺得", { pinyin: "jué de" }, dictOf(["得 得 [de5] /structural particle/"]))[1].meaning,
+    "verb ending, as in 覺得 (to feel) and 記得 (to remember)",
+  );
+  // liǎo is not the particle le.
+  assert.equal(breakdownFor("了解", { pinyin: "liǎo jiě" }, DICT)[0].meaning, "to finish");
 });
 
-test("characterBreakdown skips surnames and prefers short senses over usage notes", () => {
-  assert.equal(characterBreakdown("張開", "", DICT)[0].meaning, "to open up; to spread; sheet of paper");
-  assert.equal(characterBreakdown("了解", "liao3 jie3", DICT)[0].meaning, "to finish");
+test("asides, measure words and register labels are dropped from a character's meaning", () => {
+  assert.equal(breakdownFor("他們", { pinyin: "tā men" }, DICT)[0].meaning, "he; him; his; other");
+  const [cat] = breakdownFor("貓咪", { pinyin: "māo mī" }, DICT);
+  assert.equal(cat.meaning, "cat; modem");
+  // A definition wholly in brackets is the meaning, opened up.
+  assert.equal(breakdownFor("之後", {}, DICT)[0].meaning, "possessive particle, literary equivalent of 的; him; her; it");
+});
+
+test("the senses that fit the word come first, and long ones are cut down", () => {
+  // 一點 "a bit": 點's "a bit" before "to touch briefly".
+  assert.match(breakdownFor("一點", { meaning: "a bit; a little" }, DICT)[1].meaning, /^a bit; /);
+  // 六點鐘 isn't in the dictionary; 點鐘 "o'clock" inside it is.
+  assert.match(breakdownFor("六點鐘", { pinyin: "liù diǎn zhōng" }, DICT)[1].meaning, /^\(after a number\) o'clock/);
+  // 中午: "noon" is inside a long earthly-branch definition.
+  assert.equal(breakdownFor("中午", { meaning: "noon; midday" }, DICT)[1].meaning.split("; ")[0], "noon");
+  // 第: a long bracketed definition keeps its head.
+  assert.equal(breakdownFor("第一", {}, DICT)[0].meaning.split("; ")[0], "prefix indicating ordinal number");
+});
+
+test("a character with no meaning of its own borrows or names one, never blank", () => {
+  // 餚 is only "variant of 肴".
+  assert.equal(breakdownFor("菜餚", {}, DICT)[1].meaning, "meat dishes; mixed viands");
+  // 吳 has only a name entry.
+  assert.match(breakdownFor("吳青", {}, DICT)[0].meaning, /^surname Wu/);
+  // 家 is filed under 傢's simplified form too; read in Traditional it's 家.
+  assert.equal(breakdownFor("家人", {}, DICT)[0].meaning, "home; family; household");
+  assert.equal(breakdownFor("幸運", {}, DICT)[0].meaning, "fortunate; lucky");
 });
 
 test("characterBreakdown has nothing to say about one character or non-Han text", () => {
@@ -101,4 +208,22 @@ test("characterBreakdown has nothing to say about one character or non-Han text"
   assert.deepEqual(characterBreakdown("T恤", "T xu4", DICT), []);
   // A character the dictionary lacks keeps its place, with no meaning.
   assert.deepEqual(characterBreakdown("銀鑫", "", DICT)[1], { char: "鑫", pinyin: "", meaning: "" });
+});
+
+test("a single character is read with the tone the transcript gives it", () => {
+  const dict = dictOf([
+    "看 看 [kan1] /to look after; to take care of/",
+    "看 看 [kan4] /to see; to look at/to read/",
+    "吧 吧 [ba1] /bar (loanword) (serving drinks)/",
+    "吧 吧 [ba5] /(modal particle indicating suggestion or surmise)/",
+    "很 很 [hen3] /very; quite/(also, often used before an adjective without intensifying its meaning, i.e. as a meaningless syntactic element)/",
+    "些 些 [xie1] /classifier indicating a small amount or small number greater than 1: some, a few, several/",
+  ]);
+  // kàn "to see", not kān "to look after", though the letters are the same.
+  assert.deepEqual(glyphMeaning("看", "kàn", dict), { pinyin: "kàn", meaning: "to see; to look at; to read" });
+  assert.equal(glyphMeaning("吧", "ba", dict).meaning, "particle for a suggestion (let's…) or a guess");
+  // The start of a usage note is not a meaning.
+  assert.equal(glyphMeaning("很", "hěn", dict).meaning, "very; quite");
+  // A one-definition character keeps its meaning, from after the colon.
+  assert.equal(glyphMeaning("些", "xiē", dict).meaning, "some, a few, several");
 });

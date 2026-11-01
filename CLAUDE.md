@@ -58,6 +58,25 @@ lifting — speech-to-text and offline translation — runs through Python.
   breakdown needs the full CC-CEDICT: `npm run sync` now downloads it to
   `data/cedict.u8` (`SKIP_DICT=1` to skip) — it used to be a separate script,
   so installs ran on the 66-entry seed and most words had no definitions.
+  Tuned on every word of the reader's four Chinese videos (317 words, 99
+  single characters): CC-CEDICT's shorthand is made readable (`readableDef`:
+  `什麼|什么[shen2 me5]` → 什麼 (shénme), in the reader's script, `CL:` →
+  "measure word:"); a character's reading is the word's own, else the
+  transcript's (the page sends it as `pinyin`), matched by exact tone first;
+  asides are dropped, long senses cut to the part matching the word's meaning
+  (午 in 中午 → "noon"); variants borrow their target's meaning, name-only
+  characters say "surname Wu"; entries filed under the glyph as the other
+  script's form are skipped (家 is also 傢's simplified form); and ~15 grammar
+  characters get a learner's note by reading (`GRAMMAR`: 麼 me, 著 zhe, 了 le —
+  not 了 liǎo; 得 inside 覺得 is a verb ending). Offline, the context ranker's
+  "explanation" was the word translated on its own ("What is it?" for both
+  什麼 and 吧) and is no longer shown.
+- **Pinyin for Traditional text** is read from its Simplified conversion
+  (`_pinyin_source` in romanize.py): pypinyin's phrases are Simplified, and on
+  the reader's videos 38 of 240 lines read differently, every one a fix —
+  覺得 jué de not dé, 彈 tán, 行業 háng, 愛好 hào, and every 著 the particle
+  (看著 kàn zhe), which Traditional writes like 著 zhù. A 著 outside pypinyin's
+  own 著 words (plus 著名, 著作, 顯著 …, which it lacks) is read as 着.
 - **Claude, with no key:** "Claude (your subscription)" is the first choice in
   that dialog. It has no key and no address: `chat.mjs` runs Claude Code's
   headless mode (`claude -p`, no tools, no MCP servers, at most 3 at once, run

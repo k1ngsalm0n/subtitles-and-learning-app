@@ -101,5 +101,53 @@ class PolyphoneTests(unittest.TestCase):
         self.assertEqual("".join(base for base, _ in pinyin_tokens(text)), text)
 
 
+class TraditionalTests(unittest.TestCase):
+    # pypinyin's phrases are Simplified, so Traditional text missed the
+    # phrase that settles a polyphone. All of these came out wrong on the
+    # reader's own imported videos.
+    def test_traditional_reads_like_simplified(self):
+        for word, want in [
+            ("覺得", "jué de"),
+            ("睡覺", "shuì jiào"),
+            ("彈鋼琴", "tán gāng qín"),
+            ("行業", "háng yè"),
+            ("愛好", "ài hào"),
+            ("頭髮", "tóu fà"),
+            ("銀行", "yín háng"),
+        ]:
+            self.assertEqual(reading(word), want, word)
+
+    def test_traditional_glyphs_are_kept(self):
+        text = "我覺得頭髮很長。"
+        self.assertEqual("".join(base for base, _ in pinyin_tokens(text)), text)
+
+    # Traditional writes both 著 zhù and 着 as 著; every one was read zhù.
+    def test_zhe_particle_in_traditional(self):
+        for phrase, want in [
+            ("忍著", "rěn zhe"),
+            ("看著我", "kàn zhe wǒ"),
+            ("忙著微笑", "máng zhe wēi xiào"),
+            ("穿著", "chuān zhe"),
+            ("睡著了", "shuì zháo le"),
+            ("著急", "zháo jí"),
+            ("著手", "zhuó shǒu"),
+        ]:
+            self.assertEqual(reading(phrase), want, phrase)
+
+    def test_zhu_words_keep_zhu(self):
+        for word, want in [
+            ("著名", "zhù míng"),
+            ("著作", "zhù zuò"),
+            ("顯著", "xiǎn zhù"),
+            ("名著", "míng zhù"),
+            ("執著", "zhí zhuó"),
+        ]:
+            self.assertEqual(reading(word), want, word)
+
+    def test_simplified_zhe_is_unchanged(self):
+        self.assertEqual(reading("看着我"), "kàn zhe wǒ")
+        self.assertEqual(reading("著名"), "zhù míng")
+
+
 if __name__ == "__main__":
     unittest.main()
