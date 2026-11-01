@@ -40,6 +40,16 @@ export function tokenize(text, markOf) {
 
 export { isWord };
 
+// True when every letter in the text is Latin script (English, Spanish, …).
+// Those lines have no reading stacked over them, so the transcript sets them
+// at a reading size rather than the size built for characters with pinyin on
+// top. Decided from the text, not from whether a reading has arrived yet, so a
+// Chinese line doesn't jump in size when its pinyin comes back.
+const NON_LATIN_LETTER = /(?!\p{Script=Latin})\p{L}/u;
+export function isPlainLatin(text) {
+  return /\p{L}/u.test(text || "") && !NON_LATIN_LETTER.test(text);
+}
+
 export function loadJson(key, fallback) {
   try {
     return JSON.parse(localStorage.getItem(key)) || fallback;

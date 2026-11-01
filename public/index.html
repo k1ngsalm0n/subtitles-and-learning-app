@@ -834,6 +834,14 @@ select::-ms-expand { display: none; }
 .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 4px; }
 /* Sized for the narrow side column; karaoke highlight runs on the active line. */
 .original { line-height: 2; font-size: 26px; }
+/* Latin-script lines (English, Spanish, …) carry no reading above them, so the
+   26px / double-height setting built for characters-plus-pinyin left them huge,
+   with an empty band between every wrapped row. Reading size instead, and the
+   word box keeps its padding for the highlight but gives the space back with a
+   negative margin — otherwise every word sat 10px from the next and a full
+   stop floated a box-width away from its word ("primada ."). */
+.original.plain { font-size: 20px; line-height: 1.6; }
+.original.plain .word { padding: 1px 4px; margin: 0 -4px; border-radius: 6px; }
 .word {
   /* inline-block so the box (background + karaoke outline) wraps the whole
      stacked unit — pinyin reading and character together, not just the base. */
