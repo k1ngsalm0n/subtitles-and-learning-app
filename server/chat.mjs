@@ -19,20 +19,25 @@ import { findClaude } from "./claudecode.mjs";
 // failure falls back to the offline translator *quietly* — which is how a key
 // revoked on the provider's site went unnoticed for a day: lookups simply got
 // worse. What's running shows a failure that no answer has followed since.
+// Ordered by a counter, not the clock: a failure in the same millisecond as
+// the last answer was hidden (`at > lastSuccessAt`), which a test hit 1 run in 3.
 let lastFailure = null;
-let lastSuccessAt = 0;
+let events = 0;
+let lastSuccess = 0;
 export function chatHealth() {
-  return lastFailure && lastFailure.at > lastSuccessAt ? lastFailure : null;
+  if (!lastFailure || lastFailure.seq < lastSuccess) return null;
+  const { seq, ...failure } = lastFailure;
+  return failure;
 }
 // A new key or provider is a fresh start: the old failure no longer applies.
 export function forgetChatFailure() {
   lastFailure = null;
 }
 function failed(provider, reason) {
-  lastFailure = { at: Date.now(), provider, reason };
+  lastFailure = { at: Date.now(), provider, reason, seq: ++events };
 }
 function answered() {
-  lastSuccessAt = Date.now();
+  lastSuccess = ++events;
 }
 
 // Run outside any project, so no CLAUDE.md or project settings ride along on
