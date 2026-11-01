@@ -352,12 +352,18 @@ async function runYtdlp(args, opts, attempts = 3) {
 // before we know whether the import succeeds. So once streaming has begun a
 // failure can no longer be an HTTP status — it is the terminal error line, and
 // `started` is how the caller knows which of the two it still has available.
-function progressStream(res) {
+// One import's progress, sent to every page waiting on it: the one that asked,
+// and any that asked for the same video while it ran (join). A joiner is sent
+// the latest stage and provisional lines at once, then everything after.
+export function progressStream(res) {
   let started = false;
-  const write = (event) => {
-    if (!started) {
-      started = true;
-      res.writeHead(200, {
+  let lastStage = null;
+  let lastPartial = null;
+  const listeners = [{ res, open: false }];
+  const send = (listener, event) => {
+    if (!listener.open) {
+      listener.open = true;
+      listener.res.writeHead(200, {
         "Content-Type": "application/x-ndjson; charset=utf-8",
         "Cache-Control": "no-cache",
         // Nothing sits in front of this server today, but a buffering proxy
@@ -365,9 +371,31 @@ function progressStream(res) {
         "X-Accel-Buffering": "no",
       });
     }
-    res.write(`${JSON.stringify(event)}\n`);
+    listener.res.write(`${JSON.stringify(event)}\n`);
+  };
+  const write = (event) => {
+    started = true;
+    if (event.stage === "working") lastStage = event;
+    if (event.stage === "partial") lastPartial = event;
+    for (const listener of listeners) send(listener, event);
+  };
+  const end = () => {
+    for (const listener of listeners) listener.res.end();
   };
   return {
+    join(other) {
+      const listener = { res: other, open: false };
+      listeners.push(listener);
+      if (lastStage) send(listener, lastStage);
+      if (lastPartial) send(listener, lastPartial);
+    },
+    // A failure before the stream began is an ordinary HTTP error. The page
+    // that asked gets it from index.mjs; any that joined get it here.
+    rejectJoined(error) {
+      for (const { res: other } of listeners.slice(1)) {
+        if (!other.headersSent) sendJson(other, error.status || 500, { error: error.message || "Import failed." });
+      }
+    },
     // `progress` is optional {done, total}. Only the steps that genuinely
     // count something send it — frames read, seconds of audio decoded — and
     // the reader shows a determinate bar only while it is present.
@@ -385,11 +413,11 @@ function progressStream(res) {
     partial: (subtitles) => write({ stage: "partial", subtitles }),
     done: (result) => {
       write({ stage: "done", ...result });
-      res.end();
+      end();
     },
     fail: (error) => {
       write({ stage: "error", error });
-      res.end();
+      end();
     },
     get started() {
       return started;
@@ -426,6 +454,29 @@ async function remember(url, result) {
 
 // Imports in flight, so the yt-dlp updater can hold off while one is running.
 let importsRunning = 0;
+
+// Imports in flight, by video. A second request for a video already being
+// imported joins that import instead of starting another: two pages each
+// running Whisper and OCR over the same video fought for the CPU, and a page
+// opened (or reloaded by the browser) mid-import "resumes" what it finds
+// marked as importing — which used to mean starting it again.
+const inFlight = new Map();
+
+// The same video, however the link was written: YouTube's share links carry a
+// tracking ?si= that differs every time, and youtu.be, /watch, /shorts and
+// /embed all name one video.
+export function importKey(url) {
+  const u = new URL(url);
+  const host = u.hostname.replace(/^(www|m|music)\./, "");
+  let id = "";
+  if (host === "youtu.be") id = u.pathname.slice(1).split("/")[0];
+  else if (host === "youtube.com") {
+    id = u.searchParams.get("v") || (/^\/(shorts|embed|live)\/([^/]+)/.exec(u.pathname)?.[2] ?? "");
+  }
+  if (/^[A-Za-z0-9_-]{6,}$/.test(id)) return `youtube:${id}`;
+  u.hash = "";
+  return u.href;
+}
 export function importInProgress() {
   return importsRunning > 0;
 }
@@ -435,8 +486,23 @@ export async function handleImportUrl(req, res) {
   const url = normalizeExternalUrl(body.url);
   await rejectPrivateHost(url);
 
-  const workspace = await mkdtemp(path.join(tmpdir(), "stele-import-"));
+  const key = importKey(url.href);
+  const running = inFlight.get(key);
+  if (running) {
+    console.log(`Already importing ${key}: this request joins it.`);
+    running.join(res);
+    return;
+  }
   const report = progressStream(res);
+  inFlight.set(key, report);
+  let workspace;
+  try {
+    workspace = await mkdtemp(path.join(tmpdir(), "stele-import-"));
+  } catch (err) {
+    inFlight.delete(key);
+    report.rejectJoined(err);
+    throw err;
+  }
   // Every finished import goes into the library (library.mjs), so the Videos
   // list can open it again without importing it again. The reply waits for the
   // save and names the entry; a failed save still sends the result.
@@ -758,10 +824,14 @@ export async function handleImportUrl(req, res) {
     // status is long gone, so the only way to tell the client is the terminal
     // error line. Without this the socket would just close mid-stream and the
     // reader would see "import failed" with nothing to act on.
-    if (!report.started) throw err;
+    if (!report.started) {
+      report.rejectJoined(err);
+      throw err;
+    }
     console.error(err);
     report.fail(err.message || "Import failed.");
   } finally {
+    inFlight.delete(key);
     importsRunning--;
     await rm(workspace, { recursive: true, force: true });
   }

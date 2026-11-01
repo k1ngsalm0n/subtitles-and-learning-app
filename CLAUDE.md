@@ -119,7 +119,15 @@ word timings, title, duration), so opening a row brings back player and
 transcript without importing again, and a card's Replay opens its video *with*
 its subtitles. Each entry remembers where playback stopped (`lastTime`). The
 queue lives in `state.sources` (statuses `waiting|importing|ready|failed`); an
-import cut short by a reload is waiting again on the next load. Sources from
+import cut short by a reload is waiting again on the next load. That restart
+is also what a *second tab* does on opening (or a background tab the browser
+reloads by itself): tabs share `stele.sources`, so it finds the import marked
+importing and starts it again — two Whisper + OCR runs of one video fought for
+the CPU (load 114 on 16 cores). So the server keeps the imports in flight by
+video (`importKey`: a YouTube link by its id, whatever `?si=` it carries), and
+a second request for one already running **joins** it — `progressStream`
+replays the latest stage and provisional lines, then sends both pages the same
+updates and result. Sources from
 before the list have no saved transcript and offer "Import again", keeping
 their id so their cards still point at them. The sandbox gets its own library.
 Every deletable row also has a checkbox: tick several (shift-click for a range,
