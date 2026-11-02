@@ -22,6 +22,11 @@ export function cardRepair(card, gloss, { fillMeaning = true } = {}) {
   if (!pinyin && gloss.pinyin) changes.pinyin = gloss.pinyin;
   else if (pinyin && readings.length && !readings.some((r) => plain(r) === plain(pinyin))) {
     changes.pinyin = readings[0];
+  } else if (pinyin && !/\s/.test(pinyin) && [...card.word].length > 1) {
+    // Run together by a chat model ("shuǐpíng"): the dictionary's, a space
+    // between syllables like every other reading in the app.
+    const spaced = readings.find((r) => plain(r) === plain(pinyin) && /\s/.test(r));
+    if (spaced) changes.pinyin = spaced;
   }
   if (fillMeaning && !String(card.translation || "").trim() && gloss.meaning) {
     changes.translation = gloss.meaning;
@@ -163,4 +168,89 @@ export async function relinkCards(cards, sources, transcriptOf) {
     }
   }
   return moved;
+}
+
+// ---- A card's sentence, completed --------------------------------------------
+// Some cards were saved with less of their sentence than the line had — a
+// lyric cut in two by the old import (「耐心 請你等著瞧」 of 「我多耐心 請你等著瞧」)
+// — or with no translation or reading for it (the sample lesson's line, a
+// card saved before the translation arrived). The card's own line, in its
+// video's transcript (or the sample's, for a card with no video), gives the
+// whole line and its translation; the reading is filled in afterwards.
+
+const music = (text) => String(text || "").replace(/[♪♫]/g, "").replace(/\s+/g, " ").trim();
+
+export function needsSentence(card) {
+  return Boolean(card.example) && (!card.exampleTranslation || !card.examplePinyin || !card.sentenceChecked);
+}
+
+// What to change on a card from its line and that line's translation, or
+// null. Pure. `cue` is the transcript line (lineOfCard), `sense` its
+// translation's line.
+export function sentenceRepair(card, cue, sense) {
+  if (!cue) return null;
+  const changes = {};
+  const whole = letters(cue.text);
+  const mine = letters(card.example);
+  if (whole !== mine && whole.includes(mine) && letters(cue.text).includes(letters(card.word))) {
+    changes.example = cue.text;
+    changes.examplePinyin = "";
+    changes.exampleTranslation = music(sense?.text);
+  } else if (!String(card.exampleTranslation || "").trim() && sense?.text) {
+    changes.exampleTranslation = music(sense.text);
+  }
+  return Object.keys(changes).length ? changes : null;
+}
+
+// Complete every card's sentence from its line. `transcriptOf(source)` as
+// for relinkCards; `sample` is { subtitles, translation } for cards with no
+// video. Then a missing reading of the sentence is asked of /api/romanize.
+// Returns how many cards changed.
+export async function completeSentences(cards, sources, transcriptOf, { sample = null, lang = "zh" } = {}) {
+  const live = new Map(sources.filter((s) => s.status === "ready").map((s) => [s.id, s]));
+  const todo = cards.filter(needsSentence);
+  const changed = new Set();
+  const lines = new Map();
+  const linesOf = async (source) => {
+    if (!source) return sample ? { cues: srtCues(sample.subtitles), translated: srtCues(sample.translation) } : null;
+    if (!lines.has(source.id)) {
+      const got = (await transcriptOf(source).catch(() => null)) || {};
+      lines.set(source.id, { cues: srtCues(got.subtitles), translated: srtCues(got.translation) });
+    }
+    return lines.get(source.id);
+  };
+  for (const card of todo) {
+    const source = card.sourceId ? live.get(card.sourceId) : null;
+    if (card.sourceId && !source) continue;
+    const got = await linesOf(source);
+    if (!got?.cues.length) continue;
+    const cue = lineOfCard(card, got.cues);
+    const sense = cue && got.translated.find((t) => Math.abs(t.start - cue.start) < 0.05);
+    const changes = sentenceRepair(card, cue, sense);
+    if (changes) {
+      Object.assign(card, changes);
+      changed.add(card);
+    }
+    // Its line was found, and whatever it had to give is taken: no need to
+    // read the transcript for it again next time.
+    if (cue) card.sentenceChecked = true;
+  }
+
+  const unread = cards.filter((card) => card.example && !card.examplePinyin && HAN.test(card.example));
+  if (unread.length) {
+    const res = await api("/api/romanize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language: lang, lines: unread.map((card) => card.example) }),
+    }).catch(() => null);
+    const { tokens = [] } = (res?.ok && (await res.json().catch(() => null))) || {};
+    unread.forEach((card, i) => {
+      const reading = (tokens[i] || []).map(([, p]) => p).filter(Boolean).join(" ");
+      if (!reading) return;
+      card.examplePinyin = reading;
+      changed.add(card);
+    });
+  }
+  for (const card of changed) syncFlattened(card);
+  return changed.size;
 }

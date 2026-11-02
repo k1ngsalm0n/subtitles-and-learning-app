@@ -26,7 +26,7 @@ import {
   saveCards,
 } from "./state.mjs";
 import { locateCards, groupByVideo } from "./cardlocate.mjs";
-import { repairCards, relinkCards } from "./cardrepair.mjs";
+import { repairCards, relinkCards, completeSentences } from "./cardrepair.mjs";
 import { meaningLanguage } from "./languages.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import {
@@ -1537,16 +1537,33 @@ async function repairCardsQuietly() {
   }
 }
 async function repairOnce() {
-  const relinked = await relinkCards(state.cards, state.sources, async (source) => {
+  const transcriptOf = async (source) => {
     const id = storedId(source);
     if (!id) return null;
     const res = await api(`/api/library/${id}`);
     if (!res.ok) return null;
     const entry = await res.json();
     return { subtitles: entry.subtitles || "", translation: entry.translation || "" };
-  });
+  };
+  const relinked = await relinkCards(state.cards, state.sources, transcriptOf);
   const fillMeaning = meaningLanguage(state.learningLang, state.translateTo) === "en";
-  const changed = await repairCards(state.cards, { fillMeaning });
+  const before = new Map(state.cards.map((card) => [card.id, JSON.stringify(card)]));
+  await repairCards(state.cards, { fillMeaning });
+  await completeSentences(state.cards, state.sources, transcriptOf, {
+    sample: { subtitles: sampleOriginal, translation: sampleTranslation },
+    lang: state.learningLang,
+  });
+  // Counted once per card, whichever fixes it had: to the reader they're the
+  // same kind of fix. (sentenceChecked alone isn't one.)
+  const changed = state.cards.filter((card) => {
+    const was = before.get(card.id);
+    if (!was) return false;
+    const { sentenceChecked: _a, ...now } = card;
+    const { sentenceChecked: _b, ...then } = JSON.parse(was);
+    return JSON.stringify(now) !== JSON.stringify(then);
+  }).length;
+  const marked = state.cards.some((card) => card.sentenceChecked && !JSON.parse(before.get(card.id) || "{}").sentenceChecked);
+  if (marked && !changed && !relinked) saveCards();
   if (!changed && !relinked) return;
   saveCards();
   renderAll(els);
@@ -1559,8 +1576,8 @@ async function repairOnce() {
   }
   if (changed) {
     said.push(changed === 1
-      ? "Filled in 1 card's missing meaning or reading."
-      : `Filled in ${changed} cards' missing meanings or readings.`);
+      ? "Filled in what 1 card was missing (its meaning, reading or sentence)."
+      : `Filled in what ${changed} cards were missing (meanings, readings or sentences).`);
   }
   showToast(said.join(" "));
 }

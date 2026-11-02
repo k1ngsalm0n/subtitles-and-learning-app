@@ -671,7 +671,13 @@ letters, the sentence inside a re-cut line, or up to a tenth of it changed by
 the misheard-word fix — and placed again. All ten of the reader's cards
 pointed at a deleted entry (the video had been deleted and imported again),
 so Replay had gone nowhere. A card whose word had been cut off its sentence
-takes the whole line and its translation.
+takes the whole line and its translation. Every card's sentence is completed
+from its line too (`completeSentences`, once per card — `sentenceChecked`): a
+sentence that is only part of its line takes the whole line (耐心 had kept
+「耐心 請你等著瞧」 of 「我多耐心 請你等著瞧」), a missing translation comes from the
+line's (♫ dropped; the sample lesson's for a card made from it), a missing
+reading from `/api/romanize`, and a reading run together by a chat model
+("shuǐpíng") gets the dictionary's spaces.
 
 **Recall: writing the word.** Once a Recognise card is known — its next
 review a week or more away (`RECALL_AFTER_DAYS`, about the third Got it) —
