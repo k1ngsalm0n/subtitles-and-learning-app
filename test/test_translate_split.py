@@ -87,3 +87,44 @@ class RejoinTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpacedLanguageTests(unittest.TestCase):
+    """Text with spaces, going into a language with spaces, splits at 400.
+
+    120 characters is a short French or English sentence; on FLORES the longer
+    limit gained 1-3 chrF++ for fr/es<->en (Opus and NLLB), while text into
+    Chinese lost, so that keeps the short limit."""
+
+    SENTENCE = (
+        "Le docteur Ehud Ur, professeur de médecine à l'université Dalhousie de Halifax "
+        "et président de la division clinique et scientifique de l'association, a prévenu."
+    )
+
+    def test_a_long_latin_sentence_stays_whole_into_english(self):
+        self.assertGreater(len(self.SENTENCE), LIMIT)
+        self.assertEqual(_split_for_model(self.SENTENCE, into_cjk=False), [self.SENTENCE])
+
+    def test_into_chinese_keeps_the_short_limit(self):
+        self.assertGreater(len(_split_for_model(self.SENTENCE, into_cjk=True)), 1)
+
+    def test_chinese_text_keeps_the_short_limit_whatever_the_target(self):
+        text = "这艘船很长，装甲很厚，火炮很大，" * 12
+        self.assertEqual(_split_for_model(text, into_cjk=False), _split_for_model(text))
+
+    def test_a_hard_cut_falls_between_words(self):
+        text = "abcdefgh " * 60  # 540 characters, no sentence end or comma
+        pieces = _split_for_model(text, into_cjk=False)
+        self.assertEqual("".join(pieces), text)
+        for piece in pieces[:-1]:
+            self.assertTrue(piece.endswith(" "), repr(piece[-12:]))
+
+    def test_a_word_longer_than_the_limit_is_still_cut(self):
+        pieces = _split_for_model("x" * 900, into_cjk=False)
+        self.assertEqual("".join(pieces), "x" * 900)
+        self.assertTrue(all(len(p) <= 400 for p in pieces))
+
+    def test_translate_split_passes_the_target_on(self):
+        seen = []
+        _translate_split([self.SENTENCE], lambda pieces: seen.extend(pieces) or pieces, into_cjk=False)
+        self.assertEqual(seen, [self.SENTENCE])
