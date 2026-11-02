@@ -9,6 +9,7 @@ import {
   readableDef,
   looksTraditional,
   glyphMeaning,
+  glossWords,
 } from "../server/lookup.mjs";
 
 test("parseCedictLine parses a well-formed CC-CEDICT line", () => {
@@ -226,4 +227,68 @@ test("a single character is read with the tone the transcript gives it", () => {
   assert.equal(glyphMeaning("很", "hěn", dict).meaning, "very; quite");
   // A one-definition character keeps its meaning, from after the colon.
   assert.equal(glyphMeaning("些", "xiē", dict).meaning, "some, a few, several");
+});
+
+test("glossWords: a short dictionary meaning per word, pieced from its characters when the dictionary lacks it", () => {
+  const dict = dictOf([
+    "原來 原来 [yuan2 lai2] /original; former/originally; formerly; at first/so, actually, as it turns out/",
+    "小 小 [xiao3] /small/tiny/few/young/",
+    "幸 幸 [Xing4] /surname Xing/",
+    "幸 幸 [xing4] /fortunate/lucky/",
+    "運 运 [yun4] /to move/to transport/to use/to apply/fortune/luck/fate/",
+    "吧 吧 [ba1] /bar (loanword) (serving drinks, or providing Internet access etc)/",
+    "吧 吧 [ba5] /(modal particle indicating suggestion or surmise)/...right?/...OK?/",
+  ]);
+  const out = glossWords(
+    [
+      { word: "原來", pinyin: "yuán lái" },
+      { word: "小幸運", pinyin: "xiǎo xìng yùn" },
+      { word: "吧", pinyin: "ba" },
+      { word: "咦", pinyin: "yí" },
+    ],
+    dict,
+  );
+  assert.equal(out["原來"].meaning, "original; former; originally; formerly; at first");
+  assert.equal(out["原來"].parts, false);
+  assert.equal(out["小幸運"].parts, true);
+  assert.match(out["小幸運"].meaning, /^small \+ fortunate \+ /);
+  assert.match(out["吧"].meaning, /particle/i, "the reading shown, not bā 'bar'");
+  assert.equal(out["咦"], undefined, "nothing known: left out, not blank");
+});
+
+test("glossWords: a word the dictionary lacks is told by the dictionary words inside it", () => {
+  const dict = dictOf([
+    "去 去 [qu4] /to go/to go to (a place)/",
+    "手機 手机 [shou3 ji1] /cell phone; mobile phone/CL:部[bu4],臺|台[tai2]/",
+    "文 文 [wen2] /language/culture/writing/",
+    "書 书 [Shu1] /abbr. for 書經|书经[Shu1 jing1]/",
+    "書 书 [shu1] /book/letter/document/CL:本[ben3],冊|册[ce4],部[bu4]/to write/",
+    "知道 知道 [zhi1 dao4] /to know; to become aware of/also pr. [zhi1dao5]/",
+    "英 英 [ying1] /hero/outstanding/excellent/",
+    "英文 英文 [Ying1 wen2] /English (language)/",
+    "裡 里 [li3] /lining/interior/inside/internal/also written 裏|里[li3]/",
+    "過 过 [guo4] /to cross/to go over/to pass (time)/",
+    "過 过 [guo5] /(experienced action marker)/",
+    "風 风 [feng1] /wind/news/style/",
+  ]);
+  const out = glossWords(
+    [
+      { word: "英文書", pinyin: "yīng wén shū" },
+      { word: "去過", pinyin: "qù guò" },
+      { word: "風裡", pinyin: "fēng lǐ" },
+      { word: "手機", pinyin: "shǒu jī" },
+      { word: "知道", pinyin: "zhī dào" },
+    ],
+    dict,
+  );
+  assert.equal(out["英文書"].meaning, "English (language) + book", "not hero + language + document");
+  assert.equal(out["英文書"].parts, true);
+  assert.match(out["去過"].meaning, /^to go \+ .*(have done|experienced)/, "過 after a verb is the particle, whatever pypinyin read");
+  assert.equal(out["風裡"].meaning, "wind + in", "not wind + lining");
+  assert.equal(out["手機"].meaning, "cell phone; mobile phone", "a measure word isn't a meaning");
+  assert.doesNotMatch(out["知道"].meaning, /\[|also pr/);
+});
+
+test("readableDef turns run-together numbered pinyin into marks", () => {
+  assert.equal(readableDef("also pr. [zhi1dao5]"), "also pr. zhīdao");
 });

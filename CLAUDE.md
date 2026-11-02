@@ -667,6 +667,22 @@ menu does every card. The endpoint takes only a stored video's file name
 (`/videos/<name>.<ext>`) — the page hands it the path — and runs one
 listening job at a time.
 
+**Words to learn.** The "N new words" count beside the transcript search is a
+button: it opens every new word of the video (`wordlist.mjs`), the most
+repeated first (`rankNewWords`; numbers aren't words, and neither the count
+nor the list includes them), each with the reading shown over it, a short
+meaning and "I know it". Clicking a word opens the usual pop-up on the line
+it first appears in, so a card from the list is the same card as one from the
+transcript. The meanings come from `POST /api/glosses` (`glossWords` in
+lookup.mjs) — dictionary only, all at once, never the chat model, which would
+spend a free plan's day on one click. A word jieba cut that CC-CEDICT lacks is
+told by the dictionary words inside it, longest first (`piecesOf`): 英文書 is
+英文 + 書 "English + book" rather than three characters' first senses, "hero
++ language + document"; a 過/了/著 or 裡/掉 at the end of one is grammar after
+a verb (去過 "to go + have done before", 風裡 "wind + in"), whatever pypinyin
+read. A word's meaning skips "measure word:" and "also pr." notes, which stay
+under All definitions.
+
 Known words: `knownwords.mjs` decides each transcript word's mark — dimmed when
 the reader has said they know it (`stele.knownWords`, set from the word pop-up
 or **K** on a focused word), underlined when it has a card, full strength when

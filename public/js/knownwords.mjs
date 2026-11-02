@@ -56,11 +56,38 @@ export function newWordsIn(wordList, markOf) {
   return fresh;
 }
 
-// How many different words in `wordList` carry no mark at all.
+// How many different words in `wordList` carry no mark at all. A token with
+// no letter in it (a number like 2024) isn't counted: it isn't a word to
+// learn, and Words to learn, which this count opens, leaves it out.
 export function countNewWords(wordList, markOf) {
   const fresh = new Set();
   for (const word of wordList) {
-    if (!markOf(word)) fresh.add(knownKey(word));
+    if (/\p{L}/u.test(word) && !markOf(word)) fresh.add(knownKey(word));
   }
   return fresh.size;
+}
+
+// "Words to learn": the new words of a whole video, the ones it repeats most
+// first — a word said eight times is worth learning before one said once,
+// and is the one the video will keep testing. Ties keep the order they first
+// appear in. `entries` is every word drawn, in order: { word, pinyin, line }.
+// A token with no letter in it (a number, a stray mark) isn't a word to
+// learn. Returns [{ word, pinyin, count, line }], `line` where it first
+// appears.
+export function rankNewWords(entries, markOf) {
+  const byKey = new Map();
+  for (const { word, pinyin = "", line = null } of entries) {
+    if (!word || !/\p{L}/u.test(word) || markOf(word)) continue;
+    const key = knownKey(word);
+    const seen = byKey.get(key);
+    if (seen) {
+      seen.count++;
+      if (!seen.pinyin && pinyin) seen.pinyin = pinyin;
+    } else {
+      byKey.set(key, { word, pinyin, count: 1, line, order: byKey.size });
+    }
+  }
+  return [...byKey.values()]
+    .sort((a, b) => b.count - a.count || a.order - b.order)
+    .map(({ order, ...rest }) => rest);
 }

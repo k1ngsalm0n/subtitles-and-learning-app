@@ -6,7 +6,7 @@ import { chatJson } from "./chat.mjs";
 import { preparedNote } from "./prepared.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { sendJson, runCommand } from "./util.mjs";
+import { sendJson, runCommand, readJsonBody } from "./util.mjs";
 import { PYTHON_BIN } from "./device.mjs";
 import { isLanguageCode, languageName } from "./languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
@@ -298,8 +298,9 @@ export function readableDef(def, trad = true, { pinyin = true } = {}) {
       return pinyin ? `${chars} (${spoken(py)})` : chars;
     })
     .replace(/\bCL:\s*/g, "measure word: ")
-    // Bare pinyin left over: "also pr. [shui2]" -> "also pr. shuí".
-    .replace(/\[([A-Za-z:]+[1-5](?:\s+[A-Za-z:]+[1-5])*)\]/g, (_, py) => spoken(py))
+    // Bare pinyin left over: "also pr. [shui2]" -> "also pr. shuí", and
+    // "[zhi1dao5]", syllables run together, -> "zhīdao".
+    .replace(/\[([A-Za-z:]+[1-5](?:\s*[A-Za-z:]+[1-5])*)\]/g, (_, py) => spoken(py.replace(/([1-5])(?=[A-Za-z])/g, "$1 ")))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -573,45 +574,56 @@ export async function lookupWord(word, lang, context, to = "en", pinyin = "") {
   return characters.length ? { ...tidied, characters } : tidied;
 }
 
+// The dictionary's answer for a word, or null: CC-CEDICT's entries in the
+// reader's script, the reading the transcript shows first. Also what "Words
+// to learn" lists (glossWords), so it never asks the chat model.
+function wordSenses(defs) {
+  const real = defs.filter((d) => !NOT_A_MEANING.test(d));
+  return real.length ? real : defs;
+}
+
+function dictionaryResult(word, pinyin, map) {
+  const trad = looksTraditional(word, map);
+  // Entries filed under this word as the other script's form are another
+  // word: read in Traditional, 家 is not 傢 ("used in 傢伙").
+  const filed = map.get(word) || [];
+  const ownScript = filed.filter((e) => (trad ? e.traditional : e.simplified) === word);
+  const hits = ownScript.length ? ownScript : filed;
+  if (hits.length) {
+    // The reading the transcript shows first (得 as de, the particle, before
+    // dé "to obtain"), then common words before names.
+    // Exact tone first — 看 kàn "to see" before kān "to look after", 吧 ba
+    // the particle before bā "bar" — then the same letters, then the rest.
+    const said = String(pinyin).toLowerCase().replace(/\s+/g, "");
+    const plain = (e) => e.pinyin.replace(/\s+/g, "").toLowerCase();
+    const rank = (e) =>
+      (!said ? 2 : plain(e) === said ? 0 : toneless(plain(e)) === toneless(said) ? 1 : 2) * 2 +
+      (/^[A-Z]/.test(e.rawPinyin) ? 1 : 0);
+    const sorted = [...hits].sort((a, b) => rank(a) - rank(b));
+    // Readable: 什麼|什么[shen2 me5] -> 什麼 (shénme), in the reader's script.
+    const allDefs = [...new Set(sorted.flatMap((e) => e.defs.map((d) => readableDef(d, trad))))];
+    // A single character's meaning is told the way the character section
+    // tells one (a learner's note for 了 or 吧, asides dropped); a word's
+    // is its first reading's senses. Every sense is under All definitions.
+    const single = [...word].length === 1 && HAN.test(word);
+    const glyph = single ? glyphMeaning(word, said || sorted[0].pinyin, map, { trad }) : null;
+    return {
+      word,
+      pronunciation: glyph?.pinyin || sorted[0].pinyin,
+      // Senses only: 手機's third "definition" is its measure word and
+      // 知道's its other pronunciation; both stay under All definitions.
+      meaning: glyph?.meaning || wordSenses(sorted[0].defs.map((d) => readableDef(d, trad))).slice(0, 3).join("; "),
+      defs: allDefs,
+      source: "dictionary",
+    };
+  }
+  return null;
+}
+
 async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
-  let dictResult = null;
   // CC-CEDICT is Chinese with English definitions, so it answers only a
   // reader who reads English.
-  if (lang === "zh" && to === "en") {
-    const map = await loadDict();
-    const trad = looksTraditional(word, map);
-    // Entries filed under this word as the other script's form are another
-    // word: read in Traditional, 家 is not 傢 ("used in 傢伙").
-    const filed = map.get(word) || [];
-    const ownScript = filed.filter((e) => (trad ? e.traditional : e.simplified) === word);
-    const hits = ownScript.length ? ownScript : filed;
-    if (hits.length) {
-      // The reading the transcript shows first (得 as de, the particle, before
-      // dé "to obtain"), then common words before names.
-      // Exact tone first — 看 kàn "to see" before kān "to look after", 吧 ba
-      // the particle before bā "bar" — then the same letters, then the rest.
-      const said = String(pinyin).toLowerCase().replace(/\s+/g, "");
-      const plain = (e) => e.pinyin.replace(/\s+/g, "").toLowerCase();
-      const rank = (e) =>
-        (!said ? 2 : plain(e) === said ? 0 : toneless(plain(e)) === toneless(said) ? 1 : 2) * 2 +
-        (/^[A-Z]/.test(e.rawPinyin) ? 1 : 0);
-      const sorted = [...hits].sort((a, b) => rank(a) - rank(b));
-      // Readable: 什麼|什么[shen2 me5] -> 什麼 (shénme), in the reader's script.
-      const allDefs = [...new Set(sorted.flatMap((e) => e.defs.map((d) => readableDef(d, trad))))];
-      // A single character's meaning is told the way the character section
-      // tells one (a learner's note for 了 or 吧, asides dropped); a word's
-      // is its first reading's senses. Every sense is under All definitions.
-      const single = [...word].length === 1 && HAN.test(word);
-      const glyph = single ? glyphMeaning(word, said || sorted[0].pinyin, map, { trad }) : null;
-      dictResult = {
-        word,
-        pronunciation: glyph?.pinyin || sorted[0].pinyin,
-        meaning: glyph?.meaning || sorted[0].defs.slice(0, 3).map((d) => readableDef(d, trad)).join("; "),
-        defs: allDefs,
-        source: "dictionary",
-      };
-    }
-  }
+  const dictResult = lang === "zh" && to === "en" ? dictionaryResult(word, pinyin, await loadDict()) : null;
 
   // Claude prepared this word for this line (mcp.mjs): answer at once. Its
   // notes are written in English (prepare.mjs), so only for an English reader.
@@ -673,4 +685,112 @@ export async function handleLookup(req, res) {
   const pinyin = said.length <= 120 && /^[\p{L}\p{M}: ]*$/u.test(said) ? said : "";
   const result = await lookupWord(word, lang, context, to, pinyin);
   sendJson(res, 200, result);
+}
+
+// ---- Short meanings for a list of words ("Words to learn") ---------------
+
+// A line's worth of meaning: the senses up to about 60 letters, cut at a
+// sense, never mid-word.
+function shortGloss(meaning, max = 60) {
+  const senses = String(meaning || "").split(/;\s*/).filter(Boolean);
+  let out = "";
+  for (const sense of senses) {
+    const next = out ? `${out}; ${sense}` : sense;
+    if (out && next.length > max) break;
+    out = next;
+  }
+  return out.length > max + 20 ? `${out.slice(0, max).replace(/[\s,]+\S*$/, "")}…` : out;
+}
+
+// A word jieba cut that the dictionary lacks, told by the dictionary words
+// inside it, longest first: 英文書 is 英文 + 書 "English + book", not
+// "hero + language + document"; 少女時代 is 少女 + 時代. A character left on
+// its own takes the reading shown over it. One at the end that, after a
+// verb, is grammar rather than a word (去過, 忍著, 風裡) says so: pypinyin
+// reads that 過 guò, which would make it "to cross".
+const LONGEST_PIECE = 4;
+const AFTER_A_VERB = new Map([
+  ["過", { reading: "guo" }], ["过", { reading: "guo" }],
+  ["了", { reading: "le" }],
+  ["著", { reading: "zhe" }], ["着", { reading: "zhe" }],
+  ["裡", { meaning: "in, inside" }], ["里", { meaning: "in, inside" }],
+  ["掉", { meaning: "off, away (after a verb)" }],
+]);
+
+function piecesOf(word, pinyin, dict) {
+  const chars = [...word];
+  const sylls = String(pinyin || "").trim().split(/\s+/).filter(Boolean);
+  const readings = sylls.length === chars.length ? sylls : [];
+  const trad = looksTraditional(word, dict);
+  const out = [];
+  for (let at = 0; at < chars.length; ) {
+    let size = Math.min(LONGEST_PIECE, chars.length - at);
+    // The whole word isn't in the dictionary (that's why we're here).
+    if (at === 0 && size === chars.length) size--;
+    for (; size > 1; size--) {
+      if (dict.has(chars.slice(at, at + size).join(""))) break;
+    }
+    const piece = chars.slice(at, at + size).join("");
+    const reading = readings.slice(at, at + size).join(" ");
+    let meaning = "";
+    if (size > 1) {
+      meaning = dictionaryResult(piece, reading, dict)?.meaning || "";
+    } else {
+      const last = at === chars.length - 1 && at > 0 ? AFTER_A_VERB.get(piece) : null;
+      meaning = last?.meaning ||
+        glyphMeaning(piece, last?.reading || reading, dict, { trad, inWord: true }).meaning;
+    }
+    out.push({ piece, meaning: String(meaning).split(/;\s*|,\s+/)[0].trim() });
+    at += size;
+  }
+  return out;
+}
+
+// Dictionary meanings for many words at once, without the chat model: the
+// list shows a gloss beside every new word of a video, and asking the model
+// for each would spend a free plan's day on one click. A word the dictionary
+// lacks is told by the words inside it (piecesOf), marked `parts` so the page
+// can say it's pieced together. { word: { pinyin, meaning, parts } }; a word
+// with neither is left out.
+export function glossWords(items, dict) {
+  const out = {};
+  for (const { word, pinyin = "" } of items) {
+    if (!word || out[word]) continue;
+    const found = dictionaryResult(word, pinyin, dict);
+    if (found?.meaning) {
+      out[word] = { pinyin: found.pronunciation || pinyin, meaning: shortGloss(found.meaning), parts: false };
+      continue;
+    }
+    if ([...word].length < 2 || ![...word].every((c) => HAN.test(c))) continue;
+    const pieces = piecesOf(word, pinyin, dict);
+    if (pieces.every((p) => p.meaning)) {
+      out[word] = { pinyin, meaning: pieces.map((p) => p.meaning).join(" + "), parts: true };
+    }
+  }
+  return out;
+}
+
+const MAX_GLOSS_WORDS = 1000;
+
+export async function handleGlosses(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, error.status || 400, { error: error.message || "A JSON body is required." });
+    return;
+  }
+  const lang = String(body?.lang || "");
+  const to = String(body?.to || "en");
+  const items = Array.isArray(body?.words) ? body.words.slice(0, MAX_GLOSS_WORDS) : [];
+  const clean = items
+    .filter((item) => item && typeof item.word === "string" && item.word.length <= 40)
+    .map((item) => ({
+      word: item.word,
+      pinyin: typeof item.pinyin === "string" && /^[\p{L}\p{M}: ]{0,120}$/u.test(item.pinyin) ? item.pinyin : "",
+    }));
+  // CC-CEDICT is Chinese with English definitions: other pairs get nothing
+  // here, and the list says to click a word for its meaning.
+  const glosses = lang === "zh" && to === "en" ? glossWords(clean, await loadDict()) : {};
+  sendJson(res, 200, { glosses });
 }

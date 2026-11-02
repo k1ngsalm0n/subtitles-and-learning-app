@@ -6,7 +6,7 @@ import { handleImportUrl, importInProgress, VIDEO_DIR, adoptLegacyVideoDir } fro
 import { startYtdlpUpdates } from "./ytdlp.mjs";
 import { PYTHON_BIN } from "./device.mjs";
 import { handleGetCookies, handleSaveCookies } from "./cookies.mjs";
-import { handleLookup } from "./lookup.mjs";
+import { handleGlosses, handleLookup } from "./lookup.mjs";
 import { handleTranslate } from "./translate.mjs";
 import { handleRomanize } from "./romanize.mjs";
 import { handleOcrImage } from "./ocr.mjs";
@@ -52,6 +52,7 @@ const ROUTES = [
   { methods: ["GET"], path: "/api/cookies", run: handleGetCookies },
   { methods: ["POST"], path: "/api/cookies", run: handleSaveCookies },
   { methods: ["GET"], prefix: "/api/lookup", run: handleLookup },
+  { methods: ["POST"], path: "/api/glosses", run: handleGlosses },
   { methods: ["GET", "DELETE"], prefix: "/api/library/", run: (req, res) => handleLibrary(req, res, { videoDir: VIDEO_DIR }) },
   { methods: ["POST"], path: "/api/locate", run: handleLocate },
   { methods: ["POST"], path: "/api/translate", run: handleTranslate },
