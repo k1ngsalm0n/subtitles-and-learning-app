@@ -68,3 +68,34 @@ test("with Offline only chosen, nothing is sent", async () => {
   assert.deepEqual(await retranslateOffline({ translate: async () => (calls++, "x") }), []);
   assert.equal(calls, 0);
 });
+
+test("a machine-made transcript is checked for misheard words before it's translated again", async () => {
+  const { entry, read } = await setUp(GROQ);
+  const misheard = "1\n00:00:23,320 --> 00:00:24,880\n請問你今年芳琳?";
+  const fixed = "1\n00:00:23,320 --> 00:00:24,880\n請問你今年芳齡?";
+  await entry(A, { subtitles: misheard, source: "whisper", translation: "Can I ask you this year?", translatedOffline: true });
+  await entry(B, { subtitles: misheard, source: "subtitles", translation: "x", translatedOffline: true });
+  const translated = [];
+  const done = await retranslateOffline({
+    recheck: async (srt) => ({ srt: srt.replace("芳琳", "芳齡"), fixes: [{ line: 1, from: "芳琳", to: "芳齡" }] }),
+    translate: async (srt) => (translated.push(srt), "1\n00:00:23,320 --> 00:00:24,880\nMay I ask how old you are?"),
+  });
+  assert.deepEqual(done.sort(), [A, B].sort());
+  const a = await read(A);
+  assert.equal(a.subtitles, fixed);
+  assert.equal(a.transcriptChecked, true);
+  assert.ok(translated.includes(fixed), "the translation is made from the fixed lines");
+  assert.equal((await read(B)).subtitles, misheard, "an uploader's own track is never changed");
+});
+
+test("fixes are kept when the translation still fails", async () => {
+  const { entry, read } = await setUp(GROQ);
+  await entry(A, { subtitles: "1\n00:00:01,000 --> 00:00:02,000\n芳琳", source: "whisper", translation: "x", translatedOffline: true });
+  await retranslateOffline({
+    recheck: async (srt) => ({ srt: srt.replace("芳琳", "芳齡"), fixes: [{ line: 1 }] }),
+    translate: async () => null,
+  });
+  const a = await read(A);
+  assert.match(a.subtitles, /芳齡/);
+  assert.equal(a.translatedOffline, true);
+});

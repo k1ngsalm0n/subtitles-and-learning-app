@@ -146,7 +146,10 @@ lifting — speech-to-text and offline translation — runs through Python.
   past the 400-line ceiling or with "Offline only"), and a sweep redoes marked
   entries one video at a time, between imports: two minutes after startup and
   after such an import, then every 30 minutes. A refusal stops the sweep until
-  the next one. The page shows it when the video is opened from the Videos
+  the next one. A machine-made transcript is checked for misheard words
+  first, as Update does: the import that missed the chat model missed that
+  check too, and Streettalk kept 請問你今年芳琳 (芳齡) under a translation that
+  had been redone. The page shows it when the video is opened from the Videos
   list (a reload restores the session's own copy). `STELE_RETRANSLATE=off`.
 - **Update, for a saved video.** With a video from the Videos list open, the
   translate bar's button reads *Update* (`syncTranslateButton`) and posts to

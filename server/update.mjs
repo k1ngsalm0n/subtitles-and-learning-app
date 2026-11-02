@@ -28,7 +28,7 @@ import { languageRow } from "./languages.mjs";
 const ID = /^[0-9a-f]{32}$/;
 // Sources a machine wrote, and so may have misheard: what the importer checks.
 // An uploader's own track ("subtitles") is what they meant to write.
-const MACHINE_MADE = new Set(["whisper", "ocr", "ocr+whisper", "auto-subtitles"]);
+export const MACHINE_MADE = new Set(["whisper", "ocr", "ocr+whisper", "auto-subtitles"]);
 
 const running = new Set();
 

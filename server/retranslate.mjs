@@ -13,6 +13,13 @@
 // time, between imports, every 30 minutes and soon after each import. A
 // failed attempt leaves the entry marked and stops the sweep until the next
 // one — the budget that refused one video will refuse the next.
+//
+// The same import also skipped the misheard-word check (transcriptFix.mjs),
+// which needs the same model, and the sweep used to redo only the
+// translation: Streettalk was translated again ("May I ask how old you
+// are?") over a transcript that still read 請問你今年芳琳 (芳齡). So a
+// machine-made transcript is checked first, as Update does, and the
+// translation made from the fixed lines.
 
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -21,6 +28,7 @@ import { libraryIds } from "./prepared.mjs";
 import { writePrivate } from "./prefs.mjs";
 import { chatHealth } from "./chat.mjs";
 import { llmTranslationAvailable, translateSrtWithLlm } from "./llmTranslate.mjs";
+import { MACHINE_MADE } from "./update.mjs";
 
 const EVERY_MS = 30 * 60_000;
 const SOON_MS = 2 * 60_000;
@@ -38,8 +46,11 @@ async function readEntry(id) {
 }
 
 // One pass over the library. Returns the ids whose translation was replaced.
-// `translate` stands in for the chat model in tests.
-export async function retranslateOffline({ translate = translateSrtWithLlm } = {}) {
+// `translate` and `recheck` stand in for the chat model in tests.
+export async function retranslateOffline({
+  translate = translateSrtWithLlm,
+  recheck = async (srt, language) => (await import("./import.mjs")).recheckTranscript(srt, language),
+} = {}) {
   const done = [];
   if (sweeping || !(await llmTranslationAvailable())) return done;
   sweeping = true;
@@ -49,8 +60,23 @@ export async function retranslateOffline({ translate = translateSrtWithLlm } = {
       const entry = await readEntry(id);
       if (!entry?.translatedOffline || !entry.subtitles || !entry.language) continue;
       const to = entry.translationLanguage || "en";
-      const translation = await translate(entry.subtitles, entry.language, to).catch(() => null);
+      let subtitles = entry.subtitles;
+      let fixes = [];
+      if (MACHINE_MADE.has(entry.source) && !entry.transcriptChecked) {
+        ({ srt: subtitles, fixes } = await recheck(entry.subtitles, entry.language).catch(() => ({
+          srt: entry.subtitles,
+          fixes: [],
+        })));
+      }
+      const translation = await translate(subtitles, entry.language, to).catch(() => null);
       if (!translation) {
+        // Fixes that did come back are kept; the translation waits.
+        if (fixes.length) {
+          const now = await readEntry(id);
+          if (now?.subtitles === entry.subtitles) {
+            await writePrivate(path.join(libraryDir(), `${id}.json`), JSON.stringify({ ...now, subtitles }));
+          }
+        }
         const why = chatHealth()?.reason || "no usable answer";
         console.log(`Couldn't translate "${entry.title || id}" again yet (${why}); trying again in 30 minutes.`);
         break;
@@ -61,9 +87,17 @@ export async function retranslateOffline({ translate = translateSrtWithLlm } = {
       const { translatedOffline, ...rest } = now;
       await writePrivate(
         path.join(libraryDir(), `${id}.json`),
-        JSON.stringify({ ...rest, translation, translationLanguage: to, retranslatedAt: Date.now() }),
+        JSON.stringify({
+          ...rest,
+          subtitles,
+          translation,
+          translationLanguage: to,
+          retranslatedAt: Date.now(),
+          ...(MACHINE_MADE.has(entry.source) ? { transcriptChecked: true } : {}),
+        }),
       );
-      console.log(`Translated "${entry.title || id}" again with the chat model (the import had used the offline one).`);
+      const fixed = fixes.length ? `, fixing ${fixes.length} misheard ${fixes.length === 1 ? "word" : "words"}` : "";
+      console.log(`Translated "${entry.title || id}" again with the chat model${fixed} (the import had used the offline one).`);
       done.push(id);
     }
   } finally {
