@@ -99,3 +99,60 @@ test("fixes are kept when the translation still fails", async () => {
   assert.match(a.subtitles, /芳齡/);
   assert.equal(a.translatedOffline, true);
 });
+
+test("an old import that was never checked is checked once, and only its fixed lines translated again", async () => {
+  const { entry, read } = await setUp(GROQ);
+  const lines = ["高小姐,你好。", "請問你今年芳琳?", "二十一。"];
+  const timing = (i) => `00:00:2${i},000 --> 00:00:2${i},900`;
+  const srt = (texts) => texts.map((t, i) => `${i + 1}\n${timing(i)}\n${t}`).join("\n\n");
+  const english = ["Hello, Miss Gao.", "May I ask you this year Fang Lin?", "Twenty-one."];
+  await entry(A, { subtitles: srt(lines), source: "ocr", translation: srt(english) });
+  await entry(B, { subtitles: srt(lines), source: "ocr", translation: srt(english), transcriptChecked: true });
+  await entry(C, { subtitles: srt(lines), source: "subtitles", translation: srt(english) });
+  const checkedIds = [];
+  const sent = [];
+  const done = await retranslateOffline({
+    recheck: async (s) => (
+      checkedIds.push(s),
+      { srt: s.replace("芳琳", "芳齡"), fixes: [{ line: 2, from: lines[1], to: "請問你今年芳齡?" }], checked: true }
+    ),
+    translate: async (s) => {
+      sent.push(s);
+      return s.replace("請問你今年芳齡?", "How old are you this year?").replace("高小姐,你好。", "HELLO").replace("二十一。", "TWENTY");
+    },
+  });
+  assert.deepEqual(done, [A]);
+  assert.equal(checkedIds.length, 1, "checked entries and uploader tracks are left alone");
+  assert.match(sent[0], /芳齡/);
+  const a = await read(A);
+  assert.match(a.subtitles, /芳齡/);
+  assert.equal(a.transcriptChecked, true);
+  const out = a.translation.split("\n\n").map((b) => b.split("\n")[2]);
+  assert.deepEqual(out, ["Hello, Miss Gao.", "How old are you this year?", "Twenty-one."], "only the fixed line changes");
+});
+
+test("a never-checked entry with nothing wrong is just marked, and a silent model stops the sweep", async () => {
+  const { entry, read } = await setUp(GROQ);
+  await entry(A, { source: "whisper", translation: "x" });
+  await entry(B, { source: "whisper", translation: "y" });
+  await retranslateOffline({ recheck: async (s) => ({ srt: s, fixes: [], checked: true }), translate: async () => "never" });
+  assert.equal((await read(A)).transcriptChecked, true);
+  assert.equal((await read(A)).translation, "x");
+
+  await entry(C, { source: "whisper", translation: "z" });
+  let calls = 0;
+  await retranslateOffline({ recheck: async (s) => (calls++, { srt: s, fixes: [], checked: false }) });
+  assert.equal(calls, 1);
+  assert.equal((await read(C)).transcriptChecked, undefined);
+});
+
+test("fixes from a check that was cut short are kept, and the entry is checked again next time", async () => {
+  const { entry, read } = await setUp(GROQ);
+  await entry(A, { subtitles: SRT.replace("刷手機", "芳琳"), source: "ocr", translation: "" });
+  await retranslateOffline({
+    recheck: async (s) => ({ srt: s.replace("芳琳", "芳齡"), fixes: [{ line: 1, from: "芳琳", to: "芳齡" }], checked: false }),
+  });
+  const a = await read(A);
+  assert.match(a.subtitles, /芳齡/);
+  assert.equal(a.transcriptChecked, undefined);
+});

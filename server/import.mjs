@@ -452,6 +452,11 @@ async function remember(url, result) {
     // cap), so the offline model translated: retranslate.mjs redoes it later.
     // Not when an uploader's lines are part of it — those stay as written.
     ...(translatedOffline(result) ? { translatedOffline: true } : {}),
+    // Every line went through the misheard-word check, or the uploader's
+    // English is part of the translation: the sweep needs both to know what
+    // it may redo (retranslate.mjs).
+    ...(importTranslation.getStore()?.checked ? { transcriptChecked: true } : {}),
+    ...(importTranslation.getStore()?.uploader ? { uploaderTranslation: true } : {}),
   });
   if (saved?.translatedOffline) retranslateSoon();
   // With Claude as the chat model, it prepares the new video's words in the
@@ -504,7 +509,7 @@ function translatedOffline(result) {
 }
 
 export function handleImportUrl(req, res) {
-  return importTranslation.run({ offline: false, uploader: false }, () => importUrl(req, res));
+  return importTranslation.run({ offline: false, uploader: false, checked: false }, () => importUrl(req, res));
 }
 
 async function importUrl(req, res) {
@@ -613,6 +618,7 @@ async function importUrl(req, res) {
       // to the source and is more accurate than machine translation — use it as
       // is. Otherwise fall back to machine translation on the clean source text.
       let translation = subtitle.translation || "";
+      if (translation && importTranslation.getStore()) importTranslation.getStore().uploader = true;
       if (!translation && language && language !== target) {
         report.stage("Translating the subtitles\u2026");
         translation = await translateSrt(subtitles, language, target);
@@ -1899,25 +1905,30 @@ async function transcribeWithWhisperCli(audioPath, workspace, preferred = "") {
 // other script, so Chinese goes through the Traditional conversion again.
 async function fixTranscript(srt, language, report = null) {
   report?.stage("Checking the transcript for misheard words\u2026");
-  return (await recheckTranscript(srt, language)).srt;
+  const { srt: fixed, checked } = await recheckTranscript(srt, language);
+  // remember() saves it as transcriptChecked, so the library sweep
+  // (retranslate.mjs) leaves this one alone.
+  const made = importTranslation.getStore();
+  if (made && checked) made.checked = true;
+  return fixed;
 }
 
 // The same check, with what it changed: also the Update button's first step
 // (update.mjs). Never throws; a failed check returns the transcript as it was.
 export async function recheckTranscript(srt, language) {
-  if (!language || !srt) return { srt, fixes: [] };
+  if (!language || !srt) return { srt, fixes: [], checked: false };
   try {
-    const { srt: fixed, fixes } = await fixTranscriptSrt(srt, language, {
+    const { srt: fixed, fixes, checked } = await fixTranscriptSrt(srt, language, {
       placeholder: languageRow(language)?.inaudible || "",
     });
-    if (!fixes.length) return { srt, fixes };
+    if (!fixes.length) return { srt, fixes, checked };
     console.log(
       `Transcript fixes (${language}): ${fixes.map((f) => `#${f.line} ${f.from} \u2192 ${f.to}`).join(" | ")}`,
     );
-    return { srt: await toTraditional(fixed, language), fixes };
+    return { srt: await toTraditional(fixed, language), fixes, checked };
   } catch (err) {
     console.warn(`Transcript check skipped (${String(err.message || err).split("\n")[0]})`);
-    return { srt, fixes: [] };
+    return { srt, fixes: [], checked: false };
   }
 }
 

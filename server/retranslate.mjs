@@ -20,6 +20,15 @@
 // are?") over a transcript that still read 請問你今年芳琳 (芳齡). So a
 // machine-made transcript is checked first, as Update does, and the
 // translation made from the fixed lines.
+//
+// And imports from before the check existed were never checked at all. The
+// reader had Streettalk twice (a youtu.be link and a /watch one): the newer
+// read 芳齡, the older still 芳琳 at 0:23 and 方菱 at 3:46, and nothing would
+// ever look at it again, because its translation wasn't offline. So the sweep
+// also checks every machine-made entry not marked `transcriptChecked` — once,
+// a couple a sweep so a free plan's day isn't spent on the backlog — and
+// translates again only the lines it fixed (with their neighbours for
+// context): the rest of the translation may be the uploader's.
 
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -27,11 +36,17 @@ import { libraryDir } from "./library.mjs";
 import { libraryIds } from "./prepared.mjs";
 import { writePrivate } from "./prefs.mjs";
 import { chatHealth } from "./chat.mjs";
-import { llmTranslationAvailable, translateSrtWithLlm } from "./llmTranslate.mjs";
+import { llmTranslationAvailable, translateSrtWithLlm, parseCues } from "./llmTranslate.mjs";
+import { transcriptFixAvailable, replaceCueTexts } from "./transcriptFix.mjs";
 import { MACHINE_MADE } from "./update.mjs";
 
 const EVERY_MS = 30 * 60_000;
 const SOON_MS = 2 * 60_000;
+// Never-checked entries looked at per sweep: the backlog drains over a few
+// hours instead of in one burst against the chat model's allowance.
+const CHECKS_PER_SWEEP = 2;
+// Lines either side of a fixed one sent along when it's translated again.
+const CONTEXT = 2;
 
 let sweeping = false;
 let timer = null;
@@ -54,18 +69,30 @@ export async function retranslateOffline({
   const done = [];
   if (sweeping || !(await llmTranslationAvailable())) return done;
   sweeping = true;
+  let checksLeft = CHECKS_PER_SWEEP;
   try {
     for (const id of await libraryIds()) {
       if (isBusy()) break;
       const entry = await readEntry(id);
-      if (!entry?.translatedOffline || !entry.subtitles || !entry.language) continue;
+      if (!entry?.subtitles || !entry.language) continue;
+      if (!entry.translatedOffline) {
+        if (checksLeft <= 0 || entry.transcriptChecked || !MACHINE_MADE.has(entry.source)) continue;
+        if (!(await transcriptFixAvailable())) continue;
+        checksLeft--;
+        const outcome = await checkOnce(id, entry, { recheck, translate });
+        if (outcome === "fixed" || (outcome === "stop" && (await readEntry(id))?.updatedAt !== entry.updatedAt)) done.push(id);
+        if (outcome === "stop") break;
+        continue;
+      }
       const to = entry.translationLanguage || "en";
       let subtitles = entry.subtitles;
       let fixes = [];
+      let checked = false;
       if (MACHINE_MADE.has(entry.source) && !entry.transcriptChecked) {
-        ({ srt: subtitles, fixes } = await recheck(entry.subtitles, entry.language).catch(() => ({
+        ({ srt: subtitles, fixes, checked = true } = await recheck(entry.subtitles, entry.language).catch(() => ({
           srt: entry.subtitles,
           fixes: [],
+          checked: false,
         })));
       }
       const translation = await translate(subtitles, entry.language, to).catch(() => null);
@@ -93,7 +120,7 @@ export async function retranslateOffline({
           translation,
           translationLanguage: to,
           retranslatedAt: Date.now(),
-          ...(MACHINE_MADE.has(entry.source) ? { transcriptChecked: true } : {}),
+          ...(checked ? { transcriptChecked: true } : {}),
         }),
       );
       const fixed = fixes.length ? `, fixing ${fixes.length} misheard ${fixes.length === 1 ? "word" : "words"}` : "";
@@ -104,6 +131,78 @@ export async function retranslateOffline({
     sweeping = false;
   }
   return done;
+}
+
+// A never-checked entry: the misheard-word check, and a new translation for
+// just the lines it changed. Returns "fixed", "clean" or "stop" (a batch went
+// unanswered; the rest of the sweep would likely meet the same). Fixes that
+// came back are kept even then — the entry just isn't marked checked, so the
+// next sweep reads it again.
+async function checkOnce(id, entry, { recheck, translate }) {
+  const { srt: subtitles = entry.subtitles, fixes = [], checked = false } =
+    (await recheck(entry.subtitles, entry.language).catch(() => null)) || {};
+  const why = () => chatHealth()?.reason || "no usable answer";
+  let translation = entry.translation || "";
+  if (fixes.length && translation) {
+    translation = await translateLines(subtitles, translation, fixes, entry.language, entry.translationLanguage || "en", translate);
+    if (translation === null) {
+      // Not saved: a fixed line under its old translation would read as a
+      // contradiction. The next sweep checks it again.
+      console.log(`Couldn't translate the fixed lines of "${entry.title || id}" yet (${why()}); trying again in 30 minutes.`);
+      return "stop";
+    }
+  }
+  if (fixes.length || checked) {
+    const now = await readEntry(id);
+    if (!now || now.subtitles !== entry.subtitles || now.translation !== entry.translation) return "clean";
+    await writePrivate(
+      path.join(libraryDir(), `${id}.json`),
+      JSON.stringify({
+        ...now,
+        subtitles,
+        translation,
+        ...(checked ? { transcriptChecked: true } : {}),
+        ...(fixes.length ? { updatedAt: Date.now() } : {}),
+      }),
+    );
+  }
+  if (fixes.length) {
+    console.log(
+      `Fixed ${fixes.length} misheard ${fixes.length === 1 ? "word" : "words"} in "${entry.title || id}": ` +
+        fixes.map((f) => `${f.from} \u2192 ${f.to}`).join(" | "),
+    );
+  }
+  if (!checked) {
+    console.log(`Couldn't check all of "${entry.title || id}" for misheard words yet (${why()}); trying again in 30 minutes.`);
+    return "stop";
+  }
+  return fixes.length ? "fixed" : "clean";
+}
+
+// The translation with the fixed lines translated again. A translation cue is
+// found by its timing, so a translation cut differently from the transcript
+// (an uploader's) only has the lines that share a cue replaced. Null when the
+// model doesn't answer.
+export async function translateLines(subtitles, translation, fixes, from, to, translate = translateSrtWithLlm) {
+  const cues = parseCues(subtitles);
+  const wanted = new Set(fixes.map((f) => f.line - 1).filter((i) => i >= 0 && i < cues.length));
+  const send = new Set();
+  for (const i of wanted) {
+    for (let j = Math.max(0, i - CONTEXT); j <= Math.min(cues.length - 1, i + CONTEXT); j++) send.add(j);
+  }
+  if (!send.size) return translation;
+  const picked = [...send].sort((a, b) => a - b).map((i) => cues[i]);
+  const srt = picked.map((c, k) => `${k + 1}\n${c.timing}\n${c.text}`).join("\n\n");
+  const out = await translate(srt, from, to).catch(() => null);
+  if (!out) return null;
+  const byTiming = new Map(parseCues(out).map((c) => [c.timing, c.text]));
+  const want = new Map([...wanted].map((i) => [cues[i].timing, byTiming.get(cues[i].timing)]));
+  const replace = new Map();
+  parseCues(translation).forEach((c, index) => {
+    const text = want.get(c.timing);
+    if (text) replace.set(index, text);
+  });
+  return replace.size ? replaceCueTexts(translation, replace) : translation;
 }
 
 function later(ms) {

@@ -151,6 +151,17 @@ lifting — speech-to-text and offline translation — runs through Python.
   check too, and Streettalk kept 請問你今年芳琳 (芳齡) under a translation that
   had been redone. The page shows it when the video is opened from the Videos
   list (a reload restores the session's own copy). `STELE_RETRANSLATE=off`.
+  The sweep also checks, once, every machine-made entry not marked
+  `transcriptChecked` (imports from before the check existed: an older copy of
+  Streettalk still read 芳琳 and 方菱), two a sweep, and translates again only
+  the lines it fixed, matched by timing — the rest may be the uploader's.
+  Imports set `transcriptChecked` only when every batch was answered
+  (`checked` from `fixTranscriptSrt`), and `uploaderTranslation` when the
+  uploader's English is in the translation. A fix also carries over to the
+  same line said again (`sameLines`). `jsonText` (chat.mjs) takes the *last*
+  whole JSON object of a reply: Claude sometimes answers, writes "Wait, 83 is
+  unchanged", and answers again, and first-`{`-to-last-`}` threw that batch
+  away every time.
 - **Update, for a saved video.** With a video from the Videos list open, the
   translate bar's button reads *Update* (`syncTranslateButton`) and posts to
   `POST /api/update/<id>` (`update.mjs`): the saved transcript is checked for

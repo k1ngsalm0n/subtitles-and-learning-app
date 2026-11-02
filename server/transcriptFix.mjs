@@ -355,20 +355,53 @@ export async function transcriptFixAvailable() {
   return ENV_ENABLED ? llmTranslationAvailable() : null;
 }
 
+// A fix also applies to every other line with the same words. Videos repeat
+// themselves — Streettalk plays its interview twice — and the model, reading
+// each copy in a different batch, fixed 平感覺 → 憑感覺 in one and not the
+// other. Lines are compared without punctuation or spaces (the copies were
+// cut 「吧,我」 and 「吧 我」), and the fixed letters are laid over the other
+// line's own punctuation; only a fix that keeps the letter count carries over.
+const LETTER = /[\p{L}\p{N}]/u;
+export function sameLines(texts, fixes) {
+  const letters = (text) => [...text].filter((ch) => LETTER.test(ch)).join("");
+  const fixed = new Set(fixes.map((f) => f.index));
+  const out = [...fixes];
+  for (const f of fixes) {
+    const from = letters(f.from);
+    const to = [...letters(f.to)];
+    if (!from || to.length !== [...from].length) continue;
+    texts.forEach((text, index) => {
+      if (fixed.has(index) || letters(text) !== from) return;
+      let k = 0;
+      const copy = [...text].map((ch) => (LETTER.test(ch) ? to[k++] : ch)).join("");
+      fixed.add(index);
+      out.push({ index, from: text, to: copy });
+    });
+  }
+  return out.sort((a, b) => a.index - b.index);
+}
+
 // An SRT in, the same SRT with fixed lines out, plus what changed:
-// { srt, fixes: [{ line, from, to }] }. Cue numbers and timings never move.
+// { srt, fixes: [{ line, from, to }], checked }. Cue numbers and timings never
+// move. `checked` says every line was actually read by the model — false with
+// no model, past the line ceiling, or when a batch went unanswered — so a
+// library entry is marked done only when it was (retranslate.mjs sweeps up
+// the ones that weren't).
 export async function fixTranscriptSrt(srt, language, { placeholder = "" } = {}) {
-  const unchanged = { srt, fixes: [] };
+  const unchanged = { srt, fixes: [], checked: false };
   const config = await transcriptFixAvailable();
   if (!config || !srt) return unchanged;
   const cues = parseCues(srt);
   if (!cues.length || cues.length > MAX_LINES) return unchanged;
   const texts = cues.map((cue) => cue.text);
-  const fixes = await findFixes(config, texts, language, { placeholder });
-  if (!fixes.length) return unchanged;
+  const rejected = [];
+  const fixes = sameLines(texts, await findFixes(config, texts, language, { placeholder, rejected }));
+  const checked = !rejected.some((r) => r.unanswered);
+  if (!fixes.length) return { srt, fixes: [], checked };
   return {
     srt: replaceCueTexts(srt, new Map(fixes.map((f) => [f.index, f.to]))),
     fixes: fixes.map((f) => ({ line: f.index + 1, from: f.from, to: f.to })),
+    checked,
   };
 }
 

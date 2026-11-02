@@ -184,13 +184,13 @@ test("with no chat model, or the chat model switched off, the transcript comes b
   const srt = "1\n00:00:00,000 --> 00:00:02,000\nSure, hear you go.";
   process.env.STELE_PREFS_DIR = await settingsDir({});
   forgetLlmConfig();
-  assert.deepEqual(await fixTranscriptSrt(srt, "en"), { srt, fixes: [] });
+  assert.deepEqual(await fixTranscriptSrt(srt, "en"), { srt, fixes: [], checked: false });
   process.env.STELE_PREFS_DIR = await settingsDir({
     "llm.json": { provider: "groq", apiKey: "never-sent", baseUrl: "http://127.0.0.1:9", model: "m" },
     "settings.json": { llm: "off" },
   });
   forgetLlmConfig();
-  assert.deepEqual(await fixTranscriptSrt(srt, "en"), { srt, fixes: [] });
+  assert.deepEqual(await fixTranscriptSrt(srt, "en"), { srt, fixes: [], checked: false });
 });
 
 test("an English transcript is fixed in place, cue by cue", async () => {
@@ -208,4 +208,16 @@ test("an English transcript is fixed in place, cue by cue", async () => {
       assert.deepEqual(fixes, [{ line: 2, from: "Sure, hear you go.", to: "Sure, here you go." }]);
     },
   );
+});
+
+test("a fix carries over to the same line said again, in that line's own punctuation", async () => {
+  const { sameLines } = await import("../server/transcriptFix.mjs");
+  const texts = ["我現在平感覺,做什麼都可以", "二十一", "我現在平感覺 做什麼都可以", "我現在平感覺"];
+  const out = sameLines(texts, [{ index: 0, from: texts[0], to: "我現在憑感覺,做什麼都可以" }]);
+  assert.deepEqual(out.map((f) => [f.index, f.to]), [
+    [0, "我現在憑感覺,做什麼都可以"],
+    [2, "我現在憑感覺 做什麼都可以"],
+  ]);
+  // A fix that changes the letter count isn't laid over another line.
+  assert.equal(sameLines(["一二", "一 二"], [{ index: 0, from: "一二", to: "一二三" }]).length, 1);
 });

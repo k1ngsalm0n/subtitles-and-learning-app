@@ -26,6 +26,15 @@ test("jsonText finds the object, fenced or not", () => {
   assert.equal(jsonText("no json here"), null);
 });
 
+test("jsonText takes the corrected object when the model corrects itself mid-reply", () => {
+  // Claude's real reply on Streettalk's lines 81–100, three times out of three.
+  const reply =
+    '{"fixes": {"89": "請問你今年芳齡", "83": "好 新鮮人類"}}\n\n' +
+    'Wait, 83 is unchanged; correcting my "output".\n\n{"fixes": {"89": "請問你今年芳齡"}}';
+  assert.equal(jsonText(reply), '{"fixes": {"89": "請問你今年芳齡"}}');
+  assert.equal(jsonText('{"a": "a } in a string"} then {"b": 2}'), '{"b": 2}');
+});
+
 test("choosing Claude needs no key or address, and is checked first", async () => {
   await fresh();
   const status = await saveLlmChoice({ provider: "claude" });
