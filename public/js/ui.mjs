@@ -17,6 +17,7 @@ import {
   buildWordMarks,
   knownEntriesFor,
   countNewWords,
+  rankNewWords,
   newWordsIn,
 } from "./knownwords.mjs";
 import { previewIntervals, formatInterval } from "./scheduler.mjs";
@@ -50,6 +51,7 @@ import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
 import { lookupWord } from "./lookup.mjs";
 import { meaningLanguage } from "./languages.mjs";
+import { openWordList } from "./wordlist.mjs";
 
 export function renderAll(els) {
   // When called without els (from modules that don't have direct access),
@@ -151,6 +153,39 @@ function showNewWordCount(e, markOf, query = "") {
   const count = countNewWords(shown, markOf);
   el.hidden = false;
   el.textContent = count === 1 ? "1 new word" : `${count} new words`;
+  el.disabled = count === 0;
+}
+
+// The count opens "Words to learn" (wordlist.mjs): the video's new words, the
+// most repeated first. Read from the drawn transcript, as the count is, so
+// the words are jieba's cut and each carries the reading shown over it.
+export function openWordsToLearn(els) {
+  const e = els || _els;
+  if (e.searchInput?.value.trim()) return;
+  const entries = words(e).map((el) => ({
+    word: el.dataset.word,
+    pinyin: el.dataset.pinyin || "",
+    line: Number(el.closest(".line")?.dataset.index),
+  }));
+  const lang = state.learningLang;
+  openWordList({
+    items: rankNewWords(entries, currentWordMarks()),
+    lang,
+    to: meaningLanguage(lang, e.translateTo?.value || state.translateTo),
+    lineText: (i) => (state.subtitles[i] ? displayText(state.subtitles[i]) : ""),
+    isKnown: wordIsKnown,
+    onKnown: (word) => toggleWordKnown(word, e),
+    returnFocus: e.newWordCount,
+    onOpen: (word, index) => {
+      const lineEl = e.transcript.querySelector(`.line[data-index="${index}"]`);
+      const wordEl = [...(lineEl?.querySelectorAll(".word") || [])].find((w) => w.dataset.word === word);
+      if (!wordEl) return;
+      wordEl.scrollIntoView({ block: "center" });
+      const line = state.subtitles[index];
+      highlightWord(wordEl, line, e);
+      openWordBubble(wordEl, line, e);
+    },
+  });
 }
 
 // Re-mark the words already on screen after a word is marked known or not.

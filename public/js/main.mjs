@@ -96,6 +96,7 @@ import {
   setSourceJumper,
   setPracticeOpener,
   markActiveLineKnown,
+  openWordsToLearn,
   forgetKnownWords,
 } from "./ui.mjs";
 import { setupPractice, openPractice } from "./practice.mjs";
@@ -388,6 +389,7 @@ function bindEvents() {
   );
   els.loopLine.addEventListener("click", () => loopActiveLine(els));
   els.saveLine.addEventListener("click", () => saveActiveLine(els));
+  els.newWordCount.addEventListener("click", () => openWordsToLearn(els));
   els.lineKnown.addEventListener("click", () => {
     const added = markActiveLineKnown(els);
     if (added === null) {

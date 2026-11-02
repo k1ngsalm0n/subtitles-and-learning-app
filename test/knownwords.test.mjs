@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildWordMarks, knownEntriesFor, countNewWords, newWordsIn } from "../public/js/knownwords.mjs";
+import { buildWordMarks, knownEntriesFor, countNewWords, newWordsIn, rankNewWords } from "../public/js/knownwords.mjs";
 import { mergeImport, buildExport, describeReport } from "../public/js/portability.mjs";
 
 // Stands in for savedWordForms: what the converter would say 头发 looks like
@@ -75,4 +75,39 @@ test("Line Known takes only the new words, each once, in order", () => {
     newWordsIn(["我們", "來財", "八方", "因果", "八方"], markOf),
     ["八方", "因果"],
   );
+});
+
+test("words to learn: new words only, the most repeated first, ties in order of appearance", () => {
+  const markOf = buildWordMarks({ cards: [{ word: "喜歡" }], knownWords: ["我"] });
+  const entries = [
+    { word: "我", pinyin: "wǒ", line: 0 },
+    { word: "喜歡", pinyin: "xǐ huān", line: 0 },
+    { word: "小幸運", pinyin: "xiǎo xìng yùn", line: 1 },
+    { word: "原來", pinyin: "yuán lái", line: 2 },
+    { word: "小幸運", pinyin: "xiǎo xìng yùn", line: 3 },
+    { word: "2024", line: 3 },
+    { word: "原來", pinyin: "yuán lái", line: 4 },
+    { word: "原來", pinyin: "yuán lái", line: 5 },
+    { word: "青春", pinyin: "qīng chūn", line: 6 },
+  ];
+  assert.deepEqual(rankNewWords(entries, markOf), [
+    { word: "原來", pinyin: "yuán lái", count: 3, line: 2 },
+    { word: "小幸運", pinyin: "xiǎo xìng yùn", count: 2, line: 1 },
+    { word: "青春", pinyin: "qīng chūn", count: 1, line: 6 },
+  ]);
+});
+
+test("words to learn: one entry per word whatever its case, keeping a reading found later", () => {
+  const ranked = rankNewWords(
+    [{ word: "Hola", line: 0 }, { word: "hola", pinyin: "", line: 1 }, { word: "好", line: 2 }, { word: "好", pinyin: "hǎo", line: 3 }],
+    () => "",
+  );
+  assert.deepEqual(ranked, [
+    { word: "Hola", pinyin: "", count: 2, line: 0 },
+    { word: "好", pinyin: "hǎo", count: 2, line: 2 },
+  ]);
+});
+
+test("a number isn't counted as a new word", () => {
+  assert.equal(countNewWords(["2024", "年", "100", "年"], () => ""), 1);
 });
