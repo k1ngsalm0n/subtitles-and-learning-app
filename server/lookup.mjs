@@ -278,24 +278,335 @@ async function translateWord(word, lang, to) {
   }
 }
 
-export async function lookupWord(word, lang, context, to = "en") {
+// ---- Reading CC-CEDICT's notation -------------------------------------------
+
+// CC-CEDICT points at other words in its own shorthand: 什麼|什么[shen2 me5]
+// (Traditional|Simplified[numbered pinyin]), CL:隻|只[zhi1] for measure words,
+// "Taiwan pr. [zhuo2]". Shown as written, a definition read like source code.
+const HAN_RUN = "[\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff]+";
+const CROSS_REF = new RegExp(`(${HAN_RUN})(?:\\|(${HAN_RUN}))?\\[([A-Za-z:]+[1-5]?(?:\\s+[A-Za-z:]+[1-5]?)*)\\]`, "gu");
+const spoken = (numbered) => numberedToAccent(numbered).replace(/\s+/g, "");
+
+// One definition, readable: a cross-reference becomes the word in the script
+// the reader is looking at, with its pinyin — 什麼 (shénme) — or with
+// `pinyin: false` the word alone.
+export function readableDef(def, trad = true, { pinyin = true } = {}) {
+  return String(def)
+    .replace(/Taiwan pr\. \[([^\]]+)\]/g, (_, py) => `Taiwan: ${numberedToAccent(py)}`)
+    .replace(CROSS_REF, (_, a, b, py) => {
+      const chars = b && !trad ? b : a;
+      return pinyin ? `${chars} (${spoken(py)})` : chars;
+    })
+    .replace(/\bCL:\s*/g, "measure word: ")
+    // Bare pinyin left over: "also pr. [shui2]" -> "also pr. shuí".
+    .replace(/\[([A-Za-z:]+[1-5](?:\s+[A-Za-z:]+[1-5])*)\]/g, (_, py) => spoken(py))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Traditional unless the text is visibly Simplified: the app shows Traditional
+// by default, and a character written the same both ways says nothing.
+export function looksTraditional(text, dict) {
+  // Only a glyph that is never the other script's form counts: 幸 is 倖's
+  // simplified form but also its own traditional one, so it says nothing.
+  for (const ch of text) {
+    const entries = dict.get(ch) || [];
+    const asTrad = entries.some((e) => e.traditional === ch);
+    const asSimp = entries.some((e) => e.simplified === ch);
+    if (asTrad && !asSimp) return true;
+    if (asSimp && !asTrad) return false;
+  }
+  return true;
+}
+
+// ---- Each character of a Chinese word -------------------------------------
+
+// Senses that say nothing about what a character means on its own.
+const NOT_A_MEANING = /^(opposite: |surname |variant of |old variant of |archaic variant of |used in |see |measure word: |abbr\. for |also written |also pr\. |Japanese variant|Taiwan: )/i;
+const VARIANT_OF = new RegExp(`^(?:old |archaic )?variant of (${HAN_RUN})(?:\\|(${HAN_RUN}))?(?:\\[([^\\]]+)\\])?`, "u");
+
+// Grammar characters, whose dictionary entries are written for linguists:
+// 麼's is "suffix, used to form interrogative 什麼|什么[shen2 me5], what?,
+// indefinite 這麼|这么[zhe4 me5] thus, etc". Keyed by character and the exact
+// reading, so 得 the particle (de) gets this and 得 in 得到 (dé) keeps its own.
+// Paired glyphs carry their own script's examples: 麼 is Traditional, 么 is
+// Simplified, so the character clicked says which to show.
+const GRAMMAR = new Map();
+for (const [glyphs, readings, ...notes] of [
+  ["麼么", ["me"], "question suffix, as in 什麼 (what) and 這麼 (so)", "question suffix, as in 什么 (what) and 这么 (so)"],
+  ["們们", ["men"], "plural for people, as in 我們 (we)", "plural for people, as in 我们 (we)"],
+  ["的", ["de"], "possessive particle: 's, of"],
+  ["了", ["le"], "particle: a completed action or a change"],
+  ["著着", ["zhe"], "particle: an ongoing action or state (-ing)"],
+  ["得", ["de"], "particle linking a verb to how it's done"],
+  ["地", ["de"], "particle that makes an adverb (-ly)"],
+  ["子", ["zi"], "noun suffix, as in 孩子 (child)"],
+  ["兒儿", ["r", "er"], "noun suffix, the ‘-r’ sound"],
+  ["頭头", ["tou"], "noun suffix, as in 裡頭 (inside)", "noun suffix, as in 里头 (inside)"],
+  ["嗎吗", ["ma"], "question particle (yes or no?)"],
+  ["呢", ["ne"], "particle: ‘and…?’, ‘what about…?’, or an ongoing state"],
+  ["吧", ["ba"], "particle for a suggestion (let's…) or a guess"],
+  ["啊", ["a"], "particle adding feeling or emphasis"],
+  ["過过", ["guo"], "particle: have done before"],
+  ["個个", ["ge", "gè"], "measure word for people and things"],
+]) {
+  [...glyphs].forEach((glyph, i) => {
+    for (const reading of readings) GRAMMAR.set(`${glyph}:${reading}`, notes[i] ?? notes[0]);
+  });
+}
+
+// One definition as short senses: a definition wholly in brackets is opened
+// up ("(possessive particle, …)" is 之's main meaning), asides are dropped —
+// "(since the early 20th century, usu. male)", "(CL:隻|只[zhi1])", "(as in
+// 大姐[da4 jie3])" — and cross-references keep their characters.
+function sensesOf(def) {
+  let d = String(def).trim();
+  if (/^\([^()]*\)$/.test(d)) d = d.slice(1, -1);
+  // Register labels, wherever they sit: "(loanword) (coll.) modem" -> "modem".
+  d = d.replace(/\s*\((?:bound form|literary|coll\.|dialect|old|archaic|slang|loanword|Tw|math\.|formal|honorific|polite|derog\.|onom\.|abbr\.)\)\s*/gi, " ");
+  d = d.replace(/\s*\(([^()]*)\)/g, (whole, inner) =>
+    inner.length > 15 || /[\u3400-\u9fff[\]]|CL:|Taiwan|bound form/.test(inner) ? "" : whole,
+  );
+  return d
+    .split(/;\s*/)
+    .map((s) => s.replace(/\s+([,.?!])/g, "$1").replace(/\s+/g, " ").replace(/^[,\s]+|[,\s]+$/g, "").trim())
+    .filter(Boolean);
+}
+
+const STOP = new Set(["the", "and", "for", "with", "one", "sth", "sb", "etc", "used", "that", "this", "from", "into", "something", "someone"]);
+const keywords = (text) =>
+  new Set((String(text).toLowerCase().match(/[a-z']{3,}/g) || []).filter((w) => !STOP.has(w)));
+
+// Each character of a Chinese word with its reading and a short meaning, from
+// CC-CEDICT. The reading is the one this word uses: 行 in 银行 is háng
+// ("line of business"), not xíng ("to walk"), picked by the word's own pinyin
+// (numbered, "yin2 hang2", or accented, "yín háng"); a neutral-tone syllable
+// matches by its letters. The senses that share a word with the whole word's
+// meaning (`gloss`) go first — 點 in 六點鐘 is "o'clock" before "to touch
+// briefly" — and at most four are kept. A character with only a variant
+// entry borrows the meaning it points at (餚 → 肴); one with only a name
+// entry says so (吳 → "surname Wu"). Empty for a single character or
+// anything not all Han.
+export function characterBreakdown(word, wordPinyin, dict, { gloss = "", alsoGloss = "", trad } = {}) {
+  const chars = [...word];
+  if (chars.length < 2 || !chars.every((c) => HAN.test(c))) return [];
+  const traditional = trad ?? looksTraditional(word, dict);
+  const syllables = String(wordPinyin || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((s) => (/[1-5]$/.test(s) ? numberedToAccent(s) : s).toLowerCase());
+  const usable = syllables.length === chars.length;
+  return chars.map((char, i) => ({
+    char,
+    ...glyphMeaning(char, usable ? syllables[i] : "", dict, { trad: traditional, gloss, alsoGloss, inWord: true }),
+  }));
+}
+
+// One character's reading and short meaning: the entry for `reading` (exact
+// tone first, then by its letters — a neutral 髮 fa is fà), a learner's note
+// for a grammar character, a borrowed meaning for a variant, a name entry when
+// that's all there is. `gloss` / `alsoGloss` steer which senses lead: the
+// meaning chosen for this sentence, then the word's other senses.
+export function glyphMeaning(char, reading, dict, { trad = true, gloss = "", alsoGloss = "", inWord = false } = {}) {
+  const hints = keywords(gloss);
+  const weakHints = keywords(alsoGloss);
+  const hitOf = (text) => {
+    const words = [...keywords(text)];
+    return words.some((k) => hints.has(k)) ? 2 : words.some((k) => weakHints.has(k)) ? 1 : 0;
+  };
+
+  // `refs`: when the entry has no meaning of its own, its pointers ("used in
+  // 執著") rather than nothing.
+  const meaningOf = (entry, refs = true, depth = 0) => {
+    let senses = entry.defs.flatMap(sensesOf).map((s) => readableDef(s, trad, { pinyin: false }));
+    // A name entry (capitalised pinyin) is only reached when the character
+    // has nothing else, and then "surname Wu" is the point.
+    const name = /^[A-Z]/.test(entry.rawPinyin);
+    const real = name ? senses : senses.filter((s) => !NOT_A_MEANING.test(s));
+    if (!real.length && depth === 0) {
+      // "variant of 肴[yao2]": the meaning is the other character's.
+      for (const def of entry.defs) {
+        const m = def.match(VARIANT_OF);
+        if (!m) continue;
+        const target = (dict.get(m[1]) || []).filter((e) => !/^[A-Z]/.test(e.rawPinyin));
+        const same = target.filter((e) => !m[3] || e.rawPinyin.toLowerCase() === m[3].toLowerCase());
+        for (const t of same.length ? same : target) {
+          const borrowed = meaningOf(t, false, 1);
+          if (borrowed) return borrowed;
+        }
+      }
+    }
+    if (real.length) senses = real;
+    else if (!refs || depth > 0) return "";
+    // A sense sharing a word with the gloss leads. A long one is cut down
+    // rather than dropped: to its parts that match ("7th earthly branch: 11
+    // a.m.–1 p.m., noon, …" in 中午 is "noon"), else to its head ("prefix
+    // indicating ordinal number, as in 第六 …").
+    senses = senses
+      .map((s) => {
+        if (s.length <= 45) return s;
+        const parts = s.split(/[:,]\s+/);
+        const best = Math.max(...parts.map(hitOf));
+        if (best > 0) return parts.filter((p) => hitOf(p) === best).join(", ");
+        const head = s.split(/,?\s+(?:as in|e\.g\.|i\.e\.)\s|[:,]\s+/)[0].trim();
+        // A head too short to be a meaning is the start of a usage note:
+        // 很's "(also, often used before an adjective …)" is not "also".
+        if (head.length >= 8 && head.length <= 45) return head;
+        // "classifier indicating a small amount …: some, a few, several" —
+        // after the colon is the meaning.
+        const tail = s.includes(": ") ? s.slice(s.indexOf(": ") + 2).trim() : "";
+        return tail.length >= 3 && tail.length <= 45 ? tail : "";
+      })
+      .filter(Boolean);
+    senses = [...new Set(senses)];
+    const scored = senses.map((s, i) => ({ s, i, hit: hitOf(s) }));
+    scored.sort((a, b) => b.hit - a.hit || a.i - b.i);
+    return scored.slice(0, 4).map((x) => x.s).join("; ");
+  };
+
+  // An entry filed under this glyph as the *other* script's form is a
+  // different character: 家 is also 傢's simplified form ("used in 傢伙"),
+  // 幸 is 倖's ("trusted; intimate"). Read in Traditional, 家 means 家.
+  const filed = dict.get(char) || [];
+  const own = filed.filter((e) => (trad ? e.traditional : e.simplified) === char);
+  const all = own.length ? own : filed;
+  // Capitalised pinyin is a name (Zhāng the surname); only if there's nothing else.
+  const common = all.filter((e) => !/^[A-Z]/.test(e.rawPinyin));
+  const entries = common.length ? common : all;
+  reading = String(reading || "").toLowerCase();
+  const exact = reading ? entries.filter((e) => e.pinyin.toLowerCase() === reading) : [];
+  const loose = exact.length || !reading
+    ? exact
+    : entries.filter((e) => toneless(e.pinyin.toLowerCase()) === toneless(reading));
+  const note = reading && grammarNote(char, reading, { inWord, trad });
+  if (note) return { pinyin: reading, meaning: note };
+  // The reading this word uses, even if all it has is a pointer; then any
+  // reading with a meaning; then whatever there is.
+  const tries = [
+    ...exact.map((e) => [e, false]),
+    ...exact.map((e) => [e, true]),
+    ...loose.map((e) => [e, false]),
+    ...entries.map((e) => [e, false]),
+    ...loose.map((e) => [e, true]),
+    ...entries.map((e) => [e, true]),
+  ];
+  for (const [entry, refs] of tries) {
+    const meaning = meaningOf(entry, refs);
+    if (meaning) return { pinyin: exact.includes(entry) ? reading : entry.pinyin, meaning };
+  }
+  // Nothing fit: the first definition, shortened, rather than a blank.
+  const first = entries[0] && readableDef(entries[0].defs[0] || "", trad, { pinyin: false });
+  const meaning = first && first.length > 60 ? `${first.slice(0, 57).trimEnd()}…` : first || "";
+  return { pinyin: reading || entries[0]?.pinyin || "", meaning };
+}
+
+// Inside a longer word some grammar characters are just its ending: 得 in
+// 覺得, 記得, 懂得 isn't the particle that links a verb to how it's done.
+const IN_WORD = new Map([
+  ["得:de", ["verb ending, as in 覺得 (to feel) and 記得 (to remember)", "verb ending, as in 觉得 (to feel) and 记得 (to remember)"]],
+]);
+
+function grammarNote(char, reading, { inWord = false, trad = true } = {}) {
+  const key = `${char}:${reading}`;
+  if (inWord && IN_WORD.has(key)) return IN_WORD.get(key)[trad ? 0 : 1];
+  return GRAMMAR.get(key) || "";
+}
+
+// Without tone marks: a word's neutral-tone syllable (頭髮 tóu fa) still names
+// the reading of 髮 fà.
+const toneless = (syllable) => syllable.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+// A Han character, Basic block and Extension A.
+const HAN = /^[\u3400-\u4dbf\u4e00-\u9fff]$/u;
+
+// The pop-up shows a word's characters first, then the word, then how it's
+// used in the video, then every definition. The breakdown comes from the
+// dictionary whichever layer answered, so it is attached here, after them.
+// The reading comes from the dictionary's entry for the word, else from the
+// transcript's pinyin for it (`pinyin`, chosen with the whole line in view —
+// 忍著 is rěn zhe), else from the chat model. English only: CC-CEDICT's
+// definitions are English.
+// Definitions of the dictionary words inside a word: 六點鐘 isn't in CC-CEDICT
+// but 點鐘 ("o'clock") is, and says which sense of 點 the word means.
+function partDefs(word, dict) {
+  const chars = [...word];
+  const defs = [];
+  for (let len = chars.length - 1; len >= 2; len--) {
+    for (let i = 0; i + len <= chars.length; i++) {
+      for (const e of dict.get(chars.slice(i, i + len).join("")) || []) defs.push(...e.defs);
+    }
+  }
+  return defs;
+}
+
+// The breakdown as the pop-up gets it: the word's reading from its own entry
+// first, then `pinyin` (the transcript's, or the chat model's); its senses
+// steered by `meaning` (the one chosen for this sentence), then by every
+// sense of the word and of the dictionary words inside it.
+export function breakdownFor(word, { pinyin = "", meaning = "" }, dict) {
+  const hits = dict.get(word) || [];
+  const own = hits.find((e) => !/^[A-Z]/.test(e.rawPinyin)) || hits[0];
+  return characterBreakdown(word, own?.rawPinyin || pinyin, dict, {
+    gloss: meaning || own?.defs[0] || "",
+    alsoGloss: [...(own?.defs || []), ...partDefs(word, dict)].join(" "),
+  });
+}
+
+export async function lookupWord(word, lang, context, to = "en", pinyin = "") {
+  const result = await lookupLayers(word, lang, context, to, pinyin);
+  if (lang !== "zh" || to !== "en") return result;
+  const map = await loadDict();
+  const trad = looksTraditional(word, map);
+  // A chat-model answer may quote the raw notation it was given (answers
+  // cached before the definitions were made readable did).
+  const tidy = (text) => (text ? readableDef(text, trad) : text);
+  const tidied = {
+    ...result,
+    // A word the dictionary lacks, with no chat model: the transcript's own
+    // pinyin rather than none under the headword.
+    pronunciation: result.pronunciation || pinyin,
+    meaning: tidy(result.meaning),
+    explanation: tidy(result.explanation),
+  };
+  const characters = breakdownFor(word, { pinyin: pinyin || result.pronunciation, meaning: tidied.meaning }, map);
+  return characters.length ? { ...tidied, characters } : tidied;
+}
+
+async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
   let dictResult = null;
   // CC-CEDICT is Chinese with English definitions, so it answers only a
   // reader who reads English.
   if (lang === "zh" && to === "en") {
     const map = await loadDict();
-    const hits = map.get(word);
-    if (hits) {
-      const sorted = [...hits].sort((a, b) => {
-        const aProper = /^[A-Z]/.test(a.rawPinyin) ? 1 : 0;
-        const bProper = /^[A-Z]/.test(b.rawPinyin) ? 1 : 0;
-        return aProper - bProper;
-      });
-      const allDefs = [...new Set(sorted.flatMap((e) => e.defs))];
+    const trad = looksTraditional(word, map);
+    // Entries filed under this word as the other script's form are another
+    // word: read in Traditional, 家 is not 傢 ("used in 傢伙").
+    const filed = map.get(word) || [];
+    const ownScript = filed.filter((e) => (trad ? e.traditional : e.simplified) === word);
+    const hits = ownScript.length ? ownScript : filed;
+    if (hits.length) {
+      // The reading the transcript shows first (得 as de, the particle, before
+      // dé "to obtain"), then common words before names.
+      // Exact tone first — 看 kàn "to see" before kān "to look after", 吧 ba
+      // the particle before bā "bar" — then the same letters, then the rest.
+      const said = String(pinyin).toLowerCase().replace(/\s+/g, "");
+      const plain = (e) => e.pinyin.replace(/\s+/g, "").toLowerCase();
+      const rank = (e) =>
+        (!said ? 2 : plain(e) === said ? 0 : toneless(plain(e)) === toneless(said) ? 1 : 2) * 2 +
+        (/^[A-Z]/.test(e.rawPinyin) ? 1 : 0);
+      const sorted = [...hits].sort((a, b) => rank(a) - rank(b));
+      // Readable: 什麼|什么[shen2 me5] -> 什麼 (shénme), in the reader's script.
+      const allDefs = [...new Set(sorted.flatMap((e) => e.defs.map((d) => readableDef(d, trad))))];
+      // A single character's meaning is told the way the character section
+      // tells one (a learner's note for 了 or 吧, asides dropped); a word's
+      // is its first reading's senses. Every sense is under All definitions.
+      const single = [...word].length === 1 && HAN.test(word);
+      const glyph = single ? glyphMeaning(word, said || sorted[0].pinyin, map, { trad }) : null;
       dictResult = {
         word,
-        pronunciation: sorted[0].pinyin,
-        meaning: allDefs.join("; "),
+        pronunciation: glyph?.pinyin || sorted[0].pinyin,
+        meaning: glyph?.meaning || sorted[0].defs.slice(0, 3).map((d) => readableDef(d, trad)).join("; "),
         defs: allDefs,
         source: "dictionary",
       };
@@ -325,17 +636,17 @@ export async function lookupWord(word, lang, context, to = "en") {
     };
   }
 
-  if (dictResult && context && dictResult.defs.length > 1) {
+  // The offline ranker picks which of a word's definitions fits the line.
+  // Only its pick is used: its "explanation" is the offline translator's
+  // rendering of the word on its own — 什麼 and 吧 both came out "What is
+  // it?" — presented as what the word means here, and its reordered list
+  // mixed one reading's senses with another's. A single character's meaning
+  // is already chosen by the transcript's reading (glyphMeaning), so it
+  // isn't asked.
+  if (dictResult && context && dictResult.defs.length > 1 && [...word].length > 1) {
     const ranked = await rankWithContext(word, context, dictResult.defs, lang);
     if (ranked) {
-      return {
-        word,
-        pronunciation: dictResult.pronunciation,
-        meaning: ranked.meaning,
-        explanation: ranked.explanation,
-        defs: ranked.rankedDefs,
-        source: "nllb",
-      };
+      return { ...dictResult, meaning: ranked.meaning || dictResult.meaning, source: "nllb" };
     }
   }
 
@@ -356,6 +667,10 @@ export async function handleLookup(req, res) {
     sendJson(res, 400, { error: "A word is required." });
     return;
   }
-  const result = await lookupWord(word, lang, context, to);
+  // The word's pinyin as the transcript shows it, one syllable per character
+  // ("rěn zhe"): picks each character's reading. Only pinyin gets through.
+  const said = (url.searchParams.get("pinyin") || "").trim();
+  const pinyin = said.length <= 120 && /^[\p{L}\p{M}: ]*$/u.test(said) ? said : "";
+  const result = await lookupWord(word, lang, context, to, pinyin);
   sendJson(res, 200, result);
 }

@@ -90,6 +90,58 @@ def _tune_pinyin():
     load_phrases_dict(PHRASE_OVERRIDES)
 
 
+# 著 is two characters in Simplified: 著 zhù ("to write", 著名 "famous") and
+# 着 (看着 kàn zhe, 睡着 shuì zháo, 着急 zháo jí). Traditional writes both as
+# 著, and pypinyin, whose phrases are Simplified, read every one of them zhù —
+# 看著 "kàn zhù", 忙著 "máng zhù" on every Traditional subtitle. So a 著 that
+# isn't inside one of pypinyin's own 著 words is read as 着.
+_ZHU_WORDS = None
+
+
+def _read_zhu(text):
+    global _ZHU_WORDS
+    if "著" not in text:
+        return text
+    if _ZHU_WORDS is None:
+        from pypinyin.constants import PHRASES_DICT
+
+        # Its list lacks some of the commonest (著名 got zhù only from the
+        # single-character default), so the words Simplified writes with 著
+        # are named too.
+        _ZHU_WORDS = {word for word in PHRASES_DICT if "著" in word} | {
+            "著名", "著作", "著称", "著述", "著者", "著录", "著书", "著有",
+            "显著", "卓著", "昭著", "原著", "土著", "编著", "论著", "巨著",
+            "专著", "名著", "合著", "撰著", "遗著", "拙著", "译著", "大著",
+            "新著", "杰著", "执著", "伟著",
+        }
+    out = list(text)
+    for i, ch in enumerate(text):
+        if ch != "著":
+            continue
+        inside = any(
+            text[a:b] in _ZHU_WORDS
+            for a in range(max(0, i - 3), i + 1)
+            for b in range(max(i + 1, a + 2), min(len(text), a + 4) + 1)
+        )
+        if not inside:
+            out[i] = "着"
+    return "".join(out)
+
+
+def _pinyin_source(run):
+    """The text pypinyin reads for a Han run: Simplified, 著 sorted out.
+
+    pypinyin's phrase dictionary is Simplified, so Traditional text misses
+    the phrases that settle a polyphone: measured on four imported videos, 30
+    of 240 lines read differently in Simplified, every one a correction
+    (覺得 jué de not dé, 彈鋼琴 tán not dàn, 行業 háng not xíng, 愛好 hào not
+    hǎo, 睡覺 jiào not jué). The conversion is character for character, so
+    syllables pair back with the original glyphs.
+    """
+    simplified = _to_simplified(run)
+    return _read_zhu(simplified if simplified and len(simplified) == len(run) else run)
+
+
 def pinyin_tokens(text):
     from pypinyin import Style, pinyin
 
@@ -99,7 +151,7 @@ def pinyin_tokens(text):
         if re.match(f"[{_HAN}]", run):
             # Pass the whole Han run so pypinyin can disambiguate polyphones from
             # context, then pair each syllable back with its character.
-            sylls = pinyin(run, style=Style.TONE, errors="default")
+            sylls = pinyin(_pinyin_source(run), style=Style.TONE, errors="default")
             for ch, syl in zip(run, sylls):
                 tokens.append([ch, syl[0]])
         else:
@@ -138,6 +190,20 @@ def translit_tokens(text):
 #
 # Best-effort like everything else here: if it isn't installed, the frontend
 # still has Intl.Segmenter to fall back on.
+_T2S = None
+
+
+def _opencc():
+    # Built once: a converter loads its dictionaries, and pinyin now asks for
+    # one per run of characters.
+    global _T2S
+    if _T2S is None:
+        from opencc import OpenCC
+
+        _T2S = OpenCC("t2s")
+    return _T2S
+
+
 def _to_simplified(text):
     """Traditional -> Simplified, or None if that can't be done safely here.
 
@@ -148,7 +214,7 @@ def _to_simplified(text):
         from opencc import OpenCC
     except ImportError:
         return None
-    simplified = OpenCC("t2s").convert(text)
+    simplified = _opencc().convert(text)
     # The cuts are mapped back by character count, so anything that changed the
     # length has to be refused — a 1:1 table is the whole premise.
     if simplified == text or len(simplified) != len(text):

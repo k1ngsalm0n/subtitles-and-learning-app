@@ -217,6 +217,24 @@ if (process.env.SKIP_STROKES) {
   ensureStrokeData();
 }
 
+// The full CC-CEDICT (~10 MB, gitignored). Without it the word pop-up has only
+// the 66-entry seed: no definitions, no character breakdown, for nearly every
+// word. Best-effort, like the stroke data.
+if (process.env.SKIP_DICT) {
+  console.log("\n→ SKIP_DICT set — not downloading CC-CEDICT.");
+} else if (existsSync(join(ROOT, "data", "cedict.u8"))) {
+  console.log("\n→ CC-CEDICT already present in data/ — skipping.");
+} else {
+  console.log("\n→ Downloading the CC-CEDICT dictionary…");
+  const dl = spawnSync(process.execPath, [join(ROOT, "scripts", "fetch-cedict.mjs")], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+  if (dl.status !== 0) {
+    console.warn("  ⚠ dictionary download failed — word meanings use the small seed. Re-run `npm run sync` to retry.");
+  }
+}
+
 if (process.env.SKIP_MODELS) {
   console.log("\n→ SKIP_MODELS set — not prefetching Whisper/NLLB.");
 } else {

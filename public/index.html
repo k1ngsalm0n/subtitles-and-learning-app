@@ -1853,8 +1853,8 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   top: 50%;
   transform: translate(-50%, -50%);
   z-index: 100;
-  width: min(340px, calc(100vw - 32px));
-  max-height: 75vh;
+  width: min(380px, calc(100vw - 32px));
+  max-height: 80vh;
   overflow-y: auto;
   padding: 20px 22px;
   animation: bubble-pop 0.15s ease-out;
@@ -1887,7 +1887,7 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .bubble-pron {
   font-size: 14px;
   color: #aaa;
-  margin-bottom: 14px;
+  margin-bottom: 4px;
 }
 :root[data-theme="light"] .bubble-pron { color: #777; }
 .bubble-meaning {
@@ -1903,8 +1903,32 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   margin-bottom: 10px;
 }
 :root[data-theme="light"] .bubble-explanation { color: #555; }
+/* The pop-up's sections: each character, the word, how this video uses it,
+   every definition. A thin rule and a small heading each, so the eye can jump
+   straight to the one it wants. */
+.bubble-section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.bubble-heading {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bubble-section .bubble-meaning,
+.bubble-section .bubble-explanation { margin-bottom: 0; }
+.bubble-chars { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.bubble-chars li { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; }
+.bubble-char { font-size: 26px; font-weight: 700; line-height: 1; }
+.bubble-char-text { display: grid; gap: 1px; }
+.bubble-char-pron { font-size: 13px; }
+.bubble-char-meaning { font-size: 13px; line-height: 1.4; }
 .bubble-dict {
-  margin-bottom: 10px;
+  margin-top: 4px;
 }
 .bubble-dict summary {
   font-size: 12px;
