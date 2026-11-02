@@ -1,5 +1,5 @@
-import { state, setTranslateTo } from "./state.mjs";
-import { parseSubtitle, alignTranslations } from "./subtitle.mjs";
+import { state, setTranslateTo, loadSession, saveSession } from "./state.mjs";
+import { parseSubtitle, alignTranslations, loadSubtitles } from "./subtitle.mjs";
 import { renderTranscript, setElements } from "./ui.mjs";
 import { LANGUAGES, defaultTarget, detectLanguage, languageName } from "./languages.mjs";
 import { api } from "./backend.mjs";
@@ -66,6 +66,24 @@ export function syncTranslateLangs(els, shown = "") {
   if (shown && LANGUAGES.some((l) => l.code === shown)) els.translateTo.value = shown;
   if (!els.translateTo.value) els.translateTo.value = "en";
   if (known && els.translateTo.value === learning) els.translateTo.value = defaultTarget(learning);
+  syncTranslateButton(els);
+}
+
+// The library id of the video on screen, when it is one saved from an import:
+// then the button is Update (server/update.mjs) — check the transcript for
+// misheard words, translate again, and save both — rather than a translation
+// of whatever lines are loaded that's lost on reopening.
+function savedVideo() {
+  return state.sources?.find((s) => s.id === state.currentSourceId)?.libraryId || "";
+}
+
+export function syncTranslateButton(els) {
+  if (!els.translateButton) return;
+  const saved = Boolean(savedVideo());
+  els.translateButton.textContent = saved ? "Update" : "Translate";
+  els.translateButton.title = saved
+    ? "Check the transcript for misheard words, translate it again, and save it"
+    : "";
 }
 
 export function swapLanguages(els) {
@@ -116,8 +134,14 @@ export async function runTranslation(els) {
     return;
   }
 
+  // A saved video is updated in its own language; a From changed by hand is
+  // the plain translation of the lines on screen.
+  const studying = state.learningLang;
   // Word lookups key off the source language, so keep it current.
   state.learningLang = from;
+
+  const id = savedVideo();
+  if (id && from === studying) return runUpdate(els, id, from, to);
 
   els.translateButton.disabled = true;
   setStatus(
@@ -160,4 +184,43 @@ export async function runTranslation(els) {
   } finally {
     els.translateButton.disabled = false;
   }
+}
+
+// Update a saved video: the server re-checks and re-translates its saved
+// transcript and keeps the result, so the page shows exactly what reopening it
+// will. A chat model that doesn't answer leaves the translation as it was
+// (503, with any transcript fixes that did come back) and says why.
+async function runUpdate(els, id, from, to) {
+  const source = state.sources.find((s) => s.libraryId === id);
+  els.translateButton.disabled = true;
+  setStatus(els, "Checking the transcript and translating it again\u2026");
+  try {
+    const res = await api(`/api/update/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.subtitles != null) show(source, data.subtitles, data.translation || "");
+    if (!res.ok) throw new Error(data.error || "The update failed.");
+    const fixed = data.fixes?.length
+      ? `Fixed ${data.fixes.length} misheard ${data.fixes.length === 1 ? "word" : "words"} and translated`
+      : "Translated";
+    const note = engineNote(data.engine);
+    setStatus(els, `${fixed} to ${languageName(to)} again${note ? ` \u2014 ${note}` : ""}. Saved.`);
+  } catch (error) {
+    setStatus(els, error.message);
+  } finally {
+    els.translateButton.disabled = false;
+  }
+}
+
+function show(source, original, translation) {
+  if (source?.id !== state.currentSourceId) return; // another video was opened meanwhile
+  const active = state.activeIndex;
+  loadSubtitles(original, translation);
+  state.activeIndex = Math.min(active, Math.max(0, state.subtitles.length - 1));
+  // What a reload brings back (restoreSession in main.mjs).
+  const session = loadSession();
+  if (session?.sourceId === source.id) saveSession({ ...session, original, translation });
 }

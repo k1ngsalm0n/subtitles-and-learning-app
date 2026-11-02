@@ -142,7 +142,7 @@ def _pinyin_source(run):
     return _read_zhu(simplified if simplified and len(simplified) == len(run) else run)
 
 
-def pinyin_tokens(text):
+def pinyin_tokens(text, every_reading=False):
     from pypinyin import Style, pinyin
 
     _tune_pinyin()
@@ -153,7 +153,16 @@ def pinyin_tokens(text):
             # context, then pair each syllable back with its character.
             sylls = pinyin(_pinyin_source(run), style=Style.TONE, errors="default")
             for ch, syl in zip(run, sylls):
-                tokens.append([ch, syl[0]])
+                if every_reading:
+                    # Every reading, the contextual one first, "|"-joined: for
+                    # checking that a transcript fix sounds like the original
+                    # (transcriptFix.mjs), where pypinyin's context fails on
+                    # Traditional — its phrase table has 睡觉, so 睡覺 reads
+                    # shuì jué.
+                    others = pinyin(ch, style=Style.TONE, heteronym=True, errors="default")[0]
+                    tokens.append([ch, "|".join(dict.fromkeys([syl[0], *others]))])
+                else:
+                    tokens.append([ch, syl[0]])
         else:
             tokens.append([run, ""])
     return tokens
@@ -272,6 +281,9 @@ def get_tokenizer(lang):
 def romanize(req):
     lines = req.get("lines") or []
     tokenize = get_tokenizer(req.get("lang"))
+    if tokenize is pinyin_tokens and req.get("every_reading"):
+        def tokenize(text):
+            return pinyin_tokens(text, every_reading=True)
 
     if tokenize is None:
         out = [[] for _ in lines]

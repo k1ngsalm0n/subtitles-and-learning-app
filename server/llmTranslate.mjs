@@ -118,7 +118,7 @@ export function buildPrompt(from, to) {
 async function askModel(config, prompt, lines) {
   const numbered = lines.map((text, index) => `${index + 1}. ${text}`).join("\n");
   // An OpenAI-compatible API, or Claude through Claude Code (chat.mjs).
-  const content = await chatJson(config, { system: prompt, user: numbered, timeoutMs: TIMEOUT_MS });
+  const content = await chatJson(config, { system: prompt, user: numbered, timeoutMs: TIMEOUT_MS, patient: true });
   return content ? readTranslations(content, lines.length) : null;
 }
 
@@ -136,6 +136,14 @@ export async function llmTranslationAvailable() {
   if (!config) return null;
   const { llm } = await readPrefs();
   return llm !== "off" ? config : null;
+}
+
+// Whether a chat model would have taken this SRT: one is on, and it's within
+// the line ceiling. An offline translation of one that would is worth redoing
+// once the model answers again (retranslate.mjs); one past the ceiling isn't.
+export async function llmCouldTranslate(srt) {
+  const cues = parseCues(srt);
+  return Boolean(cues.length && cues.length <= MAX_LINES && (await llmTranslationAvailable()));
 }
 
 // Returns a translated SRT, or null to mean "use the offline translator".

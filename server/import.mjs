@@ -2,6 +2,7 @@ import { readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,12 +28,15 @@ import { percentOf } from "../public/js/importstream.mjs";
 import { detectLanguage } from "../public/js/languages.mjs";
 import {
   isOffered,
+  languageRow,
   notOfferedMessage,
   toTableCode,
   translationTarget,
 } from "./languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
-import { translateSrtWithLlm } from "./llmTranslate.mjs";
+import { llmCouldTranslate, translateSrtWithLlm } from "./llmTranslate.mjs";
+import { retranslateSoon } from "./retranslate.mjs";
+import { fixTranscriptSrt } from "./transcriptFix.mjs";
 import { onImported } from "./prepare.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
@@ -444,7 +448,12 @@ async function remember(url, result) {
     translationLanguage: result.translationLanguage || "",
     source: result.source || "",
     duration,
+    // The chat model was set up but didn't answer (a rate limit, the daily
+    // cap), so the offline model translated: retranslate.mjs redoes it later.
+    // Not when an uploader's lines are part of it — those stay as written.
+    ...(translatedOffline(result) ? { translatedOffline: true } : {}),
   });
+  if (saved?.translatedOffline) retranslateSoon();
   // With Claude as the chat model, it prepares the new video's words in the
   // background (prepare.mjs); the reader isn't kept waiting for it. Chinese
   // into English only, for now: its prompt asks for pinyin and its line
@@ -485,7 +494,20 @@ export function importInProgress() {
   return importsRunning > 0;
 }
 
-export async function handleImportUrl(req, res) {
+// What one import's translation was made of, for remember(): set by
+// translateSrt and withUploaderTranslation, wherever in the import they run.
+const importTranslation = new AsyncLocalStorage();
+
+function translatedOffline(result) {
+  const made = importTranslation.getStore();
+  return Boolean(result.translation && made?.offline && !made.uploader);
+}
+
+export function handleImportUrl(req, res) {
+  return importTranslation.run({ offline: false, uploader: false }, () => importUrl(req, res));
+}
+
+async function importUrl(req, res) {
   const body = await readJsonBody(req);
   const url = normalizeExternalUrl(body.url);
   // The reader's translation language (the translate bar's target): what the
@@ -581,7 +603,12 @@ export async function handleImportUrl(req, res) {
     if (subtitle) {
       const language = toTableCode(subtitle.lang);
       const target = translationTarget(language, preferred);
-      const subtitles = await toTraditional(subtitle.text, language);
+      let subtitles = await toTraditional(subtitle.text, language);
+      // YouTube's speech-recognition captions mishear like Whisper does; an
+      // uploader's own track is what they meant to write and is left alone.
+      if (subtitle.source === "auto-subtitles") {
+        subtitles = await fixTranscript(subtitles, language, report);
+      }
       // A creator-provided translation (subtitle.translation) is already aligned
       // to the source and is more accurate than machine translation — use it as
       // is. Otherwise fall back to machine translation on the clean source text.
@@ -795,9 +822,10 @@ export async function handleImportUrl(req, res) {
         // No refine pass here: speech was already refined, and caption blocks
         // were paced within their real display windows — a character-count
         // re-timing on top would fabricate different boundaries again.
-        const transcript = await toTraditional(
-          segmentsToSrt(segments, { refine: false }),
+        const transcript = await fixTranscript(
+          await toTraditional(segmentsToSrt(segments, { refine: false }), ocrLanguage),
           ocrLanguage,
+          report,
         );
         // Caption segments carry no timings; only the spoken ones do.
         const words = speechWordsOutsideCaptions(speechWords, segments);
@@ -1414,6 +1442,8 @@ async function withUploaderTranslation(
   target = "en",
 ) {
   if (!uploader) return { subtitles: transcript, translation: await machine() };
+  const made = importTranslation.getStore();
+  if (made) made.uploader = true;
   const cues = language === "zh" ? regridToHuman(transcript, uploader, words) : null;
   if (!cues) {
     return {
@@ -1795,9 +1825,10 @@ function speechWordsOutsideCaptions(words, segments) {
 // Traditional when Chinese), plus a translation into the reader's language.
 async function finishFastTranscription({ language, segments }, report = null, preferred = "") {
   const code = toTableCode(language);
-  const subtitles = await toTraditional(
-    segmentsToSrt(markUnintelligible(segments, code)),
+  const subtitles = await fixTranscript(
+    await toTraditional(segmentsToSrt(markUnintelligible(segments, code)), code),
     code,
+    report,
   );
   const target = translationTarget(code, preferred);
   report?.stage("Translating\u2026");
@@ -1861,6 +1892,35 @@ async function transcribeWithWhisperCli(audioPath, workspace, preferred = "") {
   return { language, target, subtitles, translation };
 }
 
+// Misheard and misread words fixed by the chat model (transcriptFix.mjs), when
+// one is configured: 「我目前沒有出過果」 is 國, and the translation of the
+// wrong one is wrong too, so this runs first. Never fails an import — a
+// problem leaves the transcript as it was heard. A fix may come back in the
+// other script, so Chinese goes through the Traditional conversion again.
+async function fixTranscript(srt, language, report = null) {
+  report?.stage("Checking the transcript for misheard words\u2026");
+  return (await recheckTranscript(srt, language)).srt;
+}
+
+// The same check, with what it changed: also the Update button's first step
+// (update.mjs). Never throws; a failed check returns the transcript as it was.
+export async function recheckTranscript(srt, language) {
+  if (!language || !srt) return { srt, fixes: [] };
+  try {
+    const { srt: fixed, fixes } = await fixTranscriptSrt(srt, language, {
+      placeholder: languageRow(language)?.inaudible || "",
+    });
+    if (!fixes.length) return { srt, fixes };
+    console.log(
+      `Transcript fixes (${language}): ${fixes.map((f) => `#${f.line} ${f.from} \u2192 ${f.to}`).join(" | ")}`,
+    );
+    return { srt: await toTraditional(fixed, language), fixes };
+  } catch (err) {
+    console.warn(`Transcript check skipped (${String(err.message || err).split("\n")[0]})`);
+    return { srt, fixes: [] };
+  }
+}
+
 // The chat model first, when one is configured and switched on — the same
 // order the translate bar uses (translate.mjs). Imports used to go straight to
 // the offline model, so a reader with a key still got its literal readings on
@@ -1876,6 +1936,8 @@ async function translateSrt(srtText, fromCode, toCode = "en") {
   } catch (err) {
     console.warn(`Chat-model translation failed (${fromCode} -> ${toCode}); using the offline model:`, err.message);
   }
+  const made = importTranslation.getStore();
+  if (made && (await llmCouldTranslate(srtText).catch(() => false))) made.offline = true;
   try {
     // Shared worker keeps the model loaded between requests (see
     // translateWorker.mjs); the first call may still pause to download it.

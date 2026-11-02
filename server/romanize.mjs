@@ -12,7 +12,11 @@ const ROMANIZE_SCRIPT = path.join(__dirname, "romanize.py");
 // Chinese lines). The worker answers the same request in a few ms.
 const worker = createPyWorker({ name: "romanize", script: ROMANIZE_SCRIPT });
 
-async function romanizeOnce(lang, lines, request = { lang, lines }) {
+async function romanizeOnce(lang, lines) {
+  return romanizeOnceWith({ lang, lines });
+}
+
+async function romanizeOnceWith(request) {
   const result = await runCommand(PYTHON_BIN, [ROMANIZE_SCRIPT], {
     timeoutMs: 60_000,
     input: JSON.stringify(request),
@@ -48,9 +52,24 @@ export async function handleRomanize(req, res) {
   }
 }
 
+// Pronunciation tokens for lines, for server-side callers (transcriptFix.mjs
+// checks that a corrected Chinese character sounds like the one it replaces).
+// Null when romanization isn't available, so the caller can skip its check.
+// `everyReading`: each Chinese character's pron is all its readings,
+// "|"-joined, the contextual one first.
+export async function romanizeLines(lang, lines, { everyReading = false } = {}) {
+  const request = { lang, lines, every_reading: everyReading };
+  try {
+    const data = await worker.request(request).catch(() => romanizeOnceWith(request));
+    return Array.isArray(data.tokens) && data.tokens.length === lines.length ? data.tokens : null;
+  } catch {
+    return null;
+  }
+}
+
 // The whole answer for server code: { tokens, words, freqs? } for `lines`.
 // `frequencies` adds each word's count in jieba's dictionary (Chinese only).
 export async function romanizeWords(lang, lines, { frequencies = false } = {}) {
   const request = { lang, lines, ...(frequencies ? { frequencies: true } : {}) };
-  return worker.request(request).catch(() => romanizeOnce(lang, lines, request));
+  return worker.request(request).catch(() => romanizeOnceWith(request));
 }

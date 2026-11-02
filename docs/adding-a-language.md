@@ -146,6 +146,7 @@ Only what the language needs:
 | Hallucination phrases | `HALLUCINATION_RE` in `server/captions.mjs` | Whisper invents credits/outros in this language |
 | Voice | a piper `.onnx` voice in `~/.local/share/stele/voices` | for a better voice than espeak-ng |
 | Claude preparation | `onImported` call in `server/import.mjs`, prompt in `server/prepare.mjs` | today only Chinese→English videos are prepared: the prompt asks for pinyin and writes English line fixes |
+| Transcript check | `HINTS` in `server/transcriptFix.mjs`, cases in `scripts/transcript_fix_cases.json` | always: add the language's common sound-alikes to the hint (examples *not* in the cases), add a dozen cases with a few correct-but-colloquial controls, and put `node scripts/transcript_fix_eval.mjs --language xx` in the PR. A Latin, Cyrillic or Greek script gets the spelled-alike check automatically; another script gets only the size check, so measure its false alarms before relying on it |
 | Dictionary | `lookupWord` in `server/lookup.mjs` | a local dictionary exists (CC-CEDICT is Chinese→English only; others use the chat model, then the offline translator) |
 
 Things that are Chinese-only on purpose and stay so: pinyin and tone colours,

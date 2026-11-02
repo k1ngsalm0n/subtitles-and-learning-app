@@ -45,7 +45,7 @@ test("the SVG is black on white with a quiet zone, whatever the theme", () => {
 const zbar = spawnSync("zbarimg", ["--version"]).status === 0;
 test("a separate decoder (zbarimg) reads back exactly what was encoded", { skip: !zbar && "zbarimg not installed" }, () => {
   const dir = mkdtempSync(join(tmpdir(), "stele-qr-"));
-  const texts = ["https://swagalicious.taila41e36.ts.net/", "https://例子.測試/你好?q=我多喜歡你"];
+  const texts = ["https://my-laptop.tail0000.ts.net/", "https://例子.測試/你好?q=我多喜歡你"];
   for (const n of [1, 60, 200, 700, 1400]) texts.push("https://x.ts.net/" + "abc".repeat(n));
   let i = 0;
   for (const level of ["L", "M", "Q", "H"]) {

@@ -1,0 +1,860 @@
+{
+ "about": "Cases for scripts/transcript_fix_eval.mjs. Each case is a stretch of machine-made transcript. `fix` maps a 0-based line index to the answers that count as right; every other line must come back unchanged. `real` cases are actual Stele imports, kept as imported.",
+ "cases": [
+  {
+   "id": "zh-guo-country",
+   "language": "zh",
+   "lines": [
+    "你最喜歡的國家是哪個?除了中國?",
+    "我喜歡瑞士",
+    "那你有沒有去過瑞士?",
+    "暫時還沒有去過",
+    "那你去過哪些國家?",
+    "我目前沒有出過果",
+    "那你的愛好是什麼"
+   ],
+   "fix": {
+    "5": [
+     "我目前沒有出過國"
+    ]
+   }
+  },
+  {
+   "id": "zh-shuijiao",
+   "language": "zh",
+   "lines": [
+    "那你每天什麼時候睡覺",
+    "我最近睡的比較早",
+    "大概晚上十一點就水餃了",
+    "哇，好健康"
+   ],
+   "fix": {
+    "2": [
+     "大概晚上十一點就睡覺了"
+    ]
+   },
+   "allowChanged": [
+    1
+   ]
+  },
+  {
+   "id": "zh-zaijian",
+   "language": "zh",
+   "lines": [
+    "好，那今天就先到這裡",
+    "謝謝大家收看",
+    "我們下次在見"
+   ],
+   "fix": {
+    "2": [
+     "我們下次再見"
+    ]
+   }
+  },
+  {
+   "id": "zh-yijing",
+   "language": "zh",
+   "lines": [
+    "你吃飯了嗎？",
+    "我以經吃過了",
+    "吃了什麼？",
+    "就吃了一碗牛肉麵"
+   ],
+   "fix": {
+    "1": [
+     "我已經吃過了"
+    ]
+   }
+  },
+  {
+   "id": "zh-jichang",
+   "language": "zh",
+   "lines": [
+    "你明天幾點的飛機？",
+    "早上八點的",
+    "那我們要提前兩個小時到雞場",
+    "對，不然會來不及"
+   ],
+   "fix": {
+    "2": [
+     "那我們要提前兩個小時到機場"
+    ]
+   }
+  },
+  {
+   "id": "zh-yisheng",
+   "language": "zh",
+   "lines": [
+    "你怎麼了？臉色不太好",
+    "我好像感冒了，頭很痛",
+    "那你要不要去看一生？",
+    "下午再去吧"
+   ],
+   "fix": {
+    "2": [
+     "那你要不要去看醫生？"
+    ]
+   }
+  },
+  {
+   "id": "zh-laoshi",
+   "language": "zh",
+   "lines": [
+    "你們明天有考試嗎？",
+    "有啊，我們的老是說要考第三課",
+    "那你準備好了嗎？"
+   ],
+   "fix": {
+    "1": [
+     "有啊，我們的老師說要考第三課"
+    ]
+   }
+  },
+  {
+   "id": "zh-tianqi",
+   "language": "zh",
+   "lines": [
+    "今天天起很好",
+    "我們去公園走走吧",
+    "好啊，順便買杯咖啡"
+   ],
+   "fix": {
+    "0": [
+     "今天天氣很好"
+    ]
+   }
+  },
+  {
+   "id": "zh-lanqiu",
+   "language": "zh",
+   "lines": [
+    "你喜歡什麼運動？",
+    "我喜歡打藍球",
+    "你一個禮拜打幾次？",
+    "兩三次吧"
+   ],
+   "fix": {
+    "1": [
+     "我喜歡打籃球"
+    ]
+   }
+  },
+  {
+   "id": "zh-gongsi",
+   "language": "zh",
+   "lines": [
+    "你今天怎麼這麼早出門？",
+    "我要先去公式開會",
+    "開完會呢？",
+    "下午還要去見客戶"
+   ],
+   "fix": {
+    "1": [
+     "我要先去公司開會"
+    ]
+   }
+  },
+  {
+   "id": "zh-qizhong",
+   "language": "zh",
+   "lines": [
+    "這三家餐廳你都去過嗎？",
+    "去過，我最喜歡的是期中一家",
+    "哪一家？",
+    "巷子口那家"
+   ],
+   "fix": {
+    "1": [
+     "去過，我最喜歡的是其中一家"
+    ]
+   }
+  },
+  {
+   "id": "zh-fangling",
+   "language": "zh",
+   "lines": [
+    "你姓什麼？",
+    "我姓高。",
+    "高小姐你好",
+    "請問你今年芳琳?",
+    "二十一。"
+   ],
+   "fix": {
+    "3": [
+     "請問你今年芳齡?"
+    ]
+   }
+  },
+  {
+   "id": "zh-yuanlin",
+   "language": "zh",
+   "lines": [
+    "那你中國最喜歡的城市是哪個?",
+    "我覺得我最喜歡的就是蘇州",
+    "為什麼?",
+    "因為這裡是生活養我的地方",
+    "我覺得很美,也是圓林之城"
+   ],
+   "fix": {
+    "4": [
+     "我覺得很美,也是園林之城"
+    ]
+   }
+  },
+  {
+   "id": "zh-tangzhe",
+   "language": "zh",
+   "lines": [
+    "那你喜歡運動嗎",
+    "我不喜歡運動",
+    "那你平時就刷手機",
+    "對 我平時就是喜歡燙著 刷手機"
+   ],
+   "fix": {
+    "3": [
+     "對 我平時就是喜歡躺著 刷手機"
+    ]
+   }
+  },
+  {
+   "id": "zh-congshi-missing",
+   "language": "zh",
+   "lines": [
+    "但是目前的話沒有想做這個專業的想法",
+    "那你以後工作的話是想從什麼行業",
+    "我覺得都可以吧"
+   ],
+   "fix": {
+    "1": [
+     "那你以後工作的話是想從事什麼行業"
+    ]
+   }
+  },
+  {
+   "id": "zh-two-errors",
+   "language": "zh",
+   "lines": [
+    "你是那裡人？",
+    "我是從太灣來的",
+    "台灣哪裡？",
+    "台南",
+    "台南的小吃很有名",
+    "對啊，我最喜歡吃販的時候去夜市"
+   ],
+   "fix": {
+    "1": [
+     "我是從台灣來的"
+    ],
+    "5": [
+     "對啊，我最喜歡吃飯的時候去夜市"
+    ]
+   },
+   "allowChanged": [
+    0
+   ]
+  },
+  {
+   "id": "zh-control-filler",
+   "language": "zh",
+   "lines": [
+    "就是說那個那個我覺得還行吧",
+    "嗯嗯",
+    "然後就，就那樣子",
+    "你懂我意思嗎"
+   ],
+   "fix": {}
+  },
+  {
+   "id": "zh-control-taiwan",
+   "language": "zh",
+   "lines": [
+    "你有吃飯嗎？",
+    "有啊，我有吃",
+    "我跟你講喔，這個真的很好吃",
+    "幹嘛啦你"
+   ],
+   "fix": {}
+  },
+  {
+   "id": "zh-control-speaker-grammar",
+   "language": "zh",
+   "lines": [
+    "你昨天做了什麼？",
+    "我昨天去了超市買了東西了",
+    "然後就回家睡覺",
+    "超累的欸"
+   ],
+   "fix": {}
+  },
+  {
+   "id": "zh-control-short",
+   "language": "zh",
+   "lines": [
+    "你有多高?",
+    "我163。",
+    "你有兄弟姐妹嗎?",
+    "我是獨生女"
+   ],
+   "fix": {}
+  },
+  {
+   "id": "zh-control-names",
+   "language": "zh",
+   "lines": [
+    "你去過歐洲嗎？",
+    "去過，我去過巴黎跟布魯塞爾",
+    "比利時的巧克力很好吃",
+    "我還想去布拉格"
+   ],
+   "fix": {}
+  },
+  {
+   "id": "zh-control-simplified",
+   "language": "zh",
+   "lines": [
+    "你最喜欢的水果是什么",
+    "我喜欢吃草莓",
+    "那你喜欢喝饮料吗",
+    "我喜欢喝奶茶"
+   ],
+   "fix": {}
+  },
+  {
+   "id": "zh-simplified-error",
+   "language": "zh",
+   "lines": [
+    "那你去过哪些国家?",
+    "我目前没有出过果",
+    "那你的爱好是什么"
+   ],
+   "fix": {
+    "1": [
+     "我目前没有出过国"
+    ]
+   }
+  },
+  {
+   "id": "zh-control-xiang",
+   "language": "zh",
+   "lines": [
+    "沒事,那你除了英語還會說什麼別的外語嗎?",
+    "我其他的,",
+    "像日語什麼我都只會一點我不精通",
+    "那已經超越了很多人了"
+   ],
+   "fix": {}
+  },
+  {
+   "id": "en-buy",
+   "language": "en",
+   "lines": [
+    "My phone is so slow now.",
+    "I'm going to by a new one next week.",
+    "Which one are you getting?"
+   ],
+   "fix": {
+    "1": [
+     "I'm going to buy a new one next week."
+    ]
+   }
+  },
+  {
+   "id": "en-theyre",
+   "language": "en",
+   "lines": [
+    "Where are Tom and Lisa?",
+    "Their going to be late, the traffic is terrible.",
+    "Okay, let's start without them."
+   ],
+   "fix": {
+    "1": [
+     "They're going to be late, the traffic is terrible."
+    ]
+   }
+  },
+  {
+   "id": "en-weather",
+   "language": "en",
+   "lines": [
+    "How was your trip?",
+    "Amazing. We went to the beach and the whether was perfect.",
+    "Lucky you."
+   ],
+   "fix": {
+    "1": [
+     "Amazing. We went to the beach and the weather was perfect."
+    ]
+   }
+  },
+  {
+   "id": "en-here",
+   "language": "en",
+   "lines": [
+    "Can you pass me the salt?",
+    "Sure, hear you go.",
+    "Thanks."
+   ],
+   "fix": {
+    "1": [
+     "Sure, here you go."
+    ]
+   }
+  },
+  {
+   "id": "en-beatles",
+   "language": "en",
+   "lines": [
+    "What kind of music do you like?",
+    "Mostly old stuff. My favourite band is the beetles.",
+    "Which album?",
+    "Abbey Road, definitely."
+   ],
+   "fix": {
+    "1": [
+     "Mostly old stuff. My favourite band is the Beatles.",
+     "Mostly old stuff. My favourite band is The Beatles."
+    ]
+   }
+  },
+  {
+   "id": "en-shift",
+   "language": "en",
+   "lines": [
+    "Where do you work?",
+    "At the hospital, I'm a nurse.",
+    "This month I'm working the night shirt, so I sleep all day."
+   ],
+   "fix": {
+    "2": [
+     "This month I'm working the night shift, so I sleep all day."
+    ]
+   }
+  },
+  {
+   "id": "en-meat",
+   "language": "en",
+   "lines": [
+    "Should we get burgers for dinner?",
+    "She's a vegetarian, so she doesn't eat meet.",
+    "Oh, pizza then?"
+   ],
+   "fix": {
+    "1": [
+     "She's a vegetarian, so she doesn't eat meat."
+    ]
+   }
+  },
+  {
+   "id": "en-weight",
+   "language": "en",
+   "lines": [
+    "How was the check-up?",
+    "Fine, but the doctor said I need to lose wait.",
+    "Join my gym, then."
+   ],
+   "fix": {
+    "1": [
+     "Fine, but the doctor said I need to lose weight."
+    ]
+   }
+  },
+  {
+   "id": "en-week",
+   "language": "en",
+   "lines": [
+    "You look exhausted.",
+    "I've been studying for the exam all weak.",
+    "When is it?",
+    "Friday."
+   ],
+   "fix": {
+    "1": [
+     "I've been studying for the exam all week."
+    ]
+   }
+  },
+  {
+   "id": "en-hear",
+   "language": "en",
+   "lines": [
+    "Hey, can you turn it down?",
+    "What?",
+    "I can't here you, the music is too loud!"
+   ],
+   "fix": {
+    "2": [
+     "I can't hear you, the music is too loud!"
+    ]
+   }
+  },
+  {
+   "id": "en-should-have",
+   "language": "en",
+   "lines": [
+    "The tickets sold out in five minutes.",
+    "I should of bought them yesterday.",
+    "Next time."
+   ],
+   "fix": {
+    "1": [
+     "I should've bought them yesterday.",
+     "I should have bought them yesterday."
+    ]
+   }
+  },
+  {
+   "id": "en-bored",
+   "language": "en",
+   "lines": [
+    "What are you doing?",
+    "Nothing, I'm so board.",
+    "Want to go for a walk?"
+   ],
+   "fix": {
+    "1": [
+     "Nothing, I'm so bored."
+    ]
+   }
+  },
+  {
+   "id": "en-control-filler",
+   "language": "en",
+   "lines": [
+    "So, like, I wanna grab a coffee, you know?",
+    "Yeah, um, yeah, sure.",
+    "It's been a long day, honestly."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "en-control-dialect",
+   "language": "en",
+   "lines": [
+    "Me and him was going to the store.",
+    "I seen it yesterday, it was huge.",
+    "Ain't nobody got time for that."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "en-control-names",
+   "language": "en",
+   "lines": [
+    "We're going to Ireland for Christmas.",
+    "We'll see my grandmother in Dublin.",
+    "Then a few days in Galway."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "en-control-plain",
+   "language": "en",
+   "lines": [
+    "Let me know if you have any questions.",
+    "We'll be happy to help.",
+    "Have a great day."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "en-control-fragments",
+   "language": "en",
+   "lines": [
+    "And then he—",
+    "No, wait, wait.",
+    "Okay. So. The thing is."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "es-a-ver",
+   "language": "es",
+   "lines": [
+    "¿Ya llegó el paquete?",
+    "No sé, vamos haber qué pasa mañana.",
+    "Vale."
+   ],
+   "fix": {
+    "1": [
+     "No sé, vamos a ver qué pasa mañana."
+    ]
+   }
+  },
+  {
+   "id": "es-he-hecho",
+   "language": "es",
+   "lines": [
+    "¿Hiciste la tarea?",
+    "Sí, ya la e hecho.",
+    "Muy bien."
+   ],
+   "fix": {
+    "1": [
+     "Sí, ya la he hecho."
+    ]
+   }
+  },
+  {
+   "id": "es-hay-que",
+   "language": "es",
+   "lines": [
+    "¿Cuánto falta para el autobús?",
+    "No sé, ay que esperar un rato.",
+    "Qué lata."
+   ],
+   "fix": {
+    "1": [
+     "No sé, hay que esperar un rato."
+    ]
+   }
+  },
+  {
+   "id": "es-cazar",
+   "language": "es",
+   "lines": [
+    "¿Qué hace tu padre los domingos?",
+    "Se va al campo a casar conejos con mi tío.",
+    "¿Y tú vas con ellos?"
+   ],
+   "fix": {
+    "1": [
+     "Se va al campo a cazar conejos con mi tío."
+    ]
+   }
+  },
+  {
+   "id": "es-banco",
+   "language": "es",
+   "lines": [
+    "¿A dónde vas?",
+    "Tengo que ir al vanco a sacar dinero.",
+    "Te acompaño."
+   ],
+   "fix": {
+    "1": [
+     "Tengo que ir al banco a sacar dinero."
+    ]
+   }
+  },
+  {
+   "id": "es-veinte",
+   "language": "es",
+   "lines": [
+    "¿Tienes hermanos?",
+    "Sí, un hermano. Tiene beinte años.",
+    "¿Y estudia?"
+   ],
+   "fix": {
+    "1": [
+     "Sí, un hermano. Tiene veinte años."
+    ]
+   }
+  },
+  {
+   "id": "es-vino",
+   "language": "es",
+   "lines": [
+    "¿Viste a Carlos?",
+    "Sí, él bino ayer a mi casa.",
+    "¿Y qué te dijo?"
+   ],
+   "fix": {
+    "1": [
+     "Sí, él vino ayer a mi casa."
+    ]
+   }
+  },
+  {
+   "id": "es-tuvo",
+   "language": "es",
+   "lines": [
+    "¿Por qué no vino Marta?",
+    "El martes tubo un accidente con el coche.",
+    "¡No! ¿Está bien?"
+   ],
+   "fix": {
+    "1": [
+     "El martes tuvo un accidente con el coche."
+    ]
+   }
+  },
+  {
+   "id": "es-vaya",
+   "language": "es",
+   "lines": [
+    "Te traje un regalo.",
+    "Valla, qué sorpresa.",
+    "Ábrelo."
+   ],
+   "fix": {
+    "1": [
+     "Vaya, qué sorpresa."
+    ]
+   }
+  },
+  {
+   "id": "es-control-slang",
+   "language": "es",
+   "lines": [
+    "Oye, ¿vienes a la fiesta?",
+    "Pos no sé, la neta estoy cansado.",
+    "Ándale, no seas así."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "es-control-andalusian",
+   "language": "es",
+   "lines": [
+    "Fuimos a ver a los abuelos a Sevilla.",
+    "Y comimos un pescaíto frito buenísimo.",
+    "Qué arte tiene tu abuela."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "es-control-echo",
+   "language": "es",
+   "lines": [
+    "¿Cómo te va en Madrid?",
+    "Bien, pero echo de menos a mi familia.",
+    "Es normal."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "es-control-latam",
+   "language": "es",
+   "lines": [
+    "Necesito llevar el carro al taller.",
+    "La luz del aceite está prendida.",
+    "Ahorita te acompaño."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "es-control-plain",
+   "language": "es",
+   "lines": [
+    "Hola, ¿cómo estás?",
+    "Bien, gracias, ¿y tú?",
+    "Pues aquí andamos, ya sabes."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "real-streettalk-ep1",
+   "language": "zh",
+   "real": true,
+   "note": "YCIFNPMu0hs, imported 2026-10-23 (OCR before PP-OCRv6), first 78 lines.",
+   "lines": [
+    "藝玉石 你好。。。你好",
+    "你姓什麼？",
+    "我姓高。",
+    "高小姐你好,請問你今年芳琳? 二十一。",
+    "那你是已經工作了還是還在上學",
+    "畢業還沒有找工作",
+    "那你大學學的專業是什麼",
+    "學的是學前教育",
+    "學前教育那以後是想做老師嗎",
+    "也有可能會改行",
+    "那你喜歡你的專業嗎",
+    "我覺得挺喜歡的",
+    "但是目前的話沒有想做這個專業的想法",
+    "那你以後工作的話是想從什麼行業",
+    "我覺得都可以吧,我現在平感覺,做什麼都可以",
+    "你是哪裡人?",
+    "我就是蘇州本地人",
+    "那你中國最喜歡的城市是哪個?",
+    "我覺得我最喜歡的就是蘇州",
+    "為什麼?",
+    "因為這裡是生活養我的地方",
+    "我覺得很美,也是圓林之城",
+    "那你會說英語嗎?",
+    "我說的不太好,說的不太好",
+    "沒事,那你除了英語還會說什麼別的外語嗎?",
+    "我其他的,",
+    "像日語什麼我都只會一點我不精通都不能達到完全跟外國人就是交流的水平",
+    "那已經超越了很多人了,其他很多人都不會",
+    "你有多高?",
+    "我163。",
+    "你有兄弟姐妹嗎?",
+    "我是獨生女",
+    "你最喜歡的動物是什麼?",
+    "我喜歡小狗小兔子",
+    "那你有養這些小動物嗎?",
+    "以前養過小兔子然後現在不養了",
+    "那你以後還會想要養這些小兔子或者小狗之類的嗎?",
+    "我以後還會養小狗小貓這些小動物",
+    "你最喜歡的國家是哪個?除了中國?",
+    "除了中國。",
+    "我喜歡瑞士",
+    "那你有沒有去過瑞士?",
+    "暫時還沒有去過",
+    "那你去過哪些國家?",
+    "我目前沒有出過果",
+    "那你的愛好是什麼",
+    "那你的愛好是什麼？",
+    "我的愛好就是刷手機",
+    "你最喜歡的水果是什麼",
+    "我喜歡吃草莓",
+    "那你喜歡喝飲料嗎",
+    "我喜歡喝奶茶",
+    "所有的飲料 甜的東西我都喜歡吃",
+    "很有品味",
+    "我也喜歡吃甜的",
+    "你最喜歡的食物是什麼",
+    "除了那些甜食以外",
+    "我喜歡吃意大利麵",
+    "那是很好吃",
+    "你每天幾點起床",
+    "我最近的話天天早上6點鐘就起床了",
+    "那麼早",
+    "是要上課嗎",
+    "沒有",
+    "就是想讓自己早點起來",
+    "不要就是睡到中午",
+    "那很有意義",
+    "那你每天什麼時候睡覺",
+    "我最近睡的比較早",
+    "大概晚上10點11點就睡了",
+    "哇 好健康 特別好",
+    "那你喜歡運動嗎",
+    "我不喜歡運動",
+    "那你平時就刷手機",
+    "對 我平時就是喜歡燙著 刷手機",
+    "好 那你每天早上起來的第一件事是做什麼",
+    "打開手機 看手機",
+    "好 新鮮人類"
+   ],
+   "fix": {
+    "3": [
+     "高小姐你好,請問你今年芳齡? 二十一。"
+    ],
+    "13": [
+     "那你以後工作的話是想從事什麼行業"
+    ],
+    "14": [
+     "我覺得都可以吧,我現在憑感覺,做什麼都可以"
+    ],
+    "21": [
+     "我覺得很美,也是園林之城"
+    ],
+    "44": [
+     "我目前沒有出過國"
+    ],
+    "74": [
+     "對 我平時就是喜歡躺著 刷手機"
+    ],
+    "77": [
+     "好 新新人類"
+    ]
+   },
+   "allowChanged": [
+    0,
+    20,
+    68
+   ]
+  }
+ ]
+}
