@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cardRepair } from "../public/js/cardrepair.mjs";
+import { cardRepair, sentenceRepair, completeSentences, needsSentence } from "../public/js/cardrepair.mjs";
 
 test("a card saved with no meaning or reading gets the dictionary's", () => {
   const gloss = { pinyin: "nài xīn", meaning: "to be patient; patience", readings: ["nài xīn"] };
@@ -19,9 +19,7 @@ test("a card saved with no meaning or reading gets the dictionary's", () => {
 test("a reading that is none of the word's is replaced; a right one in another spelling is kept", () => {
   const gloss = { pinyin: "jiāo liú", meaning: "to exchange", readings: ["jiāo liú"] };
   assert.deepEqual(cardRepair({ word: "交流", pinyin: "liú jiāo", translation: "exchange" }, gloss), { pinyin: "jiāo liú" });
-  assert.equal(cardRepair({ word: "交流", pinyin: "jiāoliú", translation: "exchange" }, gloss), null);
-  const shuiping = { pinyin: "shuǐ píng", meaning: "level", readings: ["shuǐ píng"] };
-  assert.equal(cardRepair({ word: "水平", pinyin: "shuǐpíng", translation: "level" }, shuiping), null);
+  assert.equal(cardRepair({ word: "交流", pinyin: "Jiāo Liú", translation: "exchange" }, gloss), null);
 });
 
 test("a word the dictionary only pieces together keeps the card's own reading", () => {
@@ -97,4 +95,49 @@ test("a line corrected by a character since the card was saved is still its line
   const card = { example: "像日語什麼我都只會一點我不精通都不能達到完全跟外國人就是交流的水平", sourceTime: 86 };
   assert.equal(lineOfCard(card, cues).start, 87.16);
   assert.equal(lineOfCard({ example: "也有可能會轉行", sourceTime: 39 }, cues), null, "too short to allow a difference");
+});
+
+// ---- Sentences completed ----------------------------------------------------
+
+test("run-together pinyin gets the dictionary's spaces", () => {
+  const gloss = { pinyin: "shuǐ píng", readings: ["shuǐ píng"], meaning: "level" };
+  assert.deepEqual(cardRepair({ word: "水平", pinyin: "shuǐpíng", translation: "level" }, gloss), { pinyin: "shuǐ píng" });
+  assert.equal(cardRepair({ word: "水平", pinyin: "shuǐ píng", translation: "level" }, gloss), null);
+});
+
+test("a sentence cut short takes its whole line and that line's translation", () => {
+  const card = { word: "耐心", example: "耐心 請你等著瞧", exampleTranslation: "", examplePinyin: "" };
+  const cue = { start: 65.87, end: 70.26, text: "我多耐心 請你等著瞧" };
+  const sense = { start: 65.87, end: 70.26, text: "♫ Please wait and see how patient I am. ♫" };
+  assert.deepEqual(sentenceRepair(card, cue, sense), {
+    example: "我多耐心 請你等著瞧",
+    examplePinyin: "",
+    exampleTranslation: "Please wait and see how patient I am.",
+  });
+});
+
+test("a whole sentence only gets the translation it was missing", () => {
+  const card = { word: "詞彙", example: "用真實對話學習，會讓詞彙更容易記住。", exampleTranslation: "" };
+  const cue = { start: 0, end: 3.2, text: "用真實對話學習，會讓詞彙更容易記住。" };
+  const sense = { start: 0, end: 3.2, text: "Learning with real conversations makes vocabulary easier to remember." };
+  assert.deepEqual(sentenceRepair(card, cue, sense), { exampleTranslation: sense.text });
+  assert.equal(sentenceRepair({ ...card, exampleTranslation: "Mine." }, cue, sense), null);
+});
+
+test("cards with no video are completed from the sample lesson, and checked once", async () => {
+  const sample = {
+    subtitles: "1\n00:00:00,000 --> 00:00:03,200\n用真實對話學習，會讓詞彙更容易記住。",
+    translation: "1\n00:00:00,000 --> 00:00:03,200\nLearning with real conversations makes vocabulary easier to remember.",
+  };
+  const card = { word: "詞彙", example: "用真實對話學習，會讓詞彙更容易記住。", examplePinyin: "yòng …", sourceId: null, frontFields: [], backFields: [] };
+  assert.equal(await completeSentences([card], [], async () => null, { sample }), 1);
+  assert.match(card.exampleTranslation, /vocabulary/);
+  assert.equal(card.sentenceChecked, true);
+  assert.equal(needsSentence(card), false);
+});
+
+test("a card whose video is gone is left for relinking", async () => {
+  const card = { word: "耐心", example: "耐心", examplePinyin: "x", sourceId: "gone", frontFields: [], backFields: [] };
+  assert.equal(await completeSentences([card], [], async () => null, {}), 0);
+  assert.equal(card.sentenceChecked, undefined);
 });
