@@ -27,13 +27,6 @@ async function romanizeOnce(lang, lines, request = { lang, lines }) {
 // cuts the same line into clickable words, which for Chinese is a different
 // boundary. Best-effort: any failure yields empty lists so the page never
 // breaks.
-// The same answer for server code: { tokens, words, freqs? } for `lines`.
-// `frequencies` adds each word's count in jieba's dictionary (Chinese only).
-export async function romanizeLines(lang, lines, { frequencies = false } = {}) {
-  const request = { lang, lines, ...(frequencies ? { frequencies: true } : {}) };
-  return worker.request(request).catch(() => romanizeOnce(lang, lines, request));
-}
-
 export async function handleRomanize(req, res) {
   const body = await readJsonBody(req);
   const lang = String(body.language || body.lang || "").trim();
@@ -53,4 +46,11 @@ export async function handleRomanize(req, res) {
     console.error("Romanize failed:", err.message);
     sendJson(res, 200, { tokens: [], words: [] });
   }
+}
+
+// The whole answer for server code: { tokens, words, freqs? } for `lines`.
+// `frequencies` adds each word's count in jieba's dictionary (Chinese only).
+export async function romanizeWords(lang, lines, { frequencies = false } = {}) {
+  const request = { lang, lines, ...(frequencies ? { frequencies: true } : {}) };
+  return worker.request(request).catch(() => romanizeOnce(lang, lines, request));
 }
