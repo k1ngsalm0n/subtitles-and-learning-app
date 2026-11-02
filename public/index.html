@@ -982,6 +982,49 @@ rt {
 /* A grid item's default min-width is its content, so a long deck name or a row
    of grade buttons can push a pane wider than the track it sits in. */
 .cards-layout > * { min-width: 0; }
+/* Side by side, each pane scrolls on its own: a long card list used to drag
+   the deck list and the card under review up off the screen with it. Each pane
+   is pinned under the topbar and capped to the window; inside, the deck list
+   and the card list scroll while their headings (and the search box) stay put.
+   The review pane scrolls whole — the card and its grade buttons are one unit.
+   Only the deck column gets this at two columns, where review and browse stack
+   in one column and share the page's scroll. */
+@media (min-width: 901px) {
+  .deck-sidebar {
+    position: sticky;
+    top: calc(var(--topbar-h) + 20px);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - var(--topbar-h) - 40px);
+    max-height: calc(100dvh - var(--topbar-h) - 40px);
+  }
+  .deck-nav {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-content: start; /* a grid taller than its rows would stretch them */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+@media (min-width: 1251px) {
+  .review-panel, .card-panel {
+    position: sticky;
+    top: calc(var(--topbar-h) + 20px);
+    max-height: calc(100vh - var(--topbar-h) - 40px);
+    max-height: calc(100dvh - var(--topbar-h) - 40px);
+  }
+  .review-panel { overflow-y: auto; overscroll-behavior: contain; }
+  .card-panel { display: flex; flex-direction: column; }
+  .card-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-content: start;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
 /* Settings: a wheel of page names parked in the middle of the window, and one
    page at a time beside it. Nothing in here is boxed — the wheel has no surface
    of its own and the panels drop their frame — so it reads as a single sheet
