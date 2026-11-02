@@ -58,6 +58,10 @@ MODEL_NAME = "facebook/nllb-200-distilled-600M"
 OPUS_ROUTES = {
     ("zh", "en"): {"model": "Helsinki-NLP/opus-mt-zh-en"},
     ("en", "zh"): {"model": "Helsinki-NLP/opus-mt-en-zh", "token": "cmn_Hant"},
+    # Spanish. Both single-target (eng, spa), so no token. FLORES chrF++,
+    # 100 sentences, against NLLB: see the Spanish PR.
+    ("es", "en"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-roa-en"},
+    ("en", "es"): {"model": "Helsinki-NLP/opus-mt-tc-big-en-es"},
 }
 OPUS_ZH_EN = OPUS_ROUTES[("zh", "en")]["model"]
 OPUS_EN_ZH = OPUS_ROUTES[("en", "zh")]["model"]

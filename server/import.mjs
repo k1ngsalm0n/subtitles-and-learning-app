@@ -539,6 +539,11 @@ export async function handleImportUrl(req, res) {
     report.stage("Reading the link\u2026");
     const meta = await getMediaMeta(url.href);
     let origBase = baseLang(meta.language);
+    // YouTube already says what was spoken. Refuse here, not after a
+    // download and a Whisper run that can only end in the same refusal: a
+    // 42-minute Spanish video cost minutes of both before saying "Spanish".
+    const refused = refusedUpFront(meta);
+    if (refused) throw notOfferedError(refused);
     report.stage("Downloading the video\u2026");
     const videoPath = await downloadVideo(url.href, {
       // Says so rather than narrating a download that isn't happening \u2014 the
@@ -1575,6 +1580,22 @@ async function runWhisper(baseArgs, opts) {
 // flags) is refused with a message naming what can be studied, instead of
 // being transcribed into a pipeline nobody has checked for it. HTTP 422 so the
 // server's error handler returns the message verbatim to the client.
+// The language to refuse before downloading anything, or "" to go on. Only
+// when two of YouTube's own answers agree: the metadata's language and its
+// speech recognition (the "<lang>-orig" track, made from the audio). One alone
+// can be wrong — metadata is often missing or set by hand — and then the audio
+// still decides later, as before. A human-made track in a language Stele can
+// study keeps the import going too: a Spanish song with the uploader's
+// Chinese lyrics is Chinese study material (studyBase).
+export function refusedUpFront(meta) {
+  const declared = baseLang(meta.language);
+  if (!declared || isOffered(toTableCode(declared))) return "";
+  const heard = meta.auto.filter((k) => /-orig$/i.test(k)).map(baseLang);
+  if (!heard.includes(declared)) return "";
+  if (meta.manual.some((k) => isOffered(toTableCode(baseLang(k))))) return "";
+  return declared;
+}
+
 export function notOfferedError(language) {
   const err = new Error(notOfferedMessage(toTableCode(language)));
   err.code = "UNSUPPORTED_LANGUAGE";
