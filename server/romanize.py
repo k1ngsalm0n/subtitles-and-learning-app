@@ -9,6 +9,8 @@
 
 Reads one JSON object on stdin: {"lang": str, "lines": [str, ...]}.
 Writes one JSON object on stdout: {"tokens": [...], "words": [...]}.
+With --serve it stays running and answers one such request per line instead
+(server/pyworker.mjs), each reply carrying the request's "id".
 
 `tokens[i]` is a list of [base, pron] pairs. Concatenating every `base`
 reconstructs the line, so the frontend can stack `pron` directly over the
@@ -202,8 +204,7 @@ def get_tokenizer(lang):
     return translit_tokens
 
 
-def main():
-    req = json.load(sys.stdin)
+def romanize(req):
     lines = req.get("lines") or []
     tokenize = get_tokenizer(req.get("lang"))
 
@@ -228,7 +229,62 @@ def main():
             except Exception:
                 words.append([])
 
-    json.dump({"tokens": out, "words": words}, sys.stdout, ensure_ascii=False)
+    return {"tokens": out, "words": words}
+
+
+def _warm():
+    """Load what a Chinese line needs, so the first request isn't the slow one.
+
+    Each of these is optional — a missing one degrades exactly as it does in a
+    one-shot run.
+    """
+    _tune_pinyin()
+    # jieba's own import warns about pkg_resources; a worker's stderr goes to
+    # the server log, which shouldn't repeat it every time one starts.
+    import warnings
+
+    warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
+    try:
+        import jieba
+
+        jieba.setLogLevel(60)
+        jieba.initialize()
+    except ImportError:
+        pass
+    _to_simplified("們")
+
+
+def serve(stdin=sys.stdin, stdout=sys.stdout):
+    """Long-lived worker (server/pyworker.mjs): one JSON request per line.
+
+    Starting Python and loading jieba's dictionary is ~0.7 s; the work for a
+    line is a few milliseconds. Paying the first once is the point.
+    """
+    _warm()
+    stdout.write(json.dumps({"ready": True}) + "\n")
+    stdout.flush()
+    for line in stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rid = req.get("id") if isinstance(req, dict) else None
+        try:
+            resp = {"id": rid, **romanize(req)}
+        except Exception as exc:  # noqa: BLE001 - the caller falls back on any failure
+            resp = {"id": rid, "error": str(exc)}
+        stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
+        stdout.flush()
+
+
+def main():
+    if "--serve" in sys.argv[1:]:
+        serve()
+        return
+    json.dump(romanize(json.load(sys.stdin)), sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
 
 

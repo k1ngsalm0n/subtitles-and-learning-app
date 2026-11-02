@@ -2,7 +2,7 @@
 name = "stele"
 version = "1.0.0"
 description = "Local transcription + offline translation pipeline for Stele."
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 # The Python side of the app: speech-to-text (Whisper) and offline
 # translation (NLLB-200 via transformers/torch). Versions are pinned to the
@@ -31,6 +31,7 @@ dependencies = [
     "onnxruntime>=1.24.3",
     "sentencepiece>=0.2.2",
     "opencc-python-reimplemented>=0.1.7",
+    "openvino>=2026.4.1",
 ]
 
 # yt-dlp (URL import) is deliberately NOT listed here. It lives on the nightly

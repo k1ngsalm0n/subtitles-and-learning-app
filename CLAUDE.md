@@ -37,6 +37,56 @@ lifting — speech-to-text and offline translation — runs through Python.
   in a dropdown, preferring a Qwen. That endpoint only asks **loopback**
   addresses — it fetches a URL the page hands it, so anything wider would let a
   page probe the reader's network through the server.
+- **Claude, with no key:** "Claude (your subscription)" is the first choice in
+  that dialog. It has no key and no address: `chat.mjs` runs Claude Code's
+  headless mode (`claude -p`, no tools, no MCP servers, at most 3 at once, run
+  from a temp dir so no CLAUDE.md rides along) on the reader's own Claude plan,
+  and returns the reply's JSON exactly where an API's would go — so word
+  lookups and line translation are unchanged above that one function. Saving
+  it asks one tiny question first, so "not installed" / "not signed in" show in
+  the dialog. Measured: a word in 4.4 s (≈2 s of it Claude Code starting; the
+  lookup cache makes a repeat 0.05 s), three subtitle lines in 6 s. It can't
+  use `--bare`: that mode takes only an API key. `scripts/fake-claude.mjs`
+  stands in for `claude` in tests (`STELE_CLAUDE_BIN`).
+- **Claude Code is set up from the dialog** (`claudecode.mjs`): choosing
+  Claude shows its state with the one next step. *Install* runs Anthropic's
+  native installer (`claude.ai/install.sh`, or `install.ps1` on Windows; no
+  admin rights) — and `findClaude()` also looks in `~/.local/bin`, because
+  that's where the installer puts `claude` and a server started by systemd
+  doesn't have it on its PATH: without that, a fresh install still read "not
+  installed". *Sign in* starts `claude auth login`, which prints a link and
+  waits for the code Claude's page shows ("Paste code here if prompted >"):
+  the page opens the link and the reader pastes the code into Stele, which
+  writes it to the waiting process; `claude auth status --json` reports the
+  result (and the plan) without asking Claude anything. Claude Code needs a
+  paid plan (Pro, Max, Team, Enterprise). Both changes are refused unless
+  `Host` is loopback, as in tailscale.mjs. `scripts/fake-claude.mjs` plays
+  version, status and sign-in too (`FAKE_CLAUDE_DIR` remembers a sign-in;
+  `good-code` is the right code), and `STELE_CLAUDE_INSTALLER` replaces the
+  installer in tests.
+- **A chat model that stops working says so.** Every failure falls back to
+  the offline translator quietly, which is how a key deleted on Groq's site
+  went unnoticed: lookups just got worse. `chat.mjs` remembers the last
+  failure and why (key refused, rate limit, unknown model, no answer), and
+  What's running shows it — "stopped working at 15:20" — until an answer
+  comes back or a new choice is saved. A translation batch that fails gets
+  one more try before the whole video goes to the offline translator.
+  DeepSeek has its own entry (`api.deepseek.com`, `deepseek-chat`).
+- **Claude prepares each import:** with Claude chosen, every finished import
+  is handed to `claude -p` with Stele's own MCP server (`server/mcp.mjs`) in
+  the background (`prepare.mjs`, one at a time, `STELE_AUTO_PREPARE=off` to
+  stop): it explains the words a learner is likely not to know and fixes stiff
+  line translations. The background Claude gets only Stele's five tools
+  (`--tools ""`, the five pre-approved, `dontAsk`). Results go to
+  `~/.local/share/stele/prepared/<id>.json` (`prepared.mjs`), never into the
+  library file: `/api/lookup` answers a prepared word *for the line it was
+  prepared in* instantly (`source: "claude-prepared"`), and `GET
+  /api/library/<id>` lays Claude's line translations over the import's. The
+  Videos list shows "Claude preparing…" / "✦ Claude", offers "Prepare with
+  Claude" for older videos, and when the open video finishes, a toast offers
+  to reload it. A 37-line song: 22 s, 24 words. The same server works from a
+  chat: `claude mcp add stele -- node <repo>/server/mcp.mjs`, then "prepare
+  小幸運" or "explain every word in line 12".
 - **Line translation:** the same chat API when one is configured
   (`llmTranslate.mjs`), because the offline models transliterate proper nouns
   instead of recognising them ("Herle Golan class" for Helgoland, "the battle in
@@ -268,6 +318,17 @@ cap only buys quiet at the price of speed. `OCR_THREADS` and
 `WHISPER_CPU_THREADS` remain on the Python side for anyone who wants that
 trade; they are read from the environment and inherited, so nothing plumbs them.
 
+**OCR runs on OpenVINO when it's installed** (`ocr_engine.py`, shared by
+caption OCR and screenshots). On a Core Ultra X7 358H, RapidOCR on onnxruntime
+took 1.9 s per 640×360 frame against 0.66 s on OpenVINO's CPU device, with the
+same text on all 40 frames — and at 1.9 s a 7-minute video spent 17 minutes in
+OCR while Whisper, starved of cores, finished only after it. onnxruntime stays
+the fallback (it ships with RapidOCR; an OpenVINO that won't start falls back
+too), `OCR_ENGINE=onnxruntime` forces it, and What's running shows which one
+is in use. `OCR_THREADS` applies to onnxruntime only. Adding OpenVINO to the
+lock also meant raising `requires-python` to 3.11: onnxruntime has had no
+Python 3.10 builds since 1.24, so 3.10 never actually installed.
+
 Two things that look like they would make an import polite and **do not**:
 `taskset` (the OCR pass resets its own affinity — under a 4-CPU mask it still
 burned 6.0 cores of CPU time) and `systemd-run --user -p AllowedCPUs` (this
@@ -333,6 +394,37 @@ replies their own way — `res.ok`, a 404 meaning "video gone", a 405 meaning
 "restart the server", the import's progress stream — and an engine that
 speaks HTTP keeps all of that unchanged. A new call to the server goes
 through `api()` too.
+
+**One gate in front of every route.** Listening on 127.0.0.1 doesn't keep
+other websites out: the reader's own browser can reach the server, so any page
+it has open could post to `/api/backup` (twenty junk snapshots rotate away the
+real ones) and a DNS-rebinding page could *read* `/api/cookies` or re-point
+`/api/llm` at itself, which sent the stored key along with the test request.
+`server/gate.mjs` runs before routing (`index.mjs` is a route table): `Host`
+must be loopback on our port or this machine's Tailscale name; anything that
+changes state must be JSON (except `/api/ocr-image`, whose body is the image)
+with an `Origin`, when sent, matching `Host`. A request through `tailscale
+serve` — a ts.net `Host`, or any `X-Forwarded-*`/`Forwarded`/`Tailscale-User-*`
+header — needs the pairing cookie, set by the `?pair=` token in the phone QR
+code (`~/.local/share/stele/pair-token`, delete it to un-pair everything). The
+cookie is `SameSite=Lax`, not Strict: a QR code opened from the camera is a
+cross-site navigation, and Strict withheld the cookie from the very redirect
+that set it, so a freshly paired phone was refused on arrival. Refusals and
+pairings from other devices are logged with the browser (never the token) —
+"isn't paired" usually means the camera opened a different browser. The
+per-handler JSON checks in older modules are now redundant; leave them.
+Subprocesses never take user text as argv where it could read as an option:
+espeak-ng used to, and the text `-f/etc/passwd` read the file aloud.
+
+**Python stays running where it pays.** `pyworker.mjs` keeps a script alive
+behind line-delimited JSON (lazy start, respawn, idle exit), with the one-shot
+run as fallback. Romanize went 720 ms → 2 ms a request; translate uses it too
+and now gives the model's RAM back after 15 idle minutes. zh-convert was
+measured at 55 ms one-shot and left alone. The venv's programs come from
+`device.mjs` (`PYTHON_BIN`, `venvTool()`), which knows Windows' `Scripts\*.exe`.
+Cookies, the lookup cache and everything else personal live in
+`~/.local/share/stele` (0700 folders, 0600 files via `prefs.mjs`'s
+`privateDir`/`writePrivate`); `GET /api/cookies` reports only a count.
 
 **Backups.** Cards live only in the browser's localStorage, which a "clear
 site data", a private window, or a changed port can wipe. `backup.mjs` takes
@@ -526,7 +618,7 @@ elsewhere — grading now goes through `applyGrade`/`schedule`. Tests:
 Install these with whatever your distro provides (pacman, dnf, apt, brew, …):
 
 - **Node ≥22** and **npm**
-- **Python ≥3.10** with the `venv` module
+- **Python ≥3.11** with the `venv` module (onnxruntime, which OCR needs, has no 3.10 builds since 1.24)
 - **ffmpeg** — needed to mux downloaded streams and feed audio to Whisper
 
 Do **not** install `yt-dlp` from the system package manager — the app prefers

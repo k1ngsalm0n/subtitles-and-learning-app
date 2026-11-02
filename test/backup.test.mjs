@@ -115,8 +115,15 @@ test("rotation keeps the twenty newest and leaves no partial files", async () =>
   const files = await list();
   assert.equal(files.length, 20);
   assert.equal(files[0].name, saved.name, "newest first");
-  const leftovers = (await fs.readdir(DIR)).filter((name) => name.endsWith(".part"));
+  const leftovers = (await fs.readdir(DIR)).filter((name) => /\.(part|tmp)$/.test(name));
   assert.deepEqual(leftovers, [], "the write-then-rename temp file is gone");
+});
+
+test("snapshots are readable by this account only", { skip: process.platform === "win32" }, async () => {
+  await clear();
+  const saved = await save(["private"]);
+  assert.equal((await fs.stat(path.join(DIR, saved.name))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(DIR)).mode & 0o777, 0o700);
 });
 
 test("payloads that aren't an export are refused", async () => {

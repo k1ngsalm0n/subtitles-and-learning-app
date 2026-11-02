@@ -24,8 +24,25 @@ function stopLoop(els) {
   }
 }
 
+// Playback this far past a looping line's end is the loop's moment to rewind,
+// not a move to the next line. timeupdate fires about every 250 ms, so the
+// overshoot is small; a reader who really leaves the line clicks another one
+// or steps with the arrows, and activateLine ends the loop for that.
+const LOOP_OVERSHOOT = 1.5;
+
 export function syncToVideo(els) {
   const time = els.video.currentTime;
+  // The loop's own listener and this one both run on timeupdate. When the next
+  // line starts exactly where the looping one ends — most lines in a song —
+  // this one used to see "a new line" first and cancel the loop, so Loop Line
+  // seemed to do nothing on some lines and work on others.
+  if (activeLoop) {
+    const looping = state.subtitles[activeLoop.index];
+    if (looping && time >= looping.end && time < looping.end + LOOP_OVERSHOOT) {
+      els.video.currentTime = looping.start;
+      return;
+    }
+  }
   const index = state.subtitles.findIndex(
     (line) => time >= line.start && time < line.end,
   );

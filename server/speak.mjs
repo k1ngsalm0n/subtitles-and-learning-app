@@ -18,9 +18,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand, sendJson, HttpError, readJsonBody } from "./util.mjs";
 import { readPrefs } from "./prefs.mjs";
+import { PYTHON_BIN } from "./device.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 
 // Beside the backups, for the same reason: outside the repo, so a checkout
 // can't lose them and `git add -A` can't commit 60 MB of voice.
@@ -112,12 +112,20 @@ async function speakWithPiper(text, model, speed) {
   }
 }
 
-async function speakWithEspeak(text, lang, speed) {
-  const result = await runCommand(
-    "espeak-ng",
-    ["-v", espeakVoiceFor(lang), "-s", String(WORDS_PER_MINUTE[speed]), "--stdout", text],
-    { timeoutMs: TIMEOUT_MS, binary: true },
-  );
+// The text goes in on stdin, never as an argument. As an argument, anything
+// starting with "-" was read as an option: "-f/etc/hostname" made espeak read
+// that file aloud and hand the audio back. The arguments are only ever the
+// engine's settings, built from fixed tables.
+export function espeakArgs(lang, speed) {
+  return ["-v", espeakVoiceFor(lang), "-s", String(WORDS_PER_MINUTE[speedOf(speed)]), "--stdout", "--stdin"];
+}
+
+export async function speakWithEspeak(text, lang, speed) {
+  const result = await runCommand("espeak-ng", espeakArgs(lang, speed), {
+    timeoutMs: TIMEOUT_MS,
+    binary: true,
+    input: text,
+  });
   return result.stdout;
 }
 

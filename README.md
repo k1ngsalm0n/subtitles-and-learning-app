@@ -210,18 +210,30 @@ which path is actually in use.
 Two things are worth knowing about:
 
 - **Cookies for URL import are stored unencrypted.** Pasting cookies in
-  Settings → Importing video writes them verbatim to `data/cookies.txt`
-  (Netscape format, the file yt-dlp reads), with the chosen mode in
-  `data/cookies.json`. There is no encryption and no OS keychain involved: any
-  process running as you can read them, and a backup or a copied folder takes
+  Settings → Importing video writes them verbatim to
+  `~/.local/share/stele/cookies.txt` (Netscape format, the file yt-dlp reads),
+  with the chosen mode in `cookies.json` beside it. Both are readable only by
+  your user (0600), they sit outside the checkout so they can't be committed,
+  and the app never sends them back to the page — Settings only says how many
+  are saved. There is still no encryption and no OS keychain involved: any
+  process running as you can read them, and a backup of your home folder takes
   them along. These are live session cookies — whoever holds them can act as
   you on that site until they expire, without your password and usually without
-  tripping two-factor. `data/` is gitignored, so they can't be committed by
-  accident, but that's the only protection there is.
+  tripping two-factor.
 
   The "Browser" mode is the safer option where it works: it points yt-dlp at
   your browser's own profile instead, so no copy is made here. To get rid of a
-  pasted set, clear the box in Settings and save, or delete `data/cookies.txt`.
+  pasted set, use "Remove saved cookies" in Settings, or delete
+  `~/.local/share/stele/cookies.txt`.
+
+- **yt-dlp updates itself.** YouTube starts refusing an old yt-dlp within
+  weeks, so the server checks the copy in `.venv` 30 seconds after starting
+  and then daily, and once it's a week old installs the newest nightly from
+  PyPI between imports. That means new code from the yt-dlp project runs on
+  your machine without you being asked. To decide for yourself instead, set
+  `STELE_YTDLP_AUTOUPDATE=off` in `.env` and update with
+  `uv pip install -U --prerelease=allow "yt-dlp[default]"` when imports start
+  failing. A yt-dlp on your PATH is never touched.
 
 - **Flashcards live in the browser's localStorage**, which a "clear site data",
   a private window, or a changed port will wipe. That is what the backups in

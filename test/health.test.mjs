@@ -361,3 +361,20 @@ test("the import plan asks CTranslate2 about the GPU, not torch", () => {
     assert.equal(plan.state, "fallback");
   });
 });
+
+test("OCR: OpenVINO is best, onnxruntime alone is a slower fallback with its fix", () => {
+  const fast = row(EVERYTHING, "ocr");
+  assert.equal(fast.state, "best");
+  assert.match(fast.using, /OpenVINO/);
+  assert.equal(fast.fix, null);
+
+  const slow = row({ ...EVERYTHING, has: (m) => m !== "openvino" }, "ocr");
+  assert.equal(slow.state, "fallback");
+  assert.match(slow.using, /onnxruntime/);
+  assert.match(slow.detail, /three times slower/);
+  assert.equal(slow.fix, "uv sync");
+
+  const none = row({ ...EVERYTHING, has: (m) => m !== "rapidocr" && m !== "openvino" }, "ocr");
+  assert.equal(none.state, "off");
+  assert.equal(none.fix, "uv sync");
+});

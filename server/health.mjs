@@ -17,10 +17,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sendJson, readJsonBody } from "./util.mjs";
 import { readPrefs, writePrefs, ALLOWED } from "./prefs.mjs";
-import { importPlan, probeMachine, PYTHON_BIN } from "./device.mjs";
+import { importPlan, probeMachine, PYTHON_BIN, venvTool } from "./device.mjs";
 import { ytdlpInfo, autoUpdateEnabled, STALE_AFTER_DAYS } from "./ytdlp.mjs";
 import { llmTranslationConfigured } from "./llmTranslate.mjs";
 import { llmStatus } from "./llmConfig.mjs";
+import { chatHealth } from "./chat.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -48,7 +49,7 @@ async function exists(target) {
 // yt-dlp finds a deno on PATH by itself, so one there counts as much as the
 // venv's copy — the row used to call deno missing on a machine that had it.
 async function denoAvailable() {
-  if (await exists(path.join(ROOT, ".venv", "bin", "deno"))) return true;
+  if (await exists(venvTool("deno"))) return true;
   for (const dir of (process.env.PATH || "").split(path.delimiter)) {
     if (dir && (await exists(path.join(dir, "deno")))) return true;
   }
@@ -122,6 +123,7 @@ async function gatherFacts({ fresh = false } = {}) {
     llmProvider:
       llmConfig.origin === "env" ? "set in .env" : llmConfig.providers[llmConfig.provider]?.label,
     llmModel: llmConfig.model,
+    llmFailure: chatHealth(),
     voices,
     strokes,
     ytdlp,
@@ -241,8 +243,24 @@ function speechCheck({ has, voices, prefs }) {
 }
 
 // --- Translation and word lookups ------------------------------------------
-function llmCheck({ llm: ready, llmProvider, llmModel, prefs }) {
+function llmCheck({ llm: ready, llmProvider, llmModel, llmFailure, prefs }) {
   const on = ready && prefs.llm !== "off";
+  // Configured, switched on — and failing. Every lookup and translation falls
+  // back to the offline translator without a word, so this row is the only
+  // place that says so.
+  if (on && llmFailure) {
+    const when = new Date(llmFailure.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return {
+      id: "llm",
+      label: "Translation and word meanings",
+      state: FALLBACK,
+      using: `the offline translator — the chat model (${llmProvider}) stopped working at ${when}`,
+      detail: `${llmFailure.reason} Until it answers again, word meanings and translations quietly use the offline translator, which is more literal.`,
+      fix: null,
+      fixNote: null,
+      action: { id: "llm-setup", label: "Change provider or key" },
+    };
+  }
 
   let using;
   if (on) using = `a chat model (${llmProvider}, ${llmModel}), with the offline translator as backup`;
@@ -337,18 +355,32 @@ function romanizeCheck({ has }) {
 }
 
 // --- Screenshots -----------------------------------------------------------
+// Three states: OpenVINO is the fast engine (ocr_engine.py), onnxruntime the
+// one RapidOCR always brings. The middle state is the one worth a row: OCR
+// still works, but a video's burned-in captions take about three times as long.
 function ocrCheck({ has }) {
-  return twoStateCheck({
+  if (!has("rapidocr")) {
+    return twoStateCheck({
+      id: "ocr",
+      label: "Reading screenshots and burned-in captions",
+      ok: false,
+      using: { yes: "", no: "not installed" },
+      detail: { yes: "", no: "The Images tab can't read anything, and videos without a subtitle track rely on Whisper alone." },
+      fix: "uv sync",
+    });
+  }
+  const fast = has("openvino");
+  return {
     id: "ocr",
-    label: "Reading screenshots",
-    ok: has("rapidocr"),
-    using: { yes: "RapidOCR", no: "not installed" },
-    detail: {
-      yes: "Images can be read, translated and clicked like subtitles.",
-      no: "The Images tab can't read anything.",
-    },
-    fix: "uv sync",
-  });
+    label: "Reading screenshots and burned-in captions",
+    state: fast ? BEST : FALLBACK,
+    using: fast ? "RapidOCR on OpenVINO" : "RapidOCR on onnxruntime",
+    detail: fast
+      ? "Images can be read, translated and clicked like subtitles, and a video's burned-in captions are read about three times faster than on onnxruntime."
+      : "Everything works, but reading a video's burned-in captions is about three times slower: a 7-minute video spent 17 minutes on it, and kept Whisper waiting.",
+    fix: fast ? null : "uv sync",
+    fixNote: fast ? null : "OpenVINO is in the lockfile; this installs it.",
+  };
 }
 
 // --- Traditional / Simplified ----------------------------------------------

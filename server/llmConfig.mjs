@@ -20,10 +20,23 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { dir } from "./prefs.mjs";
 import { sendJson, readJsonBody, HttpError } from "./util.mjs";
+import { askClaudeCode, forgetChatFailure } from "./chat.mjs";
 
 // Presets the dialog offers. The model names are a starting point — providers
 // rename them — so the dialog lets the reader change the model too.
 export const PROVIDERS = {
+  // No key and no address: Claude Code's headless mode answers on the
+  // reader's own Claude plan (chat.mjs). Slower per question than an API —
+  // a few seconds, mostly Claude Code starting — and only on a computer where
+  // `claude` is installed and signed in.
+  claude: {
+    label: "Claude (your subscription)",
+    baseUrl: "",
+    model: "sonnet",
+    keyUrl: "https://claude.com/claude-code",
+    needsKey: false,
+    noAddress: true,
+  },
   groq: {
     label: "Groq",
     baseUrl: "https://api.groq.com/openai/v1",
@@ -50,6 +63,14 @@ export const PROVIDERS = {
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4o-mini",
     keyUrl: "https://platform.openai.com/api-keys",
+    needsKey: true,
+  },
+  // OpenAI-compatible; it used to need "Other" and the address typed by hand.
+  deepseek: {
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-chat",
+    keyUrl: "https://platform.deepseek.com/api_keys",
     needsKey: true,
   },
   ollama: {
@@ -187,6 +208,7 @@ export async function testLlm({ baseUrl, model, apiKey }) {
 }
 
 async function writeSaved(value) {
+  forgetChatFailure();
   await fs.mkdir(dir(), { recursive: true });
   const target = file();
   const temp = `${target}.${process.pid}.tmp`;
@@ -195,9 +217,28 @@ async function writeSaved(value) {
   cache.set(dir(), value);
 }
 
+// The same check for Claude: one tiny question through Claude Code, so a
+// missing install or a signed-out Claude Code is caught here, in the dialog.
+export async function testClaude({ model }) {
+  const answer = await askClaudeCode({
+    system: "Reply with the word OK and nothing else.",
+    user: "Are you there?",
+    model,
+    timeoutMs: 60_000,
+  });
+  if (answer.ok) return { ok: true };
+  if (/not installed|no `claude`/i.test(answer.error)) {
+    return { ok: false, error: "Claude Code isn't installed on this computer. Install it, sign in, then try again." };
+  }
+  if (/log ?in|logged|auth|credential|401/i.test(answer.error)) {
+    return { ok: false, error: "Claude Code isn't signed in. Run `claude` once in a terminal and sign in, then try again." };
+  }
+  return { ok: false, error: `Claude Code didn't answer: ${answer.error}` };
+}
+
 // Checks a choice and stores it. Returns the stored status, or throws an
 // HttpError the dialog can show as-is.
-export async function saveLlmChoice(body, { test = testLlm } = {}) {
+export async function saveLlmChoice(body, { test = testLlm, testClaudeCode = testClaude } = {}) {
   const provider = body?.provider;
   if (!CHOICES.includes(provider)) throw new HttpError(400, "Unknown provider.");
 
@@ -207,6 +248,13 @@ export async function saveLlmChoice(body, { test = testLlm } = {}) {
   }
 
   const preset = PROVIDERS[provider];
+  if (provider === "claude") {
+    const model = String(body.model || preset.model).trim();
+    const result = await testClaudeCode({ model });
+    if (!result.ok) throw new HttpError(400, result.error);
+    await writeSaved({ provider, baseUrl: "", model, apiKey: "" });
+    return llmStatus();
+  }
   const baseUrl = String(body.baseUrl || preset.baseUrl).trim().replace(/\/$/, "");
   const model = String(body.model || preset.model).trim();
   let apiKey = String(body.apiKey || "").trim();

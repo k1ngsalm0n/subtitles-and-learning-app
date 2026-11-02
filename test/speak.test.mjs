@@ -115,3 +115,35 @@ test("no speed, or a nonsense one, means the ordinary one", async () => {
     assert.equal(speedOf(bad), "fast", `${JSON.stringify(bad)} should be fast`);
   }
 });
+
+// The text used to be espeak-ng's last argument, where anything starting with
+// "-" was read as an option: "-f/etc/hostname" spoke that file.
+test("espeak gets the text on stdin, never as an argument", async () => {
+  const { espeakArgs } = await import("../server/speak.mjs");
+  for (const speed of ["fast", "slow", undefined]) {
+    const args = espeakArgs("zh", speed);
+    assert.ok(args.includes("--stdin"));
+    assert.ok(args.every((a) => !a.startsWith("-f") && !a.startsWith("-w")), args.join(" "));
+  }
+});
+
+test("text that looks like an espeak option is spoken, not obeyed", async (t) => {
+  const { spawnSync } = await import("node:child_process");
+  if (spawnSync("espeak-ng", ["--version"]).error) {
+    t.skip("espeak-ng isn't installed");
+    return;
+  }
+  const { speakWithEspeak } = await import("../server/speak.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "stele-espeak-"));
+  const secret = join(dir, "secret.txt");
+  // Long, so reading it aloud would be many times longer than saying the path.
+  await writeFile(secret, "this sentence is a private file that must never be read aloud by the app. ".repeat(8));
+  const spokenPath = await speakWithEspeak(`-f${secret}`, "en", "fast");
+  const spokenFile = await speakWithEspeak(
+    "this sentence is a private file that must never be read aloud by the app. ".repeat(8),
+    "en",
+    "fast",
+  );
+  assert.ok(spokenPath.length > 0, "the path itself is spoken");
+  assert.ok(spokenPath.length < spokenFile.length / 3, "the file's contents were not");
+});

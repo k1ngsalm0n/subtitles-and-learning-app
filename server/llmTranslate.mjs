@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 
 import { readPrefs } from "./prefs.mjs";
 import { getLlmConfig } from "./llmConfig.mjs";
+import { chatJson } from "./chat.mjs";
 
 // LLM_TRANSLATE=off is the deployment-level switch and still wins; the
 // Settings toggle is the reader's, checked per call so flipping it takes effect
@@ -115,29 +116,9 @@ export function buildPrompt(from, to) {
 }
 
 async function askModel(config, prompt, lines) {
-  const { apiKey: LLM_API_KEY, baseUrl: LLM_BASE_URL, model: LLM_MODEL } = config;
   const numbered = lines.map((text, index) => `${index + 1}. ${text}`).join("\n");
-  const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LLM_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: numbered },
-      ],
-    }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  }).catch(() => null);
-
-  if (!response || !response.ok) return null;
-  const payload = await response.json().catch(() => null);
-  const content = payload?.choices?.[0]?.message?.content;
+  // An OpenAI-compatible API, or Claude through Claude Code (chat.mjs).
+  const content = await chatJson(config, { system: prompt, user: numbered, timeoutMs: TIMEOUT_MS });
   return content ? readTranslations(content, lines.length) : null;
 }
 
@@ -168,7 +149,15 @@ export async function translateSrtWithLlm(srt, from, to) {
   const prompt = buildPrompt(from, to);
   const groups = batches(cues.map((cue) => cue.text));
   const results = await Promise.all(groups.map((group) => askModel(config, prompt, group)));
-  // One bad batch means the rest would be a mix of two translators with
+  // A batch that came back wrong — a dropped line, a hiccup — gets one more
+  // try before the whole video goes to the offline translator: one bad reply
+  // out of eight used to cost every line its chat-model translation.
+  await Promise.all(
+    results.map(async (group, i) => {
+      if (group === null) results[i] = await askModel(config, prompt, groups[i]);
+    }),
+  );
+  // Still a bad batch: the rest would be a mix of two translators with
   // different names for the same ship. Hand the whole job back instead.
   if (results.some((group) => group === null)) return null;
 

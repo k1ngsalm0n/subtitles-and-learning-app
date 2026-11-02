@@ -1,10 +1,25 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readJsonBody, runCommand, sendJson } from "./util.mjs";
+import { PYTHON_BIN } from "./device.mjs";
+import { createPyWorker } from "./pyworker.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const ROMANIZE_SCRIPT = path.join(__dirname, "romanize.py");
+
+// Kept running between requests: a one-shot run spends ~720 ms starting
+// Python and loading jieba and pypinyin for a few ms of work (measured, two
+// Chinese lines). The worker answers the same request in a few ms.
+const worker = createPyWorker({ name: "romanize", script: ROMANIZE_SCRIPT });
+
+async function romanizeOnce(lang, lines) {
+  const result = await runCommand(PYTHON_BIN, [ROMANIZE_SCRIPT], {
+    timeoutMs: 60_000,
+    input: JSON.stringify({ lang, lines }),
+  });
+  const line = result.stdout.trim().split("\n").filter(Boolean).at(-1) || "{}";
+  return JSON.parse(line);
+}
 
 // POST /api/romanize  { language, lines: [string] } -> { tokens, words }
 // `tokens[i]` is a list of [base, pron] pairs so the client can stack the
@@ -21,12 +36,11 @@ export async function handleRomanize(req, res) {
     return;
   }
   try {
-    const result = await runCommand(PYTHON_BIN, [ROMANIZE_SCRIPT], {
-      timeoutMs: 60_000,
-      input: JSON.stringify({ lang, lines }),
+    // The worker is a speed-up; if it can't start, the one-shot run still can.
+    const data = await worker.request({ lang, lines }).catch((err) => {
+      console.warn("Romanize worker failed, running once instead:", err.message);
+      return romanizeOnce(lang, lines);
     });
-    const line = result.stdout.trim().split("\n").filter(Boolean).at(-1) || "{}";
-    const data = JSON.parse(line);
     sendJson(res, 200, { tokens: data.tokens || [], words: data.words || [] });
   } catch (err) {
     console.error("Romanize failed:", err.message);

@@ -18,7 +18,7 @@ import { ytdlpCookieArgs } from "./cookies.mjs";
 // the one in use; it lived in this file before ytdlp.mjs took it over.
 import { YTDLP_BIN, VENV_YTDLP, waitForYtdlpUpdate } from "./ytdlp.mjs";
 import { saveToLibrary } from "./library.mjs";
-import { importPlan, probeMachine } from "./device.mjs";
+import { importPlan, probeMachine, PYTHON_BIN, venvTool } from "./device.mjs";
 // The browser owns this protocol's parsing, and percentOf is part of it. Shared
 // rather than copied: a second definition is the "keep in sync" comment that
 // the languages table already had to be rescued from (#32). The module is pure
@@ -27,6 +27,7 @@ import { percentOf } from "../public/js/importstream.mjs";
 import { detectLanguage } from "../public/js/languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
 import { translateSrtWithLlm } from "./llmTranslate.mjs";
+import { onImported } from "./prepare.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
   cleanCaptions,
@@ -57,11 +58,10 @@ const WHISPER_MODEL =
 // auto-fallback; otherwise we retry on CPU when the GPU run OOMs.
 const WHISPER_DEVICE = process.env.WHISPER_DEVICE || "";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WHISPER_BIN = path.join(__dirname, "..", ".venv", "bin", "whisper");
+const WHISPER_BIN = venvTool("whisper");
 // Preferred transcription path: faster-whisper (CTranslate2) via transcribe.py —
 // same Whisper models, several-fold faster. Falls back to the openai-whisper CLI
 // above if faster-whisper isn't installed.
-const PYTHON_BIN = path.join(__dirname, "..", ".venv", "bin", "python");
 const TRANSCRIBE_SCRIPT = path.join(__dirname, "transcribe.py");
 const OCR_SCRIPT = path.join(__dirname, "ocr_captions.py");
 // How often provisional subtitles may be pushed to the reader. Each event
@@ -229,7 +229,7 @@ const VIDEO_FORMAT_ARGS = [
 // deno is yt-dlp's default runtime — point it at the copy `npm run sync` drops
 // in the venv. If that's absent we pass nothing: yt-dlp auto-detects a `deno`
 // on PATH, and otherwise stays on the (working but degraded) fallback path.
-const VENV_DENO = path.join(__dirname, "..", ".venv", "bin", "deno");
+const VENV_DENO = venvTool("deno");
 const DENO_JS_RUNTIME = existsSync(VENV_DENO)
   ? ["--js-runtimes", `deno:${VENV_DENO}`]
   : [];
@@ -439,7 +439,7 @@ async function remember(url, result) {
     const seconds = Number.parseFloat(probe.stdout);
     if (Number.isFinite(seconds)) duration = Math.round(seconds);
   }
-  return saveToLibrary(videoCacheId(url), {
+  const saved = await saveToLibrary(videoCacheId(url), {
     url,
     title: result.title || "",
     videoUrl: result.videoUrl || "",
@@ -450,6 +450,10 @@ async function remember(url, result) {
     source: result.source || "",
     duration,
   });
+  // With Claude as the chat model, it prepares the new video's words in the
+  // background (prepare.mjs); the reader isn't kept waiting for it.
+  if (saved) onImported(saved.id).catch(() => {});
+  return saved;
 }
 
 // Imports in flight, so the yt-dlp updater can hold off while one is running.

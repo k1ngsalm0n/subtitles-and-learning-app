@@ -882,7 +882,8 @@ def _probe_finds_text(engine, video_path, workspace):
 
 
 def _build_engine():
-    """RapidOCR, optionally held to a thread budget.
+    """RapidOCR on the best engine here (ocr_engine.py: OpenVINO, else
+    onnxruntime), optionally held to a thread budget — onnxruntime only.
 
     Left alone (-1), onnxruntime picks its own thread count, and its choice is
     good: measured on a 6-core/12-thread desktop it beat every number this knob
@@ -894,17 +895,13 @@ def _build_engine():
     does nothing unless execution_mode is ORT_PARALLEL, which it isn't; setting
     it just builds a second thread pool that then competes with the first.
     """
-    from rapidocr import RapidOCR
+    from ocr_engine import build_engine
 
     try:
         threads = int(os.environ.get("OCR_THREADS", "-1"))
     except ValueError:
         threads = -1
-    if threads <= 0:
-        return RapidOCR()
-    return RapidOCR(
-        params={"EngineConfig.onnxruntime.intra_op_num_threads": threads}
-    )
+    return build_engine(threads)
 
 
 def read_captions(video_path):

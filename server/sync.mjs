@@ -20,7 +20,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { dir } from "./prefs.mjs";
+import { dir, writePrivate } from "./prefs.mjs";
 import { sendJson, readJsonBody } from "./util.mjs";
 
 const COLLECTIONS = new Set(["cards", "decks", "deckOrder", "templates", "knownWords", "sources"]);
@@ -59,10 +59,7 @@ async function load() {
 let writing = Promise.resolve();
 function save(store) {
   writing = writing.then(async () => {
-    await fs.mkdir(dir(), { recursive: true });
-    const temp = `${file()}.${process.pid}.tmp`;
-    await fs.writeFile(temp, JSON.stringify(store), { mode: 0o600 });
-    await fs.rename(temp, file());
+    await writePrivate(file(), JSON.stringify(store));
   }).catch((error) => console.error("Couldn't save the sync copy:", error));
   return writing;
 }

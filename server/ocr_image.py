@@ -60,9 +60,9 @@ SMALL_RATIO = 0.8
 
 
 def read_image(path):
-    from rapidocr import RapidOCR
+    from ocr_engine import build_engine
 
-    engine = RapidOCR()
+    engine = build_engine()
     # `return_word_box` also yields a box per character, which is what lets the
     # reader highlight the characters of a sentence rather than a rectangle
     # around the paragraph it lives in.
