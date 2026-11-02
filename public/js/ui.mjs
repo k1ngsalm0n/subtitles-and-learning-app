@@ -1491,7 +1491,7 @@ export function renderReviewCard(els) {
       },
     });
     hint.textContent = listen
-      ? "Listen, and write the word from your cards that you hear."
+      ? "Listen, and write the word with that meaning that you hear."
       : "Write the missing word in characters, with any keyboard.";
     // Heard once on its own when the card comes up; the buttons say it again.
     if (play && !_recall.played) {

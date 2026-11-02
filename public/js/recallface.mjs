@@ -39,6 +39,16 @@ export function renderRecallFront(el, card, sentence, { typed = "", onInput, onS
       buttons.append(button);
     }
     el.append(buttons);
+    // Which word to listen for: its meaning, so the reader knows what they're
+    // catching (a sentence has several words they know).
+    if (card.translation) {
+      const hint = row("listen-hint");
+      const label = document.createElement("span");
+      label.className = "muted";
+      label.textContent = "The word means: ";
+      hint.append(label, card.translation);
+      el.append(hint);
+    }
   } else if (sentence) {
     el.append(row("cf-cloze", blankOut(sentence.text, card.word)));
     if (sentence.translation) el.append(row("cf-exampleTranslation", sentence.translation));

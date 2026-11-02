@@ -759,8 +759,8 @@ back to Recognise. Fill in the blank cards are Recall from the start. The
 Replay and stroke buttons stay off a Recall question: both show the word.
 **Listen** comes after: from a month apart (`LISTEN_AFTER_DAYS`), every other
 review (even `reps`) the sentence is only *heard* — said once when the card
-comes up, ▶ Play / ▶ Slowly again — and the reader writes the word from their
-cards that they caught in it; the reviews between stay Recall. The video's own
+comes up, ▶ Play / ▶ Slowly again — and the reader writes the word they caught
+in it, its meaning shown as the hint (which word to listen for); the reviews between stay Recall. The video's own
 line plays from the video (a real voice) at normal speed; a new sentence, and
 every slow one, is the app's voice, so Listen wants piper (`VOICES=1 npm run
 sync`), not espeak-ng. No sentence: Recall by meaning instead.
