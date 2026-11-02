@@ -236,6 +236,22 @@ lifting — speech-to-text and offline translation — runs through Python.
   server for those. (Firefox with *zero* voices also happens, which is why the
   server path exists at all; `tts.mjs` used to hide audio entirely in that case.)
 
+  **The Chinese voice is `zh_CN-xiao_ya`, which reads pinyin.** The first one,
+  `zh_CN-huayan`, goes through espeak-ng's phonemes, which give tone 1 and
+  tone 4 the same symbol (媽 and 罵 arrive identical), so it guessed tones —
+  Whisper heard its 中午吃什麼 as 吃神魔, and at the old slow stretch (2.5)
+  刷手機 as 雙手擊, 耐心 as 內心; xiao_ya got every test line right at every
+  speed. It needs `piper-tts[zh]` (g2pW, ~110 MB, downloaded beside the
+  voices). `rankVoices` tries a voice with its own phonemizer (`phoneme_type`
+  in its .onnx.json) before an espeak one, and a voice that fails before the
+  next; `speak.py` keeps voices loaded (pyworker): 3.4 s on the first press,
+  then ~0.15 s, against 2.7 s every press as `python -m piper`. Slow is
+  `--length-scale` 2.0 (≈1.8x). The page speaks a text in the language it's
+  written in when that clearly differs from the open video's
+  (`spokenLanguage` in tts.mjs — a card from another video), and a browser
+  voice for Mandarin is never a zh-HK/yue one (Cantonese, listed first on
+  some systems).
+
   Voices are opt-in — `VOICES=1 npm run sync` — and live beside the backups,
   outside the repo, because they are 63 MB each. That step installs
   **piper-tts** as well as the `.onnx` files: the voices are useless without the

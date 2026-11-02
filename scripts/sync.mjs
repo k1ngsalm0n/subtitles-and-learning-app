@@ -254,8 +254,12 @@ const VOICE_DIR = join(
   "stele",
   "voices",
 );
+// xiao_ya reads pinyin (g2pW chooses each character's reading, tones and all).
+// It replaced zh_CN-huayan, which goes through espeak-ng's phonemes — those give
+// tone 1 and tone 4 the same symbol, so it guessed tones and read 什麼 as
+// "shén mó". An install that still has huayan keeps it as a fallback.
 const VOICE_MODELS = [
-  ["zh_CN-huayan-medium", "zh/zh_CN/huayan/medium"],
+  ["zh_CN-xiao_ya-medium", "zh/zh_CN/xiao_ya/medium"],
   ["en_US-amy-medium", "en/en_US/amy/medium"],
 ];
 
@@ -266,7 +270,9 @@ function ensureVoices() {
   // replace — and it does it silently, because the server treats a failed piper
   // run as "try the next engine".
   console.log("   piper (the synthesiser that plays them)…");
-  const piper = spawnSync("uv", ["pip", "install", "-q", "piper-tts"], {
+  // [zh]: g2pW and the rest of what a pinyin voice needs. Without them the
+  // Chinese voice fails and the server falls back to the next one.
+  const piper = spawnSync("uv", ["pip", "install", "-q", "piper-tts[zh]"], {
     cwd: ROOT,
     stdio: "inherit",
   });
@@ -300,6 +306,19 @@ function ensureVoices() {
       cwd: ROOT,
       stdio: "inherit",
     });
+  }
+
+  // A pinyin voice downloads g2pW (~110 MB) the first time it speaks; do that
+  // here rather than on the reader's first press of a listen button.
+  const zh = join(VOICE_DIR, "zh_CN-xiao_ya-medium.onnx");
+  if (existsSync(zh)) {
+    console.log("   g2pW (how the Chinese voice reads each character)…");
+    const py = join(ROOT, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
+    spawnSync(py, ["-c",
+      "import sys; from pathlib import Path; from piper import PiperVoice; " +
+      "p = Path(sys.argv[1]); PiperVoice.load(str(p), download_dir=p.parent).phonemize('你好')",
+      zh,
+    ], { cwd: ROOT, stdio: "inherit" });
   }
 }
 
