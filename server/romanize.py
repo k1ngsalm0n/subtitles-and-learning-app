@@ -30,12 +30,11 @@ import re
 import sys
 
 # Languages already written in the Latin script: a pronunciation guide adds
-# nothing. (Mirrors the Latin-script codes in server/translate.py.)
-LATIN = {
-    "af", "az", "ca", "cs", "da", "nl", "en", "eo", "et", "fi", "fr", "de",
-    "hu", "id", "ga", "it", "lv", "lt", "ms", "nb", "pl", "pt", "ro", "sk",
-    "sl", "es", "sv", "tl", "tr", "vi",
-}
+# nothing. Read off the language table (a Flores code ending in _Latn), so a
+# language's script is decided in one place.
+import languages  # noqa: E402
+
+LATIN = {code for code in languages.ROWS if languages.script(code) == "Latn"}
 
 _HAN = r"㐀-䶿一-鿿豈-﫿"
 _HAN_RUN = re.compile(f"[{_HAN}]+|[^{_HAN}]+")

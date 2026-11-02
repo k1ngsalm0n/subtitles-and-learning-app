@@ -79,3 +79,61 @@ class ToSimplifiedTest(unittest.TestCase):
         from translate import to_simplified
 
         self.assertEqual(to_simplified("学习 abc 123"), "学习 abc 123")
+
+
+class OpusRouteTableTest(unittest.TestCase):
+    """OPUS_ROUTES: (from, to) -> model, plus a target token for multi-target
+    group models (docs/language-models.md)."""
+
+    def test_only_the_chinese_pairs_are_routed_so_far(self):
+        from translate import OPUS_ROUTES, opus_route
+
+        self.assertEqual(set(OPUS_ROUTES), {("zh", "en"), ("en", "zh")})
+        self.assertIsNone(opus_route("ja", "en"))
+        for route in OPUS_ROUTES.values():
+            self.assertTrue(route["model"].startswith("Helsinki-NLP/"))
+
+    def test_token_is_prepended_and_follows_the_chinese_script(self):
+        from unittest import mock
+
+        from translate import opus_prefix, opus_route
+
+        self.assertEqual(opus_prefix(opus_route("zh", "en")), "")
+        with mock.patch.dict(os.environ, {"ZH_SCRIPT": "trad"}):
+            self.assertEqual(opus_prefix(opus_route("en", "zh")), ">>cmn_Hant<< ")
+        with mock.patch.dict(os.environ, {"ZH_SCRIPT": "off"}):
+            self.assertEqual(opus_prefix(opus_route("en", "zh")), ">>cmn_Hans<< ")
+        # A group model, as a per-language entry would add it.
+        group = {"model": "Helsinki-NLP/opus-mt-tc-big-en-zle", "token": "rus"}
+        self.assertEqual(opus_prefix(group), ">>rus<< ")
+        self.assertEqual(opus_prefix("Helsinki-NLP/opus-mt-zh-en"), "")
+
+    def test_every_sentence_goes_to_the_model_with_the_token(self):
+        from unittest import mock
+
+        import translate
+
+        seen = []
+
+        class FakeTokenizer:
+            def __call__(self, pieces, **_kw):
+                seen.extend(pieces)
+
+                class Batch(dict):
+                    def to(self, _device):
+                        return self
+
+                return Batch()
+
+            def batch_decode(self, out, skip_special_tokens=True):
+                return [f"t{i}" for i in range(len(out))]
+
+        class FakeModel:
+            def generate(self, **_kw):
+                return list(range(len(seen)))
+
+        group = {"model": "Helsinki-NLP/opus-mt-tc-bible-big-deu_eng_fra_por_spa-inc", "token": "hin"}
+        with mock.patch.object(translate, "get_opus", return_value=(FakeTokenizer(), FakeModel(), "cpu")):
+            out = translate.translate_batch_opus(["Hello.", "Good night."], group)
+        self.assertEqual(seen, [">>hin<< Hello.", ">>hin<< Good night."])
+        self.assertEqual(len(out), 2)

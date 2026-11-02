@@ -242,7 +242,9 @@ async function runImport(source) {
     const response = await api("/api/import-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: source.url }),
+      // The reader's translation language: an English video is translated
+      // into Chinese for a reader who reads Chinese (server/languages.mjs).
+      body: JSON.stringify({ url: source.url, translateTo: ctx.state.translateTo || "" }),
     });
     if (!response.ok) {
       const failed = await response.json().catch(() => ({}));

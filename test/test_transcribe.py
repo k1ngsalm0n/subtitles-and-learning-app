@@ -13,13 +13,20 @@ from transcribe import (  # noqa: E402
     DETECT_WINDOW,
     ZH_ACCEPT_PROB,
     ZH_WINDOW_PROB,
+    UnsupportedLanguage,
     _detect_language,
+    choose_language,
 )
 
 
 def accepted_as_chinese(language, zh_avg, zh_max):
-    """Mirror of the CHINESE-ONLY gate in _transcribe_on."""
-    return language == "zh" or zh_avg >= ZH_ACCEPT_PROB or zh_max >= ZH_WINDOW_PROB
+    """Whether the gate in _transcribe_on (choose_language) transcribes the
+    clip as Chinese. Asked with only Chinese offered, so anything else is
+    refused — which is what these tests have always meant by "rejected"."""
+    try:
+        return choose_language(language, zh_avg, zh_max, {"zh"}) == "zh"
+    except UnsupportedLanguage:
+        return False
 
 
 class FakeModel:
@@ -164,6 +171,29 @@ class ResolveModelTest(unittest.TestCase):
         self.assertEqual(self.resolve("Linux", "x86_64", music=True), "small")
         self.assertEqual(self.resolve("Darwin", "x86_64", music=True), "small", "an Intel Mac")
         self.assertEqual(self.resolve("Windows", "AMD64", music=True), "small")
+
+    def test_a_language_minimum_raises_the_auto_choice(self):
+        import transcribe
+        from unittest import mock
+
+        # Every entry names a real size, so a typo can't silently do nothing.
+        for code, size in transcribe.WHISPER_MIN_MODEL.items():
+            self.assertIn(size, transcribe.MODEL_SIZES, code)
+        # Checked with a stand-in entry, so this holds whatever the table says.
+        with mock.patch.dict(transcribe.WHISPER_MIN_MODEL, {"ar": "medium"}), \
+             mock.patch("platform.system", return_value="Linux"), \
+             mock.patch("platform.machine", return_value="x86_64"), \
+             mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WHISPER_MODEL", None)
+            self.assertEqual(transcribe._resolve_model("cpu", language="ar"), "medium")
+            self.assertEqual(transcribe._resolve_model("cpu", language="en"), "small")
+            self.assertEqual(transcribe._resolve_model("cpu"), "small")
+            # Never lowers a bigger choice (a GPU's large-v3).
+            with mock.patch.object(transcribe, "_free_vram_mib", return_value=8000):
+                self.assertEqual(transcribe._resolve_model("cuda", language="ar"), "large-v3")
+            # A model the reader chose still wins.
+            with mock.patch.dict(os.environ, {"WHISPER_MODEL": "small"}):
+                self.assertEqual(transcribe._resolve_model("cpu", language="ar"), "small")
 
     def test_a_chosen_model_always_wins(self):
         self.assertEqual(self.resolve("Darwin", "arm64", music=True, env={"WHISPER_MODEL": "small"}), "small")

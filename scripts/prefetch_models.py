@@ -82,19 +82,33 @@ def whisper_detect_model() -> str:
     return m.group(1) if m else "small"
 
 
-def transcription_model(music: bool = False) -> str:
+def transcription_model(music: bool = False, language: str = "") -> str:
     """The model transcribe.py will actually load on this machine. This used
     to default to "base", which transcription never loads — "auto" resolves to
     small, and to medium for songs on Apple Silicon — so the up-front download
     fetched a model nothing used and the real one downloaded on first import.
-    `music` asks for the model used on songs."""
+    `music` asks for the model used on songs, `language` for the one a study
+    language needs (transcribe.WHISPER_MIN_MODEL)."""
     requested = os.getenv("WHISPER_MODEL", "auto")
     if requested and requested != "auto":
         return requested
     sys.path.insert(0, os.path.join(HERE, "..", "server"))
     import transcribe
 
-    return transcribe._resolve_model(transcribe._select_device(), music=music)
+    return transcribe._resolve_model(transcribe._select_device(), music=music, language=language or None)
+
+
+def study_language_models() -> set:
+    """The models offered languages need beyond the default (their minimums)."""
+    sys.path.insert(0, os.path.join(HERE, "..", "server"))
+    import languages
+    import transcribe
+
+    return {
+        transcription_model(language=code)
+        for code in languages.offered()
+        if code in transcribe.WHISPER_MIN_MODEL
+    }
 
 
 def fetch_faster_whisper() -> None:
@@ -103,7 +117,12 @@ def fetch_faster_whisper() -> None:
     Two models: the transcription model, and the (usually smaller) one
     transcribe.py uses for language detection.
     """
-    models = {transcription_model(), transcription_model(music=True), whisper_detect_model()}
+    models = {
+        transcription_model(),
+        transcription_model(music=True),
+        whisper_detect_model(),
+        *study_language_models(),
+    }
     try:
         from faster_whisper import WhisperModel
     except ImportError:

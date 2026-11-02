@@ -59,10 +59,12 @@ BOTTOM_BAND = 0.90
 SMALL_RATIO = 0.8
 
 
-def read_image(path):
+def read_image(path, language=None):
     from ocr_engine import build_engine
 
-    engine = build_engine()
+    # The study language picks the recognition model (ocr_engine.py); a script
+    # no model reads raises NoOcrModel, which main() reports as such.
+    engine = build_engine(language=language)
     # `return_word_box` also yields a box per character, which is what lets the
     # reader highlight the characters of a sentence rather than a rectangle
     # around the paragraph it lives in.
@@ -384,10 +386,16 @@ def _image_size(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", help="path to the image file")
+    parser.add_argument("--language", default="", help="the study language, which picks the OCR model")
     args = parser.parse_args()
 
+    from ocr_engine import NoOcrModel
+
     try:
-        lines = read_image(args.image)
+        lines = read_image(args.image, args.language or None)
+    except NoOcrModel as error:
+        json.dump({"error": "no_ocr_model", "language": error.language}, sys.stdout)
+        return 0
     except Exception as error:  # noqa: BLE001 - surfaced to the caller as JSON
         json.dump({"error": str(error)}, sys.stdout)
         return 1

@@ -3,16 +3,30 @@
 // with. A JSON module keeps it synchronous — every importer here expects
 // LANGUAGES to exist the moment the module evaluates.
 //
-// CHINESE-ONLY (temporary, #65): `offered` in that file trims the bar to
-// Chinese (the study language) and English (the translation target). Dropping
-// the key brings back every language NLLB supports.
+// Only the rows marked `offered` are listed — the languages that can be
+// studied, which are also the ones translations go into (Chinese and English
+// so far). A row is marked once its three gates are checked
+// (docs/adding-a-language.md); with none marked, every language is listed.
 import table from "../data/languages.json" with { type: "json" };
 
 const ALL = table.languages.map((l) => ({ code: l.code, name: l.name }));
-const offered = table.offered;
-export const LANGUAGES = offered?.length
-  ? offered.map((code) => ALL.find((l) => l.code === code)).filter(Boolean)
-  : ALL;
+const OFFERED = ALL.filter((l) => table.languages.find((row) => row.code === l.code)?.offered);
+export const LANGUAGES = OFFERED.length ? OFFERED : ALL;
+
+// The language a study language is translated into when the reader's own
+// choice is the study language itself: English, and English goes to Chinese.
+// The same rule as translationTarget in server/languages.mjs.
+export function defaultTarget(source) {
+  return source === "en" ? "zh" : "en";
+}
+
+// The language a word's meaning (and an example's translation) is written
+// in: the reader's choice in the translate bar, and never the word's own
+// language — an English word explained in English is a dictionary entry, not
+// help for a reader who reads Chinese.
+export function meaningLanguage(lang, chosen) {
+  return chosen && chosen !== lang ? chosen : defaultTarget(lang);
+}
 
 // Names resolve across the whole table, not just the offered subset: a
 // subtitle file can be detected as a language the bar doesn't list, and

@@ -1,7 +1,7 @@
 import { state, setTranslateTo } from "./state.mjs";
 import { parseSubtitle, alignTranslations } from "./subtitle.mjs";
 import { renderTranscript, setElements } from "./ui.mjs";
-import { LANGUAGES, detectLanguage, languageName } from "./languages.mjs";
+import { LANGUAGES, defaultTarget, detectLanguage, languageName } from "./languages.mjs";
 import { api } from "./backend.mjs";
 
 const AUTO = "auto";
@@ -53,13 +53,19 @@ export function populateLanguageSelects(els) {
 // Keep the bar in step with the imported subtitles: source follows the
 // detected learning language once something is loaded, but defaults to
 // "Detect language" on a fresh page (no subtitles yet). Target defaults to
-// English.
-export function syncTranslateLangs(els) {
+// English — or to `shown`, the language an import's translation is actually in
+// — and is never the study language itself: a reader who translates into
+// English and opens an English video sees Chinese there, which is what the
+// import translated it into (translationTarget in server/languages.mjs). Only
+// the select changes; the reader's stored choice stays theirs.
+export function syncTranslateLangs(els, shown = "") {
   if (!els.translateFrom) return;
   const learning = state.learningLang;
   const known = state.subtitles.length && LANGUAGES.some((l) => l.code === learning);
   els.translateFrom.value = known ? learning : AUTO;
+  if (shown && LANGUAGES.some((l) => l.code === shown)) els.translateTo.value = shown;
   if (!els.translateTo.value) els.translateTo.value = "en";
+  if (known && els.translateTo.value === learning) els.translateTo.value = defaultTarget(learning);
 }
 
 export function swapLanguages(els) {

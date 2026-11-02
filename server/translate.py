@@ -8,7 +8,7 @@ Two engines, routed per language pair:
     NLLB notably misrendered proper nouns (Taizhou as "Taichung", Zhejiang as
     "the Yangtze River") that Opus-MT gets right.
   * NLLB-200 as the fallback for every other pair, kept intact for when
-    multi-language support returns (#65).
+    other study languages (public/data/languages.json's `offered` rows).
 """
 
 import argparse
@@ -37,9 +37,53 @@ MODEL_NAME = "facebook/nllb-200-distilled-600M"
 # Dedicated Marian models for the app's main pairs. Loaded via the explicit
 # Marian classes: transformers v5 dropped Marian from the AutoTokenizer
 # mapping, so AutoTokenizer.from_pretrained() fails on these.
-OPUS_ZH_EN = "Helsinki-NLP/opus-mt-zh-en"
-OPUS_EN_ZH = "Helsinki-NLP/opus-mt-en-zh"
-OPUS_MODELS = {("zh", "en"): OPUS_ZH_EN, ("en", "zh"): OPUS_EN_ZH}
+#
+# OPUS_ROUTES: one entry per (from, to) pair a dedicated Marian model handles;
+# every other pair goes to NLLB. `model` is the Hugging Face name. `token` is
+# for multi-target models — a language *group* (opus-mt-tc-big-en-zle: Russian,
+# Ukrainian, Belarusian) or a `deu_eng_…` list (…-deu_eng_fra_por_spa-inc) —
+# which need `>>id<<` at the start of every source sentence or they pick a
+# target language for themselves. Leave it out for a single-pair model.
+#
+# Which model suits each pair, with FLORES scores, is in
+# docs/language-models.md; confirm a choice with scripts/flores_eval.py before
+# adding it here. One line per pair, so languages can be added in parallel.
+#
+# en→zh: opus-mt-en-zh writes a dozen Chinese varieties (cmn_Hans, cmn_Hant,
+# yue, wuu, lzh, …) and its model card says the token is required. Without one
+# it wrote Simplified ("今天天气不错"), so an English video's Chinese
+# translation came out in the other script from every Chinese subtitle in the
+# app. Traditional Mandarin matches the app's Traditional default (ZH_SCRIPT,
+# as in import.mjs); ZH_SCRIPT=off asks for Simplified (opus_prefix).
+OPUS_ROUTES = {
+    ("zh", "en"): {"model": "Helsinki-NLP/opus-mt-zh-en"},
+    ("en", "zh"): {"model": "Helsinki-NLP/opus-mt-en-zh", "token": "cmn_Hant"},
+}
+OPUS_ZH_EN = OPUS_ROUTES[("zh", "en")]["model"]
+OPUS_EN_ZH = OPUS_ROUTES[("en", "zh")]["model"]
+# Model name per pair, for callers that only need to know a pair is routed.
+OPUS_MODELS = {pair: route["model"] for pair, route in OPUS_ROUTES.items()}
+
+
+def opus_route(from_code, to_code):
+    """The OPUS_ROUTES entry for a pair, or None for NLLB."""
+    return OPUS_ROUTES.get((from_code, to_code))
+
+
+def opus_prefix(route):
+    """The sentence-initial `>>id<< ` a route's model needs, or "".
+
+    Accepts a route dict or a bare model name (a single-pair model, no
+    token). The Chinese script follows ZH_SCRIPT: Traditional by default,
+    Simplified when it's off."""
+    if not isinstance(route, dict):
+        return ""
+    token = route.get("token")
+    if not token:
+        return ""
+    if os.environ.get("ZH_SCRIPT") == "off" and token.endswith("_Hant"):
+        token = token[: -len("_Hant")] + "_Hans"
+    return f">>{token}<< "
 
 # Translate this many subtitle lines per model call. Batching is what makes the
 # CPU path faster; the GPU path benefits even more. Sized for the GPU path while
@@ -223,20 +267,24 @@ def _translate_split(texts, translate_pieces):
     return out
 
 
-def translate_batch_opus(texts, model_name):
+def translate_batch_opus(texts, route):
     """Translate a list of strings with a bilingual Marian model.
 
-    No source/target language plumbing: the model only knows one pair. The
-    models are small enough (~310 MB) that the NLLB-style VRAM planning and
+    No NLLB-style language codes: a single-pair model only knows its pair,
+    and a multi-target one is told its target by the route's token, prepended
+    to every sentence (opus_prefix). The models are small enough (~310 MB) that the NLLB-style VRAM planning and
     halve-on-OOM machinery isn't needed.
     """
     if not texts:
         return []
+    # A route from OPUS_ROUTES, or a bare model name for a single-pair model.
+    model_name = route["model"] if isinstance(route, dict) else route
     tokenizer, model, device = get_opus(model_name)
+    prefix = opus_prefix(route)
 
     def run_pieces(pieces):
         inputs = tokenizer(
-            pieces,
+            [prefix + piece for piece in pieces],
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -512,9 +560,9 @@ def _translate_lines(texts, from_code, to_code):
     NLLB codes once, then batches by length as before.
     """
     # Dedicated bilingual model for the app's main pairs; NLLB for the rest.
-    opus_name = OPUS_MODELS.get((from_code, to_code))
+    opus = opus_route(from_code, to_code)
     src_lang = tgt_lang = None
-    if opus_name is None:
+    if opus is None:
         # `zh` is script-agnostic; pick Hant/Hans from the actual text so the
         # model isn't told the wrong script (which makes it hallucinate).
         if from_code == "zh":
@@ -528,7 +576,7 @@ def _translate_lines(texts, from_code, to_code):
     nouns = load_unambiguous_nouns() if from_code == "zh" else {}
 
     prepped = [substitute_nouns(t, nouns) if nouns else t for t in texts]
-    if opus_name and from_code == "zh":
+    if opus and from_code == "zh":
         # Noun substitution first (the CEDICT keys cover both scripts), then
         # normalise the remaining text to Simplified for the Opus model.
         prepped = [to_simplified(t) for t in prepped]
@@ -543,7 +591,7 @@ def _translate_lines(texts, from_code, to_code):
     # adapts as other GPU users — e.g. a game — come and go). The small Opus
     # models don't need the planning; a full batch always fits.
     global _safe_batch
-    _safe_batch = BATCH_SIZE if opus_name else _plan_batch()
+    _safe_batch = BATCH_SIZE if opus else _plan_batch()
     # Read _safe_batch fresh each iteration: if a chunk OOMs and shrinks it,
     # the remaining chunks immediately use the smaller, known-good size.
     start = 0
@@ -552,8 +600,8 @@ def _translate_lines(texts, from_code, to_code):
         idx_chunk = order[start : start + size]
         chunk = [prepped[i] for i in idx_chunk]
         out = (
-            translate_batch_opus(chunk, opus_name)
-            if opus_name
+            translate_batch_opus(chunk, opus)
+            if opus
             else translate_batch(chunk, src_lang, tgt_lang)
         )
         for i, translated_text in zip(idx_chunk, out):
@@ -611,8 +659,8 @@ def serve():
     instead of per request is the whole point of this mode.
     """
     try:
-        # Warm the model for the pair the app actually uses (zh→en; the app is
-        # Chinese-scoped for now, #65). NLLB — the 2.4 GB many-language
+        # Warm the model for the pair most imports use (zh→en; en→zh loads on
+        # its first request, being as small). NLLB — the 2.4 GB many-language
         # fallback — loads lazily on the first request that needs it, so most
         # sessions never pay its load time or memory.
         get_opus(OPUS_ZH_EN)

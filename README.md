@@ -6,12 +6,12 @@ pronunciation (pinyin) line above the source text, clickable words with AI
 explanations saved as flashcards, and simple spaced-repetition review. Runs
 entirely locally — transcription, translation, and caption OCR are all offline.
 
-> **⚠️ Currently Chinese-only (temporary).** To focus development, the app is
-> scoped to **Chinese → English** for now: audio transcription only handles
-> Chinese, and the translate bar lists just Chinese and English. Videos that
-> already have subtitles still load in any language; only audio transcription is
-> gated. Multi-language support is paused but the code is preserved behind
-> comments — tracking re-enablement in
+> **Study languages: Chinese and English.** Chinese videos are translated into
+> English, English videos into Chinese (or whatever the translate bar's target
+> is set to). A video in any other language is refused with a message naming
+> what can be studied. More languages are added one at a time, each after its
+> translation, transcription and OCR have been checked — see
+> [docs/adding-a-language.md](docs/adding-a-language.md) and
 > [issue #65](https://github.com/k1ngsalm0n/subtitles-and-learning-app/issues/65).
 
 ## Run
@@ -102,9 +102,8 @@ app's zh↔en pairs, with **NLLB-200** as the fallback for everything else.
 
 When a video has no subtitle track, the audio is transcribed locally with
 OpenAI Whisper. Low-confidence garbled speech is shown as *(indistinct voice)*
-instead of nonsense text. While the app is Chinese-only (see the note at the
-top), audio that isn't Chinese is rejected with a clear message instead of
-being transcribed.
+instead of nonsense text. Audio in a language Stele can't study yet (see the
+note at the top) is refused with a clear message instead of being transcribed.
 
 URL imports with no subtitle track also get an automatic **burned-in caption
 OCR** pass (RapidOCR): a quick frame probe skips videos with no on-screen text,

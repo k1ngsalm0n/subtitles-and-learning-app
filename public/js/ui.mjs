@@ -49,6 +49,7 @@ import { renderCardFace, renderCardSide } from "./cardface.mjs";
 import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
 import { lookupWord } from "./lookup.mjs";
+import { meaningLanguage } from "./languages.mjs";
 
 export function renderAll(els) {
   // When called without els (from modules that don't have direct access),
@@ -1579,7 +1580,12 @@ async function openWordBubble(anchor, line, els) {
   document.addEventListener("keydown", onKey);
   _bubbleCleanup = () => document.removeEventListener("keydown", onKey);
 
-  const result = await lookupWord(word, lang, context);
+  const result = await lookupWord(
+    word,
+    lang,
+    context,
+    meaningLanguage(lang, _els?.translateTo?.value || state.translateTo),
+  );
   if (bubble.hidden) return;
 
   const pron = result.pronunciation

@@ -74,3 +74,11 @@ test("the picker hides Fill in the blank only once word and sentence are known n
   assert.ok(names(templatesForWord(all, "來財", "八方來財")).includes("Fill in the blank"));
   assert.ok(!names(templatesForWord(all, "因果", "八方來財")).includes("Fill in the blank"));
 });
+
+test("in a spaced script only whole words are blanked", () => {
+  // "cat" is not in "concatenate"; Chinese has no spaces, so any run counts.
+  assert.equal(blankOut("Concatenate the cat, Cat!", "cat"), "Concatenate the ___, ___!");
+  assert.equal(blankOut("The ice cream is cold", "ice cream"), "The ___ _____ is cold");
+  assert.equal(blankOut("concatenate", "cat"), "");
+  assert.equal(blankOut("我喜歡貓，貓很可愛", "貓"), "我喜歡＿，＿很可愛");
+});
