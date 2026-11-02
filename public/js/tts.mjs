@@ -10,12 +10,40 @@
 // See `neural` below for why the browser isn't simply preferred.
 
 import { api } from "./backend.mjs";
+import { detectLanguage } from "./languages.mjs";
+
+const base = (code) => String(code || "").toLowerCase().split(/[-_]/)[0];
+const CJK_LANGS = new Set(["zh", "ja", "ko", "yue"]);
+const CJK_TEXT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+// The language to speak `text` in. Callers pass the language being studied —
+// the open video's — but a card made from another video, or an English word
+// in a Chinese line, isn't in it, and a voice reading another language's text
+// sounds like nonsense: the Chinese voice spelling out "patience", the English
+// one reading 耐心 as nothing at all. So the text has the last word when it
+// clearly says otherwise. detectLanguage abstains rather than guess, so an
+// ordinary word stays in the language given.
+export function spokenLanguage(text, lang) {
+  const given = base(lang);
+  const detected = detectLanguage(text);
+  // Kanji alone reads as Chinese to the detector; a Japanese or Cantonese
+  // reader's Han text is still theirs.
+  if (detected === "zh" && (given === "ja" || given === "yue")) return given;
+  if (detected && detected !== given) return detected;
+  // No Han, kana or Hangul in it: whatever it is, a CJK voice can't read it.
+  if (CJK_LANGS.has(given) && !CJK_TEXT.test(text)) return detected || "en";
+  return given || detected;
+}
 
 const supported =
   typeof window !== "undefined" && "speechSynthesis" in window;
 
 // Some engines expose Chinese as "cmn-Hans-CN" rather than "zh-*".
 const LANG_ALIASES = { zh: ["zh", "cmn"], yue: ["yue", "zh-hk"] };
+// Voices that start with "zh" but speak Cantonese: Hong Kong's and Macau's.
+// Mac, Windows and Android all list one, often before the Mandarin ones, and
+// taking the first "zh" voice read Mandarin words in Cantonese.
+const CANTONESE = /^(yue|zh[-_](hk|mo)|zh[-_]yue)/i;
 
 let voices = supported ? window.speechSynthesis.getVoices() : [];
 const listeners = new Set();
@@ -33,14 +61,24 @@ export function onVoicesChanged(fn) {
   listeners.add(fn);
 }
 
-export function voiceFor(lang) {
-  if (!supported || !lang) return null;
-  const short = String(lang).toLowerCase().slice(0, 2);
+export function voiceFor(lang, list = voices) {
+  if (!lang || !list?.length) return null;
+  const short = base(lang);
   const prefixes = LANG_ALIASES[short] || [short];
+  const candidates = list.filter((voice) => {
+    const code = String(voice.lang || "").toLowerCase().replace("_", "-");
+    if (!prefixes.some((p) => code === p || code.startsWith(`${p}-`))) return false;
+    // Mandarin asked for: never a Cantonese voice.
+    return short !== "zh" || !CANTONESE.test(code);
+  });
+  // The region the reader's language names (zh-TW), then the system's default
+  // voice, then whatever comes first.
+  const wanted = String(lang).toLowerCase().replace("_", "-");
   return (
-    voices.find((voice) =>
-      prefixes.some((p) => voice.lang?.toLowerCase().startsWith(p)),
-    ) || null
+    candidates.find((voice) => voice.lang?.toLowerCase().replace("_", "-") === wanted) ||
+    candidates.find((voice) => voice.default) ||
+    candidates[0] ||
+    null
   );
 }
 
@@ -86,8 +124,9 @@ export function speak(text, lang, rate = "fast") {
   const trimmed = String(text || "").trim();
   if (!trimmed) return false;
   const slow = rate === "slow";
+  lang = spokenLanguage(trimmed, lang);
 
-  const short = String(lang || "").toLowerCase().slice(0, 2);
+  const short = base(lang);
   // Asking for espeak-ng means the server, which is the only thing that can
   // guarantee it — a browser voice would be whatever the system happens to
   // have. Asking for the browser skips the server entirely when it can.

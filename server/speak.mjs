@@ -19,8 +19,22 @@ import { fileURLToPath } from "node:url";
 import { runCommand, sendJson, HttpError, readJsonBody } from "./util.mjs";
 import { readPrefs } from "./prefs.mjs";
 import { PYTHON_BIN } from "./device.mjs";
+import { createPyWorker } from "./pyworker.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SPEAK_SCRIPT = path.join(__dirname, "speak.py");
+
+// Kept running, with each voice loaded once: a Chinese voice that reads pinyin
+// loads g2pW (a BERT model) to choose each character's reading, and starting
+// `python -m piper` for every press took ~2.7 s. 10 idle minutes gives the
+// RAM back while the reader is away.
+const worker = createPyWorker({
+  name: "speak",
+  script: SPEAK_SCRIPT,
+  // The first press after a fresh install downloads g2pW (~110 MB).
+  requestTimeoutMs: 5 * 60_000,
+  idleMs: 10 * 60_000,
+});
 
 // Beside the backups, for the same reason: outside the repo, so a checkout
 // can't lose them and `git add -A` can't commit 60 MB of voice.
@@ -41,10 +55,12 @@ const ESPEAK_VOICES = {
 // stretches each phoneme — so the app names the intent and maps it here.
 // espeak-ng's floor is 80 wpm — below that `-s` does nothing, and `-g` (word
 // gap) can't help Chinese, which has no word boundaries to widen. That already
-// gives 1.8x, so it is piper that had to catch up: at 1.45 its "slow" was only
-// 1.14x, close enough to normal to look broken. 2.5 measures 1.64x.
+// gives 1.8x, so it is piper that had to catch up: at 1.45 the old Chinese
+// voice's "slow" was only 1.14x. On the pinyin voice (zh_CN-xiao_ya) 2.0 is
+// about 1.8x, matching espeak; 2.5 stretched the old voice until Whisper heard
+// 刷手機 as 雙手擊 and 耐心 as 內心.
 const WORDS_PER_MINUTE = { fast: 140, slow: 80 };
-const LENGTH_SCALE = { fast: 1, slow: 2.5 };
+const LENGTH_SCALE = { fast: 1, slow: 2 };
 
 // "fast" is the phrase at its natural speed, not a rushed one — it is only
 // called that because it is the faster of the two on offer. Anything
@@ -80,16 +96,46 @@ function listVoices() {
   return _voiceCache;
 }
 
-async function voiceModelFor(lang) {
+// How a voice turns text into sounds, from its .onnx.json: "espeak" (espeak-ng's
+// phonemes) or a language's own, like "pinyin". For Chinese the difference is
+// the tones: espeak-ng's phonemes give tone 1 and tone 4 the same symbol (媽
+// and 罵 arrive identical), so zh_CN-huayan guessed tones from context and
+// read 什麼 as "shén mó". zh_CN-xiao_ya reads g2pW's pinyin, tones included.
+const _phonemeTypes = new Map();
+
+async function phonemeType(name) {
+  if (!_phonemeTypes.has(name)) {
+    const type = fs
+      .readFile(path.join(VOICE_DIR, `${name}.json`), "utf8")
+      .then((text) => JSON.parse(text).phoneme_type || "espeak")
+      .catch(() => "espeak");
+    _phonemeTypes.set(name, type);
+  }
+  return _phonemeTypes.get(name);
+}
+
+// Every installed voice for the language, best first: a voice with its own
+// phonemizer before an espeak-based one, then by name so the order is stable.
+export async function rankVoices(names, lang, typeOf = phonemeType) {
+  const matching = names.filter((name) => matchesLanguage(name, lang)).sort();
+  const own = [];
+  const espeak = [];
+  for (const name of matching) {
+    ((await typeOf(name)) === "espeak" ? espeak : own).push(name);
+  }
+  return [...own, ...espeak];
+}
+
+async function voiceModelsFor(lang) {
   let models = await (_voiceCache || listVoices());
-  let match = models.find((name) => matchesLanguage(name, lang));
+  let matches = await rankVoices(models, lang);
   // A miss is worth one more look at the directory: installing a voice should
   // take effect without restarting the server. Hits stay cached.
-  if (!match) {
+  if (!matches.length) {
     models = await listVoices();
-    match = models.find((name) => matchesLanguage(name, lang));
+    matches = await rankVoices(models, lang);
   }
-  return match ? path.join(VOICE_DIR, match) : null;
+  return matches.map((name) => path.join(VOICE_DIR, name));
 }
 
 async function speakWithPiper(text, model, speed) {
@@ -97,14 +143,18 @@ async function speakWithPiper(text, model, speed) {
     os.tmpdir(),
     `stele-say-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`,
   );
+  const request = { model, text, length_scale: LENGTH_SCALE[speed], out };
   try {
-    await runCommand(PYTHON_BIN, [
-      "-m", "piper", "-m", model,
-      "--length-scale", String(LENGTH_SCALE[speed]),
-      "-f", out,
-    ], {
-      timeoutMs: TIMEOUT_MS,
-      input: text,
+    // The worker is a speed-up; if it can't start, a one-shot run still can.
+    await worker.request(request).catch(async (error) => {
+      if (/didn't start|failed to start|exited/i.test(error.message)) {
+        await runCommand(PYTHON_BIN, [SPEAK_SCRIPT], {
+          timeoutMs: TIMEOUT_MS,
+          input: JSON.stringify(request),
+        });
+      } else {
+        throw error;
+      }
     });
     return await fs.readFile(out);
   } finally {
@@ -174,14 +224,19 @@ export async function handleSpeak(req, res) {
   // some readers prefer a flat voice for drilling. Asking for it must actually
   // get it rather than being overruled by a better one being installed.
   const { speech } = await readPrefs();
-  const model = speech === "espeak" ? null : await voiceModelFor(lang);
+  const models = speech === "espeak" ? [] : await voiceModelsFor(lang);
   let wav = null;
   let engine = "piper";
 
-  if (model) {
-    // A missing model file, a broken install: fall through to espeak-ng rather
-    // than leave the reader with silence and an error.
-    wav = await speakWithPiper(text, model, speed).catch(() => null);
+  // A missing model file, a broken install, a pinyin voice without piper's
+  // Chinese extras: try the next voice, then espeak-ng, rather than leave the
+  // reader with silence and an error.
+  for (const model of models) {
+    wav = await speakWithPiper(text, model, speed).catch((error) => {
+      console.warn(`piper couldn't speak with ${path.basename(model)}: ${error.message}`);
+      return null;
+    });
+    if (wav?.length) break;
   }
   if (!wav || !wav.length) {
     engine = "espeak";

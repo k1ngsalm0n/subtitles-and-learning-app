@@ -5,7 +5,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { matchesLanguage, espeakVoiceFor } from "../server/speak.mjs";
+import { matchesLanguage, espeakVoiceFor, rankVoices } from "../server/speak.mjs";
 
 // handleVoices reads STELE_VOICE_DIR, which speak.mjs resolves at import time,
 // so each case gets its own module instance pointed at its own directory.
@@ -146,4 +146,23 @@ test("text that looks like an espeak option is spoken, not obeyed", async (t) =>
   );
   assert.ok(spokenPath.length > 0, "the path itself is spoken");
   assert.ok(spokenPath.length < spokenFile.length / 3, "the file's contents were not");
+});
+
+// A voice with its own phonemizer beats an espeak-based one for its language:
+// espeak-ng's Chinese phonemes give tone 1 and tone 4 the same symbol, so
+// zh_CN-huayan read 什麼 as "shén mó"; zh_CN-xiao_ya reads pinyin.
+test("a pinyin voice is tried before an espeak one", async () => {
+  const types = {
+    "zh_CN-huayan-medium.onnx": "espeak",
+    "zh_CN-xiao_ya-medium.onnx": "pinyin",
+    "en_US-amy-medium.onnx": "espeak",
+  };
+  const names = Object.keys(types);
+  const typeOf = async (name) => types[name];
+  assert.deepEqual(await rankVoices(names, "zh", typeOf), [
+    "zh_CN-xiao_ya-medium.onnx",
+    "zh_CN-huayan-medium.onnx",
+  ]);
+  assert.deepEqual(await rankVoices(names, "en", typeOf), ["en_US-amy-medium.onnx"]);
+  assert.deepEqual(await rankVoices(names, "ja", typeOf), []);
 });
