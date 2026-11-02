@@ -25,6 +25,8 @@ import {
   saveCards,
 } from "./state.mjs";
 import { locateCards, groupByVideo } from "./cardlocate.mjs";
+import { repairCards, relinkCards } from "./cardrepair.mjs";
+import { meaningLanguage } from "./languages.mjs";
 import { loadSubtitles, sampleOriginal, sampleTranslation } from "./subtitle.mjs";
 import {
   flipReviewCard,
@@ -357,7 +359,9 @@ function init() {
   startAutoBackup();
   // Cards made on the phone show up here and the other way round (sync.mjs).
   startSync({
-    applied: () => {
+    applied: (touched) => {
+      // Cards from elsewhere may be missing what a card here would have.
+      if (touched?.has("cards")) repairCardsQuietly();
       renderAll(els);
       renderVideos();
       if (state.lastView === "settings") renderDataPanel();
@@ -602,9 +606,9 @@ function handleStudyKeys(event) {
   STUDY_ACTIONS[action](els);
 }
 
-// Review shortcuts (Flashcards view only): Space flips, 1–4 grade
-// Again/Hard/Good/Easy.
-const GRADE_KEYS = { 1: "again", 2: "hard", 3: "good", 4: "easy" };
+// Review shortcuts (Flashcards view only): Space shows the answer and, once
+// it's showing, means "Got it"; 1 Forgot, 2 Got it, 3 Easy.
+const GRADE_KEYS = { 1: "again", 2: "good", 3: "easy" };
 function handleReviewKeys(event) {
   if (!document.querySelector("#cardsView").classList.contains("active")) return;
   if (document.querySelector("dialog[open]")) return;
@@ -612,7 +616,8 @@ function handleReviewKeys(event) {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (event.key === " ") {
     event.preventDefault();
-    flipWithTurn(flipReviewCard);
+    if (state.showingBack) gradeCard("good");
+    else flipWithTurn(flipReviewCard);
   } else if (GRADE_KEYS[event.key]) {
     gradeCard(GRADE_KEYS[event.key]);
   }
@@ -1502,6 +1507,48 @@ async function locateAllWords() {
   }
 }
 
+// On startup: a card with no meaning or reading gets the dictionary's, and
+// one whose reading is none of the word's dictionary readings gets fixed
+// (cardrepair.mjs). Quiet unless something changed.
+let repairing = false;
+async function repairCardsQuietly() {
+  if (repairing) return;
+  repairing = true;
+  try {
+    await repairOnce();
+  } finally {
+    repairing = false;
+  }
+}
+async function repairOnce() {
+  const relinked = await relinkCards(state.cards, state.sources, async (source) => {
+    const id = storedId(source);
+    if (!id) return null;
+    const res = await api(`/api/library/${id}`);
+    if (!res.ok) return null;
+    const entry = await res.json();
+    return { subtitles: entry.subtitles || "", translation: entry.translation || "" };
+  });
+  const fillMeaning = meaningLanguage(state.learningLang, state.translateTo) === "en";
+  const changed = await repairCards(state.cards, { fillMeaning });
+  if (!changed && !relinked) return;
+  saveCards();
+  renderAll(els);
+  if (relinked) locateUncheckedCards();
+  const said = [];
+  if (relinked) {
+    said.push(relinked === 1
+      ? "Found 1 card's video again — it had been deleted and imported again."
+      : `Found ${relinked} cards' video again — it had been deleted and imported again.`);
+  }
+  if (changed) {
+    said.push(changed === 1
+      ? "Filled in 1 card's missing meaning or reading."
+      : `Filled in ${changed} cards' missing meanings or readings.`);
+  }
+  showToast(said.join(" "));
+}
+
 // On startup: cards that have never been checked — every card made before
 // locating existed, many with the wrong line's time — are placed quietly, so
 // Replay lands on the word without the reader having to ask. Each card is
@@ -1667,3 +1714,4 @@ async function saveCookieSettings() {
 // init — including the first-paint cleanup — unrun.
 init();
 setTimeout(locateUncheckedCards, 2000);
+setTimeout(repairCardsQuietly, 2500);

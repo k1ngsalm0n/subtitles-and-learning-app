@@ -22,6 +22,8 @@ import {
   DEFAULT_DECK_ID,
   BUILTIN_TEMPLATE_IDS,
   templatesForWord,
+  frontFieldsOf,
+  needsRecognise,
 } from "../public/js/carddata.mjs";
 
 const LEGACY_CARD = {
@@ -41,8 +43,8 @@ test("legacy cards migrate to Default template in Default deck", () => {
   const card = cards[0];
   assert.equal(card.deckId, DEFAULT_DECK_ID);
   assert.equal(card.templateId, BUILTIN_TEMPLATE_IDS.default);
-  assert.deepEqual(card.frontFields, ["word"]);
-  assert.deepEqual(card.backFields, ["word", "pinyin", "translation"]);
+  assert.deepEqual(card.frontFields, ["context", "clip"]);
+  assert.deepEqual(card.backFields, ["context", "audio", "pinyin", "translation", "characters", "exampleTranslation"]);
   assert.equal(card.word, "你好");
   assert.equal(card.translation, "hello");
   assert.equal(card.example, "你好嗎");
@@ -82,16 +84,19 @@ test("built-in templates map to the specified field lists", () => {
   const byName = Object.fromEntries(
     builtinTemplates().map((tpl) => [tpl.name, tpl]),
   );
-  assert.deepEqual(byName["Default"].frontFields, ["word"]);
-  assert.deepEqual(byName["Default"].backFields, [
-    "word",
+  assert.deepEqual(byName["Recognise"].frontFields, ["context", "clip"]);
+  assert.deepEqual(byName["Recognise"].backFields, [
+    "context",
+    "audio",
     "pinyin",
     "translation",
+    "characters",
+    "exampleTranslation",
   ]);
-  assert.equal(byName["Default"].showStrokes, false);
+  assert.equal(byName["Recognise"].showStrokes, false);
   assert.deepEqual(byName["Reverse"].frontFields, ["translation"]);
   assert.deepEqual(byName["Reverse"].backFields, ["word", "pinyin"]);
-  assert.deepEqual(byName["Stroke order"].frontFields, ["word"]);
+  assert.deepEqual(byName["Stroke order"].frontFields, ["context", "clip"]);
   assert.equal(byName["Stroke order"].showStrokes, true);
   for (const tpl of builtinTemplates()) assert.equal(tpl.builtIn, true);
   assert.equal(builtinDecks()[0].id, DEFAULT_DECK_ID);
@@ -140,7 +145,7 @@ test("template validation enforces names and non-empty faces", () => {
     /name/i,
   );
   assert.match(
-    validateTemplate({ ...valid, name: "default" }, existing),
+    validateTemplate({ ...valid, name: "recognise" }, existing),
     /already exists/i,
   );
   assert.match(
@@ -333,4 +338,52 @@ test("a word mixing scripts still counts as Han", () => {
   // "OK的" — a stroke chart for the 的 is still worth offering.
   const templates = [{ id: "b", name: "Stroke order", showStrokes: true }];
   assert.deepEqual(templatesForWord(templates, "OK的").map((t) => t.id), ["b"]);
+});
+
+// Cards the way the reader's were: the bare-word Default, and one made with a
+// custom template ("All") that put every field on both faces.
+const OLD_DEFAULT_CARD = {
+  id: "c1", deckId: "deck-1", templateId: "tpl-default",
+  frontFields: ["word"], backFields: ["word", "pinyin", "translation"], showStrokes: false,
+  word: "改行", pinyin: "gǎi háng", translation: "to change one's line of work",
+  example: "也有可能會改行", examplePinyin: "", exampleTranslation: "I might also change careers.",
+  state: "review", interval: 6, ease: 2.3, reps: 3, lapses: 1, due: 1800000000000, createdAt: 1790000000000,
+};
+const ALL_FIELDS = ["word", "audio", "pinyin", "translation", "example", "exampleAudio", "examplePinyin", "exampleTranslation", "cloze", "clozeAnswer"];
+const ANSWER_ON_FRONT = { ...OLD_DEFAULT_CARD, id: "c2", templateId: "tpl-custom", frontFields: ALL_FIELDS, backFields: ALL_FIELDS };
+
+test("the old bare-word card and one that shows its answer become Recognise cards, history kept", () => {
+  assert.equal(needsRecognise(OLD_DEFAULT_CARD), true);
+  assert.equal(needsRecognise(ANSWER_ON_FRONT), true);
+  const { cards, changed } = migrateCards([OLD_DEFAULT_CARD, ANSWER_ON_FRONT]);
+  assert.equal(changed, true);
+  for (const card of cards) {
+    assert.equal(card.templateId, "tpl-default");
+    assert.deepEqual(card.frontFields, ["context", "clip"]);
+    assert.equal(card.deckId, "deck-1");
+    assert.equal(card.interval, 6);
+    assert.equal(card.lapses, 1);
+    assert.equal(card.due, 1800000000000);
+    assert.equal(card.front, "也有可能會改行", "flattened front is the sentence");
+  }
+  // Already Recognise: left alone, so it runs once.
+  assert.equal(migrateCards(cards).changed, false);
+});
+
+test("a card's front never draws an answer its back also shows", () => {
+  assert.deepEqual(frontFieldsOf(ANSWER_ON_FRONT), ["word", "audio", "example", "exampleAudio", "cloze", "clozeAnswer"]);
+  const reverse = { frontFields: ["translation"], backFields: ["word", "pinyin"] };
+  assert.deepEqual(frontFieldsOf(reverse), ["translation"], "a meaning asked about is the question, not the answer");
+});
+
+test("a template can't put an answer on both sides", () => {
+  const all = { id: "t9", name: "All", frontFields: ALL_FIELDS, backFields: ALL_FIELDS };
+  assert.match(validateTemplate(all, builtinTemplates()), /Pronunciation, Translation.*both sides/);
+  assert.equal(validateTemplate({ ...all, frontFields: ["word", "example"] }, builtinTemplates()), null);
+});
+
+test("the Recognise front is the word in its sentence, or the word alone without one", () => {
+  assert.equal(fieldText(OLD_DEFAULT_CARD, "context"), "也有可能會改行");
+  assert.equal(fieldText({ ...OLD_DEFAULT_CARD, example: "" }, "context"), "改行");
+  assert.equal(fieldText({ ...OLD_DEFAULT_CARD, example: "別的句子" }, "context"), "改行");
 });

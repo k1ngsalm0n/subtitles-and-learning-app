@@ -132,7 +132,36 @@ export const CARD_FIELDS = [
     // Plain text here (flattening, export); cardface.mjs draws the highlight.
     text: (card) => (blankOut(card.example, card.word) ? card.example : ""),
   },
+  {
+    // The word where it was met: its sentence with the word marked, or the
+    // word alone when there's no sentence that contains it. The front of a
+    // Recognise card — a word is far easier to recall in the line it came
+    // from than on its own.
+    key: "context",
+    label: "Word in its sentence",
+    text: (card) => (blankOut(card.example, card.word) ? card.example : card.word),
+  },
+  // The line, played from the video it was saved from (cardface.mjs asks the
+  // page where that is). Nothing when the card has no video.
+  { key: "clip", label: "Play it from the video", clip: true },
+  // Each character's reading and meaning, fetched from the dictionary when
+  // the face is drawn (Chinese words only).
+  { key: "characters", label: "Each character", characters: true },
 ];
+
+// Fields that answer a card. One of these on the front *and* the back means
+// the front shows the answer — a template called "All" did exactly that —
+// so a template can't, and a card that does has them taken off its front.
+export const ANSWER_FIELDS = new Set([
+  "pinyin", "translation", "examplePinyin", "exampleTranslation", "characters",
+]);
+
+// The fields to draw on a card's front: its own, less any answer it also
+// shows on the back.
+export function frontFieldsOf(card) {
+  const back = new Set(card.backFields || []);
+  return (card.frontFields || []).filter((key) => !(ANSWER_FIELDS.has(key) && back.has(key)));
+}
 
 export const FIELD_KEYS = CARD_FIELDS.map((field) => field.key);
 const FIELD_BY_KEY = new Map(CARD_FIELDS.map((field) => [field.key, field]));
@@ -145,15 +174,25 @@ export function isAudioField(key) {
   return Boolean(FIELD_BY_KEY.get(key)?.speak);
 }
 
+const RECOGNISE = {
+  front: ["context", "clip"],
+  back: ["context", "audio", "pinyin", "translation", "characters", "exampleTranslation"],
+};
+// What the built-in Default template was before Recognise: the bare word.
+const OLD_DEFAULT = { front: ["word"], back: ["word", "pinyin", "translation"] };
+
 // Built-in templates are re-seeded canonically on every load: they can't be
 // deleted or edited, so stored copies never drift from these definitions.
 export function builtinTemplates() {
   return [
     {
+      // Recognise: the word in the sentence it was met in, with the line
+      // from the video to listen to; the back says how it's read, what it
+      // means, what its characters mean and what the sentence says.
       id: BUILTIN_TEMPLATE_IDS.default,
-      name: "Default",
-      frontFields: ["word"],
-      backFields: ["word", "pinyin", "translation"],
+      name: "Recognise",
+      frontFields: RECOGNISE.front,
+      backFields: RECOGNISE.back,
       showStrokes: false,
       builtIn: true,
     },
@@ -168,8 +207,8 @@ export function builtinTemplates() {
     {
       id: BUILTIN_TEMPLATE_IDS.strokes,
       name: "Stroke order",
-      frontFields: ["word"],
-      backFields: ["word", "pinyin", "translation"],
+      frontFields: RECOGNISE.front,
+      backFields: RECOGNISE.back,
       showStrokes: true,
       builtIn: true,
     },
@@ -392,6 +431,13 @@ export function validateTemplate(template, existing = []) {
   if (!template.backFields.length) {
     return "Pick at least one field for the back.";
   }
+  const both = template.frontFields.filter(
+    (key) => ANSWER_FIELDS.has(key) && template.backFields.includes(key),
+  );
+  if (both.length) {
+    const names = both.map((key) => FIELD_BY_KEY.get(key).label).join(", ");
+    return `${names} can't be on both sides: the front would show the answer. Keep ${both.length > 1 ? "them" : "it"} on one side.`;
+  }
   return null;
 }
 
@@ -439,7 +485,33 @@ export function isLegacyCard(card) {
   return !Array.isArray(card.frontFields) || !Array.isArray(card.backFields);
 }
 
+const sameList = (a, b) => a.length === b.length && a.every((key, i) => key === b[i]);
+
+// A card the review couldn't teach from: the bare-word Default of before, or
+// one whose front shows its own answer. It becomes a Recognise card, keeping
+// its words, deck and review history; one on the old Stroke order keeps its
+// charts.
+export function needsRecognise(card) {
+  if (isLegacyCard(card)) return false;
+  const oldDefault =
+    sameList(card.frontFields, OLD_DEFAULT.front) && sameList(card.backFields, OLD_DEFAULT.back) &&
+    (card.templateId === BUILTIN_TEMPLATE_IDS.default || card.templateId === BUILTIN_TEMPLATE_IDS.strokes);
+  return oldDefault || frontFieldsOf(card).length < card.frontFields.length;
+}
+
+function toRecognise(card) {
+  const strokes = card.templateId === BUILTIN_TEMPLATE_IDS.strokes && card.showStrokes;
+  return syncFlattened({
+    ...card,
+    templateId: strokes ? BUILTIN_TEMPLATE_IDS.strokes : BUILTIN_TEMPLATE_IDS.default,
+    frontFields: [...RECOGNISE.front],
+    backFields: [...RECOGNISE.back],
+    showStrokes: Boolean(strokes),
+  });
+}
+
 export function migrateCard(card) {
+  if (needsRecognise(card)) return { card: toRecognise(card), changed: true };
   if (!isLegacyCard(card)) return { card, changed: false };
   const template = builtinTemplates()[0];
   return {

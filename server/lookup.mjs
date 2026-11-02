@@ -577,6 +577,14 @@ export async function lookupWord(word, lang, context, to = "en", pinyin = "") {
 // The dictionary's answer for a word, or null: CC-CEDICT's entries in the
 // reader's script, the reading the transcript shows first. Also what "Words
 // to learn" lists (glossWords), so it never asks the chat model.
+// Whether `said` is one of `readings`, ignoring spaces, case and tone marks
+// (a neutral tone is often written either way: 意思 yìsi / yìsī).
+export function isReadingOf(said, readings) {
+  const plain = (p) => toneless(String(p).toLowerCase().replace(/[\s'’-]+/g, "")).replace(/u:/g, "ü");
+  const want = plain(said);
+  return (readings || []).some((r) => plain(r) === want);
+}
+
 function wordSenses(defs) {
   const real = defs.filter((d) => !NOT_A_MEANING.test(d));
   return real.length ? real : defs;
@@ -609,6 +617,9 @@ function dictionaryResult(word, pinyin, map) {
     const glyph = single ? glyphMeaning(word, said || sorted[0].pinyin, map, { trad }) : null;
     return {
       word,
+      // Every reading the dictionary has for it, real entries first: what a
+      // chat model's or a card's pinyin is checked against.
+      readings: [...new Set(sorted.filter((e) => !/^[A-Z]/.test(e.rawPinyin) || sorted.every((x) => /^[A-Z]/.test(x.rawPinyin))).map((e) => e.pinyin))],
       pronunciation: glyph?.pinyin || sorted[0].pinyin,
       // Senses only: 手機's third "definition" is its measure word and
       // 知道's its other pronunciation; both stay under All definitions.
@@ -641,10 +652,16 @@ async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
 
   const llm = await lookupWithLlm(word, lang, context, dictResult?.defs, to);
   if (llm) {
+    // A model's pinyin that is none of the word's readings is wrong — 交流
+    // came back "liú jiāo" and was saved onto a card like that. The reading
+    // shown over the transcript, else the dictionary's, is used instead.
+    const heard = llm.pronunciation;
+    const fits = !dictResult?.readings?.length || !heard || isReadingOf(heard, dictResult.readings);
     return {
       ...llm,
       defs: dictResult?.defs || [],
-      pronunciation: llm.pronunciation || dictResult?.pronunciation || "",
+      pronunciation: (fits && heard) || (pinyin && (!dictResult || isReadingOf(pinyin, dictResult.readings)) ? pinyin : "") ||
+        dictResult?.pronunciation || heard || "",
     };
   }
 
@@ -752,19 +769,28 @@ function piecesOf(word, pinyin, dict) {
 // lacks is told by the words inside it (piecesOf), marked `parts` so the page
 // can say it's pieced together. { word: { pinyin, meaning, parts } }; a word
 // with neither is left out.
-export function glossWords(items, dict) {
+export function glossWords(items, dict, { characters = false } = {}) {
   const out = {};
   for (const { word, pinyin = "" } of items) {
     if (!word || out[word]) continue;
     const found = dictionaryResult(word, pinyin, dict);
     if (found?.meaning) {
-      out[word] = { pinyin: found.pronunciation || pinyin, meaning: shortGloss(found.meaning), parts: false };
+      out[word] = {
+        pinyin: found.pronunciation || pinyin,
+        meaning: shortGloss(found.meaning),
+        parts: false,
+        readings: found.readings,
+      };
+      if (characters) {
+        out[word].characters = breakdownFor(word, { pinyin: pinyin || found.pronunciation, meaning: found.meaning }, dict);
+      }
       continue;
     }
     if ([...word].length < 2 || ![...word].every((c) => HAN.test(c))) continue;
     const pieces = piecesOf(word, pinyin, dict);
     if (pieces.every((p) => p.meaning)) {
-      out[word] = { pinyin, meaning: pieces.map((p) => p.meaning).join(" + "), parts: true };
+      out[word] = { pinyin, meaning: pieces.map((p) => p.meaning).join(" + "), parts: true, readings: [] };
+      if (characters) out[word].characters = breakdownFor(word, { pinyin }, dict);
     }
   }
   return out;
@@ -791,6 +817,8 @@ export async function handleGlosses(req, res) {
     }));
   // CC-CEDICT is Chinese with English definitions: other pairs get nothing
   // here, and the list says to click a word for its meaning.
-  const glosses = lang === "zh" && to === "en" ? glossWords(clean, await loadDict()) : {};
+  const glosses = lang === "zh" && to === "en"
+    ? glossWords(clean, await loadDict(), { characters: body?.characters === true && clean.length <= 50 })
+    : {};
   sendJson(res, 200, { glosses });
 }

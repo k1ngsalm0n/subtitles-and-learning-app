@@ -45,13 +45,14 @@ import {
   toggleDeckCollapsed,
   addDeck,
 } from "./flashcards.mjs";
-import { deckRows } from "./carddata.mjs";
+import { deckRows, frontFieldsOf } from "./carddata.mjs";
 import { renderCardFace, renderCardSide } from "./cardface.mjs";
 import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
 import { lookupWord } from "./lookup.mjs";
 import { meaningLanguage } from "./languages.mjs";
 import { openWordList } from "./wordlist.mjs";
+import { clipSpan, playClip, stopClip } from "./clip.mjs";
 
 export function renderAll(els) {
   // When called without els (from modules that don't have direct access),
@@ -1242,7 +1243,10 @@ function cardListItem(card, e) {
   // Both faces go through the shared renderer — same one the review screen
   // and modal preview use. Strokes stay off in the list (too heavy per row).
   const front = document.createElement("div");
-  renderCardFace(front, card, card.frontFields, { lang: state.learningLang });
+  // A row names its card by the word, not by the sentence the review shows
+  // it in, and leaves out what costs a request per row (the characters).
+  const listFront = frontFieldsOf(card).map((key) => (key === "context" ? "word" : key));
+  renderCardFace(front, card, [...new Set(listFront)], { lang: state.learningLang });
   front.classList.add("card-face-compact");
   body.append(front);
 
@@ -1251,7 +1255,12 @@ function cardListItem(card, e) {
   // affordance (and the keyboard/screen-reader control), not a labeled button,
   // because a row of "Show answer" buttons is louder than the cards.
   const back = document.createElement("div");
-  renderCardFace(back, card, card.backFields, { lang: state.learningLang });
+  renderCardFace(
+    back,
+    card,
+    card.backFields.filter((key) => key !== "context" && key !== "characters"),
+    { lang: state.learningLang },
+  );
   back.classList.add("card-face-compact", "card-item-back");
   const hasBack = back.textContent.trim().length > 0;
   let reveal = null;
@@ -1446,15 +1455,19 @@ export function renderReviewCard(els) {
     return;
   }
 
+  // A clip still playing from the last card stops when the next one comes up.
+  if (card.id !== _reviewCardId) stopClip();
+  _reviewCardId = card.id;
   const face = document.createElement("div");
   renderCardSide(face, card, state.showingBack ? "back" : "front", {
     lang: state.learningLang,
     // Strokes are part of the card's template; the review screen is exactly
     // where they should appear.
+    playClip: clipPlayerFor,
   });
   const hint = document.createElement("p");
   hint.className = "muted review-hint";
-  hint.textContent = state.showingBack ? "" : "Flip to check the answer";
+  hint.textContent = state.showingBack ? "" : "What does the marked word mean, and how is it said?";
   e.reviewCard.textContent = "";
   e.reviewCard.append(face, hint);
   const sourceButton = sourceLinkButton(card);
@@ -1466,9 +1479,10 @@ export function renderReviewCard(els) {
   // after the flip, each labeled with the interval it would produce. The flip
   // control stays put and turns into "Show front", so a card can be flipped
   // back without grading it (Space already toggled both ways).
-  e.flipCard.hidden = false;
-  e.flipCard.textContent = state.showingBack ? "Show front" : "Flip";
-  e.flipCard.classList.toggle("showing-back", state.showingBack);
+  // "Show answer", then the grades in its place: going back to the front
+  // after seeing the answer can't un-see it.
+  e.flipCard.hidden = state.showingBack;
+  e.flipCard.textContent = "Show answer";
   const preview = previewIntervals(card);
   gradeButtons.forEach((button) => {
     button.hidden = !state.showingBack;
@@ -1476,6 +1490,16 @@ export function renderReviewCard(els) {
       preview[button.dataset.grade],
     );
   });
+}
+
+let _reviewCardId = null;
+
+// The card's line from its video, if the video is still in the Videos list.
+function clipPlayerFor(card) {
+  const source = card.sourceId && state.sources.find((s) => s.id === card.sourceId);
+  const span = clipSpan(card);
+  if (!source?.videoUrl || !span) return null;
+  return () => playClip(source.videoUrl, span);
 }
 
 export function updateStats(els) {
