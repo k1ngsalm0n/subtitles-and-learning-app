@@ -955,6 +955,39 @@ the Whisper cache. `npm run sync` prefetches them up front; if you skipped that,
 the first translation/transcription downloads them instead and the app appears
 to pause while it happens.
 
+## Several Claude sessions at once
+
+The reader often has more than one Claude working on this repo at the same
+time, and their changes meet in the running app. Changes made straight on
+`preview`, or copied there by cherry-pick from half-merged branches, left
+`preview` and `main` disagreeing on 24 commits, with conflicts at every merge.
+So every session follows the same path:
+
+1. **Work in your own worktree, on your own branch from a fresh `main`**:
+   `git fetch && git worktree add -b <topic> ../stele-<topic> origin/main`.
+   Never commit on `preview` and never work in the main checkout
+   (`~/Documents/subtitles-and-learning-app`) — that's the running app.
+2. **Before opening the PR, catch up**: `git fetch && git rebase origin/main`,
+   run `npm test` (and the Python tests if Python changed). Conflicts are
+   solved on your branch, where they belong, not on `preview`.
+3. **Merge through a PR** (squash), after CI passes.
+4. **Then update the app**: in the main checkout, `git fetch && git merge
+   --ff-only origin/main` on `preview`, `npm test`, `systemctl --user restart
+   stele.service`. If it won't fast-forward, someone committed on `preview`:
+   `git merge origin/main` (never reset away their commit) and tell the reader.
+   `preview` is only ever `main` plus nothing.
+5. **Keep a PR small and about one thing**, and say in it which files it
+   touches. Two sessions editing the same big file (`ui.mjs`, `main.mjs`,
+   `index.html`, `CLAUDE.md`) both win if each change is short and lands
+   quickly; a branch left open for a day conflicts with everything.
+6. **No links in a worktree.** Don't symlink `.venv` into one (run Python as
+   `~/Documents/subtitles-and-learning-app/.venv/bin/python`, or
+   `STELE_PYTHON=` for a sandbox); a committed `.venv` link, merged into the
+   main checkout, deleted the real `.venv` twice. `git status` before every
+   commit; never `git add -A` blind.
+7. **Check nothing is importing before restarting** (no `transcribe.py`,
+   `ocr_captions` or `yt-dlp` running): a restart cuts an import off.
+
 ## Testing against a running app: the sandbox
 
 `npm run sandbox` (`scripts/sandbox.mjs`) runs the app on port 3100 with
