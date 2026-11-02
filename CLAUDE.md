@@ -755,7 +755,8 @@ candidates (交流, not 腳流) is part of the test. `checkAnswer` takes either
 script, position by position (頭发 is 頭髮), says "Almost" for one wrong
 character, and the outlined grade (what Space does) is Got it for right or
 almost, Forgot otherwise. A Forgot halves the interval, which brings the card
-back to Recognise. Fill in the blank cards are Recall from the start. The
+back to Recognise. A 💡 Hint button shows the word's meaning, only when asked for.
+Fill in the blank cards are Recall from the start. The
 Replay and stroke buttons stay off a Recall question: both show the word.
 **Listen** comes after: from a month apart (`LISTEN_AFTER_DAYS`), every other
 review (even `reps`) the sentence is only *heard* — said once when the card

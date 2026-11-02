@@ -1484,6 +1484,8 @@ export function renderReviewCard(els) {
       typed: _recall.typed,
       lang: state.learningLang,
       listen: play ? { play } : null,
+      hinted: _recall.hinted,
+      onHint: () => (_recall.hinted = true),
       onInput: (text) => (_recall.typed = text),
       onSubmit: (text) => {
         _recall.typed = text;
