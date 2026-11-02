@@ -292,3 +292,23 @@ test("glossWords: a word the dictionary lacks is told by the dictionary words in
 test("readableDef turns run-together numbered pinyin into marks", () => {
   assert.equal(readableDef("also pr. [zhi1dao5]"), "also pr. zhīdao");
 });
+
+test("isReadingOf ignores spaces, case and tone marks, and nothing else", async () => {
+  const { isReadingOf } = await import("../server/lookup.mjs");
+  assert.equal(isReadingOf("jiāoliú", ["jiāo liú"]), true);
+  assert.equal(isReadingOf("liú jiāo", ["jiāo liú"]), false);
+  assert.equal(isReadingOf("yìsi", ["yì si", "yì sī"]), true);
+});
+
+test("glossWords gives every reading and, when asked, each character", () => {
+  const dict = dictOf([
+    "行 行 [xing2] /to walk/to go/capable/",
+    "行 行 [hang2] /row; line/profession/",
+    "改 改 [gai3] /to change/to alter/",
+    "改行 改行 [gai3 hang2] /to change profession/",
+  ]);
+  const out = glossWords([{ word: "改行", pinyin: "gǎi háng" }], dict, { characters: true });
+  assert.deepEqual(out["改行"].readings, ["gǎi háng"]);
+  assert.deepEqual(out["改行"].characters.map((c) => [c.char, c.pinyin]), [["改", "gǎi"], ["行", "háng"]]);
+  assert.equal(glossWords([{ word: "改行" }], dict)["改行"].characters, undefined, "only when asked");
+});

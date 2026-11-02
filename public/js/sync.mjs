@@ -22,6 +22,8 @@ import {
   saveSources,
 } from "./state.mjs";
 import { api } from "./backend.mjs";
+import { migrateCards } from "./carddata.mjs";
+import { migrateSchedules } from "./scheduler.mjs";
 import { backupNow } from "./backup.mjs";
 import {
   emptyMeta,
@@ -115,7 +117,10 @@ async function apply(changes) {
   );
   const touched = new Set(changes.map((c) => c.coll));
   if (touched.has("cards")) {
-    state.cards = lists.cards;
+    // A card from a browser on older code (or the server's copy of one) is
+    // brought up to date as it arrives, as cards are on load: a fresh browser
+    // gets every card this way, never through the load path.
+    state.cards = migrateSchedules(migrateCards(lists.cards).cards).cards;
     saveCards();
   }
   if (touched.has("decks") || touched.has("deckOrder")) {

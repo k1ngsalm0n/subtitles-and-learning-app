@@ -2111,6 +2111,17 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
   padding: 0 2px;
 }
 .card-face .cf-strokes { justify-self: center; }
+/* Recognise: the word in its sentence is the card, read at a size to read,
+   the word itself marked. */
+.card-face .cf-context { font-size: 22px; line-height: 1.6; }
+.review-card .card-face .cf-context { font-size: 30px; }
+.card-face .cf-clip-button { font-size: 13px; padding: 6px 14px; border-radius: 999px; }
+.card-face .cf-characters { width: 100%; max-width: 420px; }
+.card-face .cf-chars { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; text-align: left; }
+.card-face .cf-chars li { display: grid; grid-template-columns: 2em 4.5em 1fr; align-items: baseline; gap: 8px; font-size: 14px; }
+.card-face .cf-char { font-size: 20px; }
+.card-face .cf-char-pron { font-size: 13px; }
+.card-face .cf-char-meaning { color: var(--muted); }
 .card-face-compact { justify-items: start; text-align: left; gap: 1px; }
 .card-face-compact .cf-word { font-size: 15px; }
 .card-face-compact .cf-translation { font-size: 12px; }
@@ -2888,13 +2899,12 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             </div>
             <div id="reviewCard" class="review-card"><p>No flashcards yet.</p></div>
             <div class="card-actions">
-              <button id="flipCard" type="button">Flip</button>
-              <button class="grade-button grade-again" type="button" data-grade="again">Again<span class="grade-int"></span></button>
-              <button class="grade-button grade-hard" type="button" data-grade="hard">Hard<span class="grade-int"></span></button>
-              <button class="grade-button grade-good" type="button" data-grade="good">Good<span class="grade-int"></span></button>
+              <button id="flipCard" type="button">Show answer</button>
+              <button class="grade-button grade-again" type="button" data-grade="again">Forgot<span class="grade-int"></span></button>
+              <button class="grade-button grade-good" type="button" data-grade="good">Got it<span class="grade-int"></span></button>
               <button class="grade-button grade-easy" type="button" data-grade="easy">Easy<span class="grade-int"></span></button>
             </div>
-            <p class="review-keys muted">Space to flip · 1–4 to grade</p>
+            <p class="review-keys muted">Space to show the answer, then Space for Got it · 1 Forgot · 2 Got it · 3 Easy</p>
           </section>
 
           <section class="card-panel">

@@ -644,6 +644,35 @@ plain strings for backward compatibility; each card carries its own
 `npm run sync` also downloads the Make Me a Hanzi `graphics.txt` (~30 MB,
 gitignored; `SKIP_STROKES=1` to skip; attribution in README).
 
+**Recognise cards.** The built-in card (id `tpl-default`, now named
+Recognise) asks about the word *where it was met*: the front is its sentence
+with the word marked (`context`; the word alone without one) and a button
+that plays the line from its video (`clip`, `clip.mjs`: a hidden `<video>`
+seeking to `sourceTime`–`sourceEnd`); the back adds the word's audio, reading,
+meaning, each character (`characters`, from `/api/glosses` with
+`characters: true`) and the sentence's translation. It replaced a bare word on
+the front, which is the hardest way to remember one. The review is "Show
+answer", then **Forgot / Got it / Easy** (Hard is still in the scheduler, not
+on screen); Space shows the answer and then means Got it. **A front never
+shows an answer**: `ANSWER_FIELDS` (reading, meaning, the sentence's
+reading/translation, characters) may not be on both faces — the reader had
+made a template, "All", with every field on both, so the front gave the card
+away. `validateTemplate` refuses that, `frontFieldsOf` leaves them off any
+older card's front, and `migrateCard` turns such cards, and the old
+bare-word Default, into Recognise cards with their review history. That
+migration also runs on cards arriving by sync (sync.mjs), since a fresh
+browser gets every card that way. **Cards are repaired on startup**
+(`cardrepair.mjs`): a missing meaning or reading comes from the dictionary
+(耐心 had neither), a reading that is none of the word's dictionary readings
+is replaced (交流 "liú jiāo", from a chat-model answer — `/api/lookup` now
+drops such a reading too, `isReadingOf`), and a card whose Videos-list entry
+is gone is matched to the video whose transcript has its sentence — the same
+letters, the sentence inside a re-cut line, or up to a tenth of it changed by
+the misheard-word fix — and placed again. All ten of the reader's cards
+pointed at a deleted entry (the video had been deleted and imported again),
+so Replay had gone nowhere. A card whose word had been cut off its sentence
+takes the whole line and its translation.
+
 **Finding a card's word in its video.** `server/locate.py` (`POST
 /api/locate`) listens to a card's stored video once — word-timed segments
 from `transcribe.py`, cached in `~/.local/share/stele/locate` keyed by file
