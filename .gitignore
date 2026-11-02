@@ -1,5 +1,5 @@
 node_modules/
-.venv/
+.venv
 __pycache__/
 *.pyc
 # Downloaded corpora, models and imported videos. Anchored to the root: a bare

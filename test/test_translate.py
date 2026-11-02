@@ -133,7 +133,105 @@ class OpusRouteTableTest(unittest.TestCase):
                 return list(range(len(seen)))
 
         group = {"model": "Helsinki-NLP/opus-mt-tc-bible-big-deu_eng_fra_por_spa-inc", "token": "hin"}
-        with mock.patch.object(translate, "get_opus", return_value=(FakeTokenizer(), FakeModel(), "cpu")):
+        with mock.patch.object(translate, "get_ct2", return_value=None), mock.patch.object(
+            translate, "get_opus", return_value=(FakeTokenizer(), FakeModel(), "cpu")
+        ):
             out = translate.translate_batch_opus(["Hello.", "Good night."], group)
         self.assertEqual(seen, [">>hin<< Hello.", ">>hin<< Good night."])
         self.assertEqual(len(out), 2)
+
+
+class CTranslate2PathTest(unittest.TestCase):
+    """The CPU path. Fakes only: CI has no models and must not download one."""
+
+    class FakeTokenizer:
+        src_lang = None
+
+        def encode(self, text, **_kw):
+            return list(text)
+
+        def convert_ids_to_tokens(self, ids):
+            return list(ids)
+
+        def convert_tokens_to_ids(self, tokens):
+            return list(tokens)
+
+        def decode(self, ids, skip_special_tokens=True):
+            return "".join(ids).upper()
+
+    class FakeTranslator:
+        def __init__(self):
+            self.calls = []
+
+        def translate_batch(self, tokens, **kw):
+            self.calls.append((tokens, kw))
+
+            class Result:
+                def __init__(self, hyp):
+                    self.hypotheses = [hyp]
+
+            prefix = kw.get("target_prefix")
+            return [Result((prefix[i] if prefix else []) + list(t)) for i, t in enumerate(tokens)]
+
+    def test_opus_goes_through_ctranslate2_with_the_token_in_the_text(self):
+        from unittest import mock
+
+        import translate
+
+        fake = self.FakeTranslator()
+        group = {"model": "Helsinki-NLP/opus-mt-tc-big-en-zle", "token": "rus"}
+        with mock.patch.object(translate, "get_ct2", return_value=fake), mock.patch.object(
+            translate, "get_tokenizer", return_value=self.FakeTokenizer()
+        ), mock.patch.object(translate, "get_opus", side_effect=AssertionError("torch loaded")):
+            out = translate.translate_batch_opus(["hi."], group)
+        self.assertEqual(out, [">>RUS<< HI."])
+        tokens, kw = fake.calls[0]
+        self.assertEqual("".join(tokens[0]), ">>rus<< hi.")
+        self.assertEqual(kw["beam_size"], translate.NUM_BEAMS)
+        self.assertEqual(kw["no_repeat_ngram_size"], translate.NO_REPEAT_NGRAM)
+        self.assertIsNone(kw["target_prefix"])
+
+    def test_nllb_target_language_is_the_first_decoded_token_and_is_dropped(self):
+        from unittest import mock
+
+        import translate
+
+        fake = self.FakeTranslator()
+        tok = self.FakeTokenizer()
+        with mock.patch.object(translate, "get_ct2", return_value=fake), mock.patch.object(
+            translate, "get_tokenizer", return_value=tok
+        ), mock.patch.object(translate, "get_model", side_effect=AssertionError("torch loaded")):
+            out = translate.translate_batch(["hola"], "spa_Latn", "eng_Latn")
+        self.assertEqual(out, ["HOLA"])
+        self.assertEqual(tok.src_lang, "spa_Latn")
+        self.assertEqual(fake.calls[0][1]["target_prefix"], [["eng_Latn"]])
+
+    def test_torch_is_used_when_asked_or_off_the_cpu(self):
+        from unittest import mock
+
+        import translate
+
+        with mock.patch.dict(os.environ, {"TRANSLATE_ENGINE": "torch"}):
+            self.assertFalse(translate._ct2_wanted())
+        with mock.patch.dict(os.environ, {"TRANSLATE_ENGINE": "", "TRANSLATE_DEVICE": "cuda"}):
+            self.assertFalse(translate._ct2_wanted())
+        with mock.patch.dict(os.environ, {"TRANSLATE_ENGINE": "", "TRANSLATE_DEVICE": ""}):
+            self.assertTrue(translate._ct2_wanted())
+
+    def test_a_failed_conversion_falls_back_to_torch_and_is_not_retried(self):
+        import tempfile
+        from unittest import mock
+
+        import translate
+
+        name = "Helsinki-NLP/not-a-real-model"
+        translate._ct2_failed.discard(name)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(translate, "CT2_DIR", tmp), mock.patch.dict(
+            os.environ, {"TRANSLATE_ENGINE": "", "TRANSLATE_DEVICE": ""}
+        ), mock.patch(
+            "ctranslate2.converters.TransformersConverter", side_effect=OSError("offline")
+        ), mock.patch("sys.stderr"):
+            self.assertIsNone(translate.get_ct2(name))
+            self.assertIn(name, translate._ct2_failed)
+            self.assertEqual(os.listdir(tmp), [])
+            self.assertIsNone(translate.get_ct2(name))

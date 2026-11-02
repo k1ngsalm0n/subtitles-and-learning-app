@@ -378,3 +378,13 @@ test("OCR: OpenVINO is best, onnxruntime alone is a slower fallback with its fix
   assert.equal(none.state, "off");
   assert.equal(none.fix, "uv sync");
 });
+
+test("the translation row says when the offline translator is on the slow engine", () => {
+  const fast = row(EVERYTHING, "llm");
+  assert.doesNotMatch(fast.detail, /torch/);
+  const slow = row({ ...EVERYTHING, has: (name) => name !== "ctranslate2" }, "llm");
+  assert.match(slow.detail, /running on torch, several times slower/);
+  assert.equal(slow.state, fast.state, "a slower backup is a note, not a downgrade of the chat model");
+  // No offline translator at all: nothing to say about its speed.
+  assert.doesNotMatch(row(NOTHING, "llm").detail, /torch/);
+});
