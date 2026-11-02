@@ -12,10 +12,10 @@ const ROMANIZE_SCRIPT = path.join(__dirname, "romanize.py");
 // Chinese lines). The worker answers the same request in a few ms.
 const worker = createPyWorker({ name: "romanize", script: ROMANIZE_SCRIPT });
 
-async function romanizeOnce(lang, lines) {
+async function romanizeOnce(lang, lines, request = { lang, lines }) {
   const result = await runCommand(PYTHON_BIN, [ROMANIZE_SCRIPT], {
     timeoutMs: 60_000,
-    input: JSON.stringify({ lang, lines }),
+    input: JSON.stringify(request),
   });
   const line = result.stdout.trim().split("\n").filter(Boolean).at(-1) || "{}";
   return JSON.parse(line);
@@ -27,6 +27,13 @@ async function romanizeOnce(lang, lines) {
 // cuts the same line into clickable words, which for Chinese is a different
 // boundary. Best-effort: any failure yields empty lists so the page never
 // breaks.
+// The same answer for server code: { tokens, words, freqs? } for `lines`.
+// `frequencies` adds each word's count in jieba's dictionary (Chinese only).
+export async function romanizeLines(lang, lines, { frequencies = false } = {}) {
+  const request = { lang, lines, ...(frequencies ? { frequencies: true } : {}) };
+  return worker.request(request).catch(() => romanizeOnce(lang, lines, request));
+}
+
 export async function handleRomanize(req, res) {
   const body = await readJsonBody(req);
   const lang = String(body.language || body.lang || "").trim();

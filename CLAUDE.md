@@ -673,6 +673,34 @@ pointed at a deleted entry (the video had been deleted and imported again),
 so Replay had gone nowhere. A card whose word had been cut off its sentence
 takes the whole line and its translation.
 
+**Recall: writing the word.** Once a Recognise card is known — its next
+review a week or more away (`RECALL_AFTER_DAYS`, about the third Got it) —
+it asks the other way round (`reviewMode` in carddata.mjs): a sentence with
+the word missing, its translation as the hint, and a box the reader writes
+the word into **in characters**, with whatever keyboard they use. Pinyin vs
+zhuyin is the keyboard's choice, not the app's, and picking among its
+candidates (交流, not 腳流) is part of the test. `checkAnswer` takes either
+script, position by position (頭发 is 頭髮), says "Almost" for one wrong
+character, and the outlined grade (what Space does) is Got it for right or
+almost, Forgot otherwise. A Forgot halves the interval, which brings the card
+back to Recognise. Fill in the blank cards are Recall from the start. The
+Replay and stroke buttons stay off a Recall question: both show the word.
+
+The sentence is a **new** one where it can be (`recallSentence`, a different
+one each review): after a few reviews the video's line is remembered as a
+line, and the blank fills itself. `POST /api/sentences` (`sentences.mjs`) asks
+the chat model for five short ones and keeps those that pass: the word whole
+in jieba's cut (改行 is not in 修改行程), at most 14 characters, not the
+video's line, every other word common (`MIN_FREQ` 400 in jieba's dictionary,
+`freqs` from romanize.py; a pair jieba made up counts as its rarest
+character) or known to the reader, the same sense, the word's script and
+full-width punctuation, and the app's own pinyin. The page asks once per card
+and keeps them on it (`sentences`, `sentencesAt`; they sync), in the
+background after the startup repair, only for cards close to Recall
+(`cardsentences.mjs`, interval ≥ 3 days, 20 a session) so a big deck doesn't
+spend a free plan's day. No chat model: the video's line. On the reader's
+cards, Claude: four sentences a word in ~5 s, all usable.
+
 **Finding a card's word in its video.** `server/locate.py` (`POST
 /api/locate`) listens to a card's stored video once — word-timed segments
 from `transcribe.py`, cached in `~/.local/share/stele/locate` keyed by file

@@ -22,6 +22,21 @@ const ZH_CONVERT_SCRIPT = path.join(__dirname, "zh_convert.py");
 // and a whole film's subtitles still fit.
 const MAX_LINES = 5000;
 
+// Lines converted to "trad" or "simp" for server code; the lines unchanged
+// when the converter can't run.
+export async function convertLines(lines, to) {
+  try {
+    const result = await runCommand(PYTHON_BIN, [ZH_CONVERT_SCRIPT, "--json", "--to", to], {
+      timeoutMs: 30_000,
+      input: JSON.stringify(lines),
+    });
+    const data = JSON.parse(result.stdout.trim() || "{}");
+    return Array.isArray(data.lines) && data.lines.length === lines.length ? data.lines : lines;
+  } catch {
+    return lines;
+  }
+}
+
 export async function handleZhConvert(req, res) {
   let body;
   try {

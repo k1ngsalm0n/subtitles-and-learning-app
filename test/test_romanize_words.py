@@ -84,3 +84,28 @@ class TraditionalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WordFrequencyTest(unittest.TestCase):
+    """A made-up example sentence keeps to common words by these counts."""
+
+    def test_common_words_count_more_than_rare_ones(self):
+        from romanize import word_frequencies
+
+        common, neighbour, rare = word_frequencies(["朋友", "鄰居", "龃龉"])
+        self.assertGreater(common, neighbour)
+        self.assertGreater(neighbour, 400)
+        self.assertLess(rare, 400)
+
+    def test_a_pair_jieba_made_up_counts_as_its_rarest_character(self):
+        from romanize import word_frequencies
+
+        (pair,) = word_frequencies(["太累"])
+        self.assertGreater(pair, 400)
+
+    def test_the_request_flag_adds_one_count_per_word(self):
+        from romanize import romanize
+
+        out = romanize({"lang": "zh", "lines": ["我想改行。"], "frequencies": True})
+        self.assertEqual(len(out["freqs"][0]), len(out["words"][0]))
+        self.assertNotIn("freqs", romanize({"lang": "zh", "lines": ["我"]}))

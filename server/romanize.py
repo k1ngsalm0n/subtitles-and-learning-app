@@ -294,7 +294,37 @@ def romanize(req):
             except Exception:
                 words.append([])
 
-    return {"tokens": out, "words": words}
+    result = {"tokens": out, "words": words}
+    if req.get("frequencies") and split is chinese_words:
+        result["freqs"] = [word_frequencies(cut) for cut in words]
+    return result
+
+
+def word_frequencies(words):
+    """How often jieba's dictionary saw each word (0 when it never did), read
+    from its Simplified form. A made-up example sentence uses this to keep to
+    common words: 朋友 9200, 鄰居 613, 戰列艦 157, 龃龉 42 """
+    try:
+        import jieba
+    except ImportError:
+        return [None for _ in words]
+    jieba.setLogLevel(60)
+    jieba.initialize()
+    freq = jieba.dt.FREQ
+
+    def count(word):
+        source = _to_simplified(word) or word
+        return int(freq.get(source) or freq.get(word) or 0)
+
+    out = []
+    for word in words:
+        n = count(word)
+        # A pair jieba joined by itself (太累, 很好) isn't in its dictionary:
+        # it's as common as its rarest character.
+        if not n and len(word) > 1:
+            n = min(count(ch) for ch in word)
+        out.append(n)
+    return out
 
 
 def _warm():
