@@ -23,7 +23,7 @@
 import { readJsonBody, sendJson } from "./util.mjs";
 import { chatJson } from "./chat.mjs";
 import { llmTranslationAvailable } from "./llmTranslate.mjs";
-import { romanizeLines } from "./romanize.mjs";
+import { romanizeWords } from "./romanize.mjs";
 import { convertLines } from "./zh.mjs";
 
 export const MAX_HAN = 14;
@@ -137,7 +137,7 @@ export async function simpleSentences({ word, pinyin = "", meaning = "", example
   const converted = await convertLines(candidates.map((c) => c.zh), script);
   candidates = candidates.map((c, i) => ({ ...c, zh: fullWidth(converted[i] || c.zh) }));
 
-  const data = await romanizeLines("zh", candidates.map((c) => c.zh), { frequencies: true });
+  const data = await romanizeWords("zh", candidates.map((c) => c.zh), { frequencies: true });
   const knownSet = new Set(known.map(String));
   const kept = [];
   const seen = new Set();
