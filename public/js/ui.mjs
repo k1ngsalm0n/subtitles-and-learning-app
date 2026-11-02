@@ -22,7 +22,7 @@ import {
 import { previewIntervals, formatInterval } from "./scheduler.mjs";
 import { hasHan } from "./strokes.mjs";
 import { getTranslation } from "./subtitle.mjs";
-import { escapeHtml, formatTime, tokenize, isWord } from "./util.mjs";
+import { escapeHtml, formatTime, tokenize, isWord, isPlainLatin } from "./util.mjs";
 import { pinyinTone, tonedPinyinHtml } from "./tones.mjs";
 import { activateLine } from "./player.mjs";
 import { spokenProgress } from "./karaoke.mjs";
@@ -103,7 +103,7 @@ export function renderTranscript(els) {
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${line.start == null ? "" : formatTime(line.start)}</span>
         <div>
-          <div class="original">${original}</div>
+          <div class="original${isPlainLatin(shown) ? " plain" : ""}">${original}</div>
           <p class="translation">${escapeHtml(translation)}</p>
         </div>
       </article>`;
