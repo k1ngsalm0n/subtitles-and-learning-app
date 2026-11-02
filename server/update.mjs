@@ -48,7 +48,9 @@ export async function updateEntry(id, to, deps = {}) {
   const chat = await chatConfig();
   let subtitles = entry.subtitles;
   let fixes = [];
-  if (chat && MACHINE_MADE.has(entry.source)) ({ srt: subtitles, fixes } = await recheck(subtitles, from));
+  let checked = false;
+  if (chat && MACHINE_MADE.has(entry.source)) ({ srt: subtitles, fixes, checked = false } = await recheck(subtitles, from));
+  const mark = checked ? { transcriptChecked: true } : {};
 
   let translation = chat ? await translateLlm(subtitles, from, to).catch(() => null) : null;
   const engine = translation ? "llm" : "offline";
@@ -58,7 +60,7 @@ export async function updateEntry(id, to, deps = {}) {
   if (!translation && chat) {
     // Keep the transcript fixes; the translation stays as it was, marked for
     // retranslate.mjs, and the reader is told why.
-    await save({ translatedOffline: true });
+    await save({ translatedOffline: true, ...mark });
     const reason = chatHealth()?.reason || "It gave no usable answer.";
     const why = reason[0].toLowerCase() + reason.slice(1);
     throw Object.assign(
@@ -75,7 +77,7 @@ export async function updateEntry(id, to, deps = {}) {
   const { translatedOffline, ...rest } = entry;
   await writePrivate(
     file,
-    JSON.stringify({ ...rest, subtitles, translation, translationLanguage: to, updatedAt: Date.now() }),
+    JSON.stringify({ ...rest, ...mark, subtitles, translation, translationLanguage: to, updatedAt: Date.now() }),
   );
   return { subtitles, translation, translationLanguage: to, engine, fixes };
 }
