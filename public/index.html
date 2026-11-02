@@ -2116,6 +2116,33 @@ menu { display: flex; justify-content: flex-end; gap: 10px; padding: 0; }
 .card-face .cf-context { font-size: 22px; line-height: 1.6; }
 .review-card .card-face .cf-context { font-size: 30px; }
 .card-face .cf-clip-button { font-size: 13px; padding: 6px 14px; border-radius: 999px; }
+/* Recall: the sentence with the word missing, and a box to write it in. */
+.recall-form { display: flex; gap: 8px; justify-content: center; margin-top: 6px; }
+.recall-input {
+  font-size: 24px;
+  width: 9em;
+  max-width: 60vw;
+  text-align: center;
+  padding: 6px 10px;
+}
+.recall-check { font-size: 14px; padding: 0 16px; }
+.card-face .recall-verdict { display: grid; gap: 2px; font-size: 15px; font-weight: 600; }
+.card-face .recall-right { color: var(--accent); }
+.card-face .recall-almost { color: var(--accent-2); }
+.card-face .recall-wrong { color: var(--danger); }
+.recall-typed { font-weight: 400; color: var(--muted); font-size: 18px; }
+.recall-typed mark.recall-wrong {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.recall-word { display: grid; gap: 6px; justify-items: center; border-top: 1px solid var(--border); padding-top: 10px; width: 100%; }
+.card-face .recall-met { font-size: 14px; }
+/* The sentence is the answer here; the word under it needn't shout. */
+.review-card .recall-word .cf-word { font-size: 32px; }
+.grade-button.suggested { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.grade-again.suggested { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger) inset; }
 .card-face .cf-characters { width: 100%; max-width: 420px; }
 .card-face .cf-chars { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; text-align: left; }
 .card-face .cf-chars li { display: grid; grid-template-columns: 2em 4.5em 1fr; align-items: baseline; gap: 8px; font-size: 14px; }
@@ -2904,7 +2931,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <button class="grade-button grade-good" type="button" data-grade="good">Got it<span class="grade-int"></span></button>
               <button class="grade-button grade-easy" type="button" data-grade="easy">Easy<span class="grade-int"></span></button>
             </div>
-            <p class="review-keys muted">Space to show the answer, then Space for Got it · 1 Forgot · 2 Got it · 3 Easy</p>
+            <p class="review-keys muted">Space shows the answer, then takes the outlined grade (Got it unless marked) · 1 Forgot · 2 Got it · 3 Easy</p>
           </section>
 
           <section class="card-panel">

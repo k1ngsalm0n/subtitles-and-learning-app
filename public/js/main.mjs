@@ -1,3 +1,4 @@
+import { fillSentences } from "./cardsentences.mjs";
 import {
   state,
   saveSources,
@@ -91,6 +92,7 @@ import {
   setupTranscriptDelegation,
   renderCardList,
   renderReviewCard,
+  suggestedGrade,
   visibleCards,
   setElements,
   setSourceStatus,
@@ -616,7 +618,7 @@ function handleReviewKeys(event) {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (event.key === " ") {
     event.preventDefault();
-    if (state.showingBack) gradeCard("good");
+    if (state.showingBack) gradeCard(suggestedGrade() || "good");
     else flipWithTurn(flipReviewCard);
   } else if (GRADE_KEYS[event.key]) {
     gradeCard(GRADE_KEYS[event.key]);
@@ -802,6 +804,10 @@ function switchView(view) {
     // The wheel measures itself, and nothing inside a display:none view has a
     // size — so it can only be positioned once the view is actually on screen.
     settingsPages?.reveal();
+  }
+  // A Recall card's answer box couldn't take focus while the view was hidden.
+  if (view === "cards" && !matchMedia("(pointer: coarse)").matches) {
+    document.querySelector("#reviewCard .recall-input")?.focus({ preventScroll: true });
   }
 }
 
@@ -1516,6 +1522,16 @@ async function repairCardsQuietly() {
   repairing = true;
   try {
     await repairOnce();
+    await fillSentences(state.cards, {
+      post: (body) =>
+        api("/api/sentences", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).then((res) => (res.ok ? res.json() : null)),
+      known: [...state.knownWords, ...state.cards.map((card) => card.word)],
+      onChange: () => saveCards(),
+    });
   } finally {
     repairing = false;
   }

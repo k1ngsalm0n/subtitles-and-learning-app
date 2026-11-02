@@ -36,6 +36,7 @@ import {
   displayWords,
   savedWordForms,
   refreshScript,
+  ensureConverted,
 } from "./zhscript.mjs";
 import {
   removeCard,
@@ -44,8 +45,10 @@ import {
   moveDeckBy,
   toggleDeckCollapsed,
   addDeck,
+  flipReviewCard,
 } from "./flashcards.mjs";
-import { deckRows, frontFieldsOf } from "./carddata.mjs";
+import { deckRows, frontFieldsOf, reviewMode, recallSentence, checkAnswer } from "./carddata.mjs";
+import { renderRecallFront, renderRecallBack } from "./recallface.mjs";
 import { renderCardFace, renderCardSide } from "./cardface.mjs";
 import { openCardModal } from "./cardmodal.mjs";
 import { showToast } from "./toast.mjs";
@@ -1457,23 +1460,59 @@ export function renderReviewCard(els) {
 
   // A clip still playing from the last card stops when the next one comes up.
   if (card.id !== _reviewCardId) stopClip();
+  // A new card, or the same one again after a grade (a Forgot comes back in
+  // the session): a fresh answer box.
+  if (card.id !== _reviewCardId || (!state.showingBack && _recall.result)) {
+    _recall = { cardId: card.id, typed: "", result: null, sentence: recallSentence(card) };
+  }
   _reviewCardId = card.id;
+  const recall = reviewMode(card) === "recall";
   const face = document.createElement("div");
-  renderCardSide(face, card, state.showingBack ? "back" : "front", {
-    lang: state.learningLang,
-    // Strokes are part of the card's template; the review screen is exactly
-    // where they should appear.
-    playClip: clipPlayerFor,
-  });
   const hint = document.createElement("p");
   hint.className = "muted review-hint";
-  hint.textContent = state.showingBack ? "" : "What does the marked word mean, and how is it said?";
+  let input = null;
+  if (recall && !state.showingBack) {
+    // The word in both scripts, so 头发 counts for 頭髮 when it's checked.
+    ensureConverted([card.word], "trad");
+    ensureConverted([card.word], "simp");
+    input = renderRecallFront(face, card, _recall.sentence, {
+      typed: _recall.typed,
+      lang: state.learningLang,
+      onInput: (text) => (_recall.typed = text),
+      onSubmit: (text) => {
+        _recall.typed = text;
+        flipWithTurn(flipReviewCard);
+      },
+    });
+    hint.textContent = "Write the missing word in characters, with any keyboard.";
+  } else if (recall) {
+    _recall.result ||= checkAnswer(_recall.typed, savedWordForms(card.word));
+    renderRecallBack(face, card, _recall.sentence, {
+      typed: _recall.typed,
+      result: _recall.result,
+      lang: state.learningLang,
+      playClip: clipPlayerFor,
+    });
+  } else {
+    renderCardSide(face, card, state.showingBack ? "back" : "front", {
+      lang: state.learningLang,
+      // Strokes are part of the card's template; the review screen is exactly
+      // where they should appear.
+      playClip: clipPlayerFor,
+    });
+    hint.textContent = state.showingBack ? "" : "What does the marked word mean, and how is it said?";
+  }
   e.reviewCard.textContent = "";
   e.reviewCard.append(face, hint);
-  const sourceButton = sourceLinkButton(card);
-  if (sourceButton) e.reviewCard.appendChild(sourceButton);
-  const practiceButton = practiceLinkButton(card);
-  if (practiceButton) e.reviewCard.appendChild(practiceButton);
+  if (input && !matchMedia("(pointer: coarse)").matches) input.focus({ preventScroll: true });
+  // Not under a Recall question: the video's line and the stroke chart both
+  // show the word that's being asked for.
+  if (!(recall && !state.showingBack)) {
+    const sourceButton = sourceLinkButton(card);
+    if (sourceButton) e.reviewCard.appendChild(sourceButton);
+    const practiceButton = practiceLinkButton(card);
+    if (practiceButton) e.reviewCard.appendChild(practiceButton);
+  }
 
   // Grading an answer you haven't seen is meaningless — grades appear only
   // after the flip, each labeled with the interval it would produce. The flip
@@ -1482,10 +1521,12 @@ export function renderReviewCard(els) {
   // "Show answer", then the grades in its place: going back to the front
   // after seeing the answer can't un-see it.
   e.flipCard.hidden = state.showingBack;
-  e.flipCard.textContent = "Show answer";
+  e.flipCard.textContent = recall ? "I don't know" : "Show answer";
   const preview = previewIntervals(card);
+  const suggested = suggestedGrade();
   gradeButtons.forEach((button) => {
     button.hidden = !state.showingBack;
+    button.classList.toggle("suggested", Boolean(suggested) && button.dataset.grade === suggested);
     button.querySelector(".grade-int").textContent = formatInterval(
       preview[button.dataset.grade],
     );
@@ -1493,6 +1534,19 @@ export function renderReviewCard(els) {
 }
 
 let _reviewCardId = null;
+// The Recall card on screen: what's been typed, how it was judged once the
+// answer shows, and the sentence it was asked in.
+let _recall = { cardId: null, typed: "", result: null, sentence: null };
+
+// After a Recall answer: Got it when it was right or one character off,
+// Forgot otherwise — what Space does, and the grade drawn as the suggestion.
+// The reader can still press any of them. null for a Recognise card.
+export function suggestedGrade() {
+  const card = getCurrentReviewCard();
+  if (!card || !state.showingBack || reviewMode(card) !== "recall") return null;
+  if (_recall.cardId !== card.id || !_recall.result) return null;
+  return _recall.result.verdict === "right" || _recall.result.verdict === "almost" ? "good" : "again";
+}
 
 // The card's line from its video, if the video is still in the Videos list.
 function clipPlayerFor(card) {

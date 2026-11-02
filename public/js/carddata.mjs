@@ -547,3 +547,74 @@ export function migrateCards(cards) {
   });
   return { cards: migrated, changed };
 }
+
+// ---- Recall -----------------------------------------------------------------
+// A Recognise card asks what a word means, in the line it came from. Once the
+// reader has known it for a while — its next review a week or more away,
+// about the third "Got it" — the card asks the other way round: a sentence
+// with the word missing, and the reader writes the word, in characters, with
+// whatever keyboard they use (pinyin or zhuyin is the keyboard's business,
+// and choosing among its candidates is part of the test). A miss halves the
+// interval, which brings the card back to Recognise until it's known again.
+// Fill in the blank cards are Recall from the start.
+export const RECALL_AFTER_DAYS = 7;
+
+export function reviewMode(card) {
+  if (!card || !hasHan(card.word)) return "recognise";
+  if (card.templateId === BUILTIN_TEMPLATE_IDS.cloze) return "recall";
+  const recognise =
+    card.templateId === BUILTIN_TEMPLATE_IDS.default || card.templateId === BUILTIN_TEMPLATE_IDS.strokes;
+  return recognise && card.state === "review" && (card.interval || 0) >= RECALL_AFTER_DAYS ? "recall" : "recognise";
+}
+
+// The sentence a Recall review blanks: one of the card's new sentences
+// (`card.sentences`, written for it by the chat model and checked by the
+// server), a different one each review, else the line from its video.
+// { text, pinyin, translation, fromVideo } or null when there's none.
+export function recallSentence(card) {
+  const pool = (Array.isArray(card?.sentences) ? card.sentences : []).filter(
+    (s) => s && typeof s.text === "string" && blankOut(s.text, card.word),
+  );
+  if (pool.length) {
+    const pick = pool[(card.reps || 0) % pool.length];
+    return { text: pick.text, pinyin: pick.pinyin || "", translation: pick.translation || "", fromVideo: false };
+  }
+  if (blankOut(card?.example, card?.word)) {
+    return {
+      text: card.example,
+      pinyin: card.examplePinyin || "",
+      translation: card.exampleTranslation || "",
+      fromVideo: true,
+    };
+  }
+  return null;
+}
+
+// Whether the card should be given new sentences: a Chinese word with none
+// yet, never asked for (`sentencesAt` marks an answer, even an empty one).
+export function wantsSentences(card) {
+  return Boolean(card && hasHan(card.word) && !card.sentencesAt && [...card.word].length <= 8);
+}
+
+const answerText = (text) => [...String(text || "")].filter((ch) => /[\p{L}\p{N}]/u.test(ch)).join("");
+
+// The typed answer against the word in any of its scripts (`forms`).
+// { verdict: "right" | "almost" | "wrong" | "blank", wrongAt: [index] }:
+// "almost" is the right length with one character different, which is what
+// picking the wrong candidate from the keyboard's list looks like (交留).
+export function checkAnswer(typed, forms) {
+  const said = answerText(typed);
+  if (!said) return { verdict: "blank", wrongAt: [] };
+  const wanted = [...new Set((forms || []).map(answerText).filter(Boolean))];
+  if (wanted.includes(said)) return { verdict: "right", wrongAt: [] };
+  // Position by position, a character counts as right in either script, so
+  // a mixed 頭发 is still 頭髮.
+  const chars = [...said];
+  const sameLength = wanted.filter((form) => [...form].length === chars.length);
+  if (sameLength.length) {
+    const wrongAt = chars.flatMap((ch, i) => (sameLength.some((form) => [...form][i] === ch) ? [] : [i]));
+    if (!wrongAt.length) return { verdict: "right", wrongAt };
+    if (wrongAt.length === 1 && chars.length >= 2) return { verdict: "almost", wrongAt };
+  }
+  return { verdict: "wrong", wrongAt: [] };
+}

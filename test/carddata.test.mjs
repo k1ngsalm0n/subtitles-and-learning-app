@@ -24,6 +24,11 @@ import {
   templatesForWord,
   frontFieldsOf,
   needsRecognise,
+  reviewMode,
+  recallSentence,
+  checkAnswer,
+  wantsSentences,
+  RECALL_AFTER_DAYS,
 } from "../public/js/carddata.mjs";
 
 const LEGACY_CARD = {
@@ -386,4 +391,54 @@ test("the Recognise front is the word in its sentence, or the word alone without
   assert.equal(fieldText(OLD_DEFAULT_CARD, "context"), "也有可能會改行");
   assert.equal(fieldText({ ...OLD_DEFAULT_CARD, example: "" }, "context"), "改行");
   assert.equal(fieldText({ ...OLD_DEFAULT_CARD, example: "別的句子" }, "context"), "改行");
+});
+
+// ---- Recall -----------------------------------------------------------------
+
+test("a Recognise card becomes Recall once it's known for a week", () => {
+  const base = { word: "改行", templateId: BUILTIN_TEMPLATE_IDS.default, state: "review" };
+  assert.equal(reviewMode({ ...base, interval: 3 }), "recognise");
+  assert.equal(reviewMode({ ...base, interval: RECALL_AFTER_DAYS }), "recall");
+  assert.equal(reviewMode({ ...base, state: "relearning", interval: 10 }), "recognise");
+  assert.equal(reviewMode({ ...base, word: "career", interval: 30 }), "recognise");
+  assert.equal(reviewMode({ ...base, templateId: BUILTIN_TEMPLATE_IDS.cloze, state: "new" }), "recall");
+  assert.equal(reviewMode({ ...base, templateId: "tpl-mine", interval: 30 }), "recognise");
+});
+
+test("Recall asks in a new sentence each review, else the video's", () => {
+  const card = {
+    word: "改行",
+    example: "我可能會改行",
+    examplePinyin: "wǒ kě néng huì gǎi háng",
+    exampleTranslation: "I might change careers",
+    sentences: [
+      { text: "我想改行。", pinyin: "a", translation: "A" },
+      { text: "沒有這個詞。", pinyin: "b", translation: "B" },
+      { text: "他去年改行了。", pinyin: "c", translation: "C" },
+    ],
+    reps: 0,
+  };
+  assert.equal(recallSentence(card).text, "我想改行。");
+  assert.equal(recallSentence({ ...card, reps: 1 }).text, "他去年改行了。");
+  assert.equal(recallSentence({ ...card, reps: 2 }).text, "我想改行。");
+  const fromVideo = recallSentence({ ...card, sentences: undefined });
+  assert.equal(fromVideo.text, "我可能會改行");
+  assert.equal(fromVideo.fromVideo, true);
+  assert.equal(recallSentence({ word: "改行", example: "" }), null);
+});
+
+test("a written answer is checked in characters, in either script", () => {
+  assert.equal(checkAnswer("交流", ["交流"]).verdict, "right");
+  assert.equal(checkAnswer(" 头发。", ["頭髮", "头发"]).verdict, "right");
+  assert.equal(checkAnswer("頭发", ["頭髮", "头发"]).verdict, "right");
+  assert.deepEqual(checkAnswer("交留", ["交流"]), { verdict: "almost", wrongAt: [1] });
+  assert.equal(checkAnswer("流交", ["交流"]).verdict, "wrong");
+  assert.equal(checkAnswer("大", ["小"]).verdict, "wrong");
+  assert.equal(checkAnswer("  ", ["交流"]).verdict, "blank");
+});
+
+test("a Chinese card without sentences wants them, once", () => {
+  assert.equal(wantsSentences({ word: "改行" }), true);
+  assert.equal(wantsSentences({ word: "改行", sentencesAt: 1 }), false);
+  assert.equal(wantsSentences({ word: "career" }), false);
 });
