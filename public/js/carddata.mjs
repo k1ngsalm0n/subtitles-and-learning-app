@@ -558,13 +558,21 @@ export function migrateCards(cards) {
 // interval, which brings the card back to Recognise until it's known again.
 // Fill in the blank cards are Recall from the start.
 export const RECALL_AFTER_DAYS = 7;
+// Listen: once the word can be written — its next review a month away — every
+// other review asks for it by ear: the sentence is only heard, never shown,
+// and the reader writes the word from their cards that they caught in it. The
+// reviews between stay Recall, so writing it from a sentence isn't lost.
+export const LISTEN_AFTER_DAYS = 30;
 
 export function reviewMode(card) {
   if (!card || !hasHan(card.word)) return "recognise";
   if (card.templateId === BUILTIN_TEMPLATE_IDS.cloze) return "recall";
   const recognise =
     card.templateId === BUILTIN_TEMPLATE_IDS.default || card.templateId === BUILTIN_TEMPLATE_IDS.strokes;
-  return recognise && card.state === "review" && (card.interval || 0) >= RECALL_AFTER_DAYS ? "recall" : "recognise";
+  if (!recognise || card.state !== "review") return "recognise";
+  const days = card.interval || 0;
+  if (days >= LISTEN_AFTER_DAYS) return (card.reps || 0) % 2 === 0 ? "listen" : "recall";
+  return days >= RECALL_AFTER_DAYS ? "recall" : "recognise";
 }
 
 // The sentence a Recall review blanks: one of the card's new sentences

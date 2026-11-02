@@ -18,10 +18,28 @@ function row(cls, text) {
 
 // Front. `typed` is what's in the box so far (kept across a re-render);
 // onInput(text) remembers it, onSubmit() checks it.
-export function renderRecallFront(el, card, sentence, { typed = "", onInput, onSubmit, lang = "zh" } = {}) {
+//
+// Listen (`listen` given): the sentence isn't shown at all — `listen.play(rate)`
+// says it, "fast" being normal speed — and the reader writes the word from
+// their cards that they heard in it.
+export function renderRecallFront(el, card, sentence, { typed = "", onInput, onSubmit, lang = "zh", listen = null } = {}) {
   el.textContent = "";
   el.classList.add("card-face", "recall-face");
-  if (sentence) {
+  if (listen && sentence) {
+    const buttons = row("listen-buttons");
+    for (const [rate, label] of [["fast", "▶ Play"], ["slow", "▶ Slowly"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `listen-play listen-${rate}`;
+      button.textContent = label;
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        listen.play(rate);
+      });
+      buttons.append(button);
+    }
+    el.append(buttons);
+  } else if (sentence) {
     el.append(row("cf-cloze", blankOut(sentence.text, card.word)));
     if (sentence.translation) el.append(row("cf-exampleTranslation", sentence.translation));
   } else {

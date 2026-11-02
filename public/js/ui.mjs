@@ -1463,10 +1463,14 @@ export function renderReviewCard(els) {
   // A new card, or the same one again after a grade (a Forgot comes back in
   // the session): a fresh answer box.
   if (card.id !== _reviewCardId || (!state.showingBack && _recall.result)) {
-    _recall = { cardId: card.id, typed: "", result: null, sentence: recallSentence(card) };
+    _recall = { cardId: card.id, typed: "", result: null, sentence: recallSentence(card), played: false };
   }
   _reviewCardId = card.id;
-  const recall = reviewMode(card) === "recall";
+  // Listen needs a sentence to hear; without one it's Recall by meaning.
+  let mode = reviewMode(card);
+  if (mode === "listen" && !_recall.sentence) mode = "recall";
+  const listen = mode === "listen";
+  const recall = mode !== "recognise";
   const face = document.createElement("div");
   const hint = document.createElement("p");
   hint.className = "muted review-hint";
@@ -1475,16 +1479,25 @@ export function renderReviewCard(els) {
     // The word in both scripts, so 头发 counts for 頭髮 when it's checked.
     ensureConverted([card.word], "trad");
     ensureConverted([card.word], "simp");
+    const play = listen ? sentencePlayer(card, _recall.sentence) : null;
     input = renderRecallFront(face, card, _recall.sentence, {
       typed: _recall.typed,
       lang: state.learningLang,
+      listen: play ? { play } : null,
       onInput: (text) => (_recall.typed = text),
       onSubmit: (text) => {
         _recall.typed = text;
         flipWithTurn(flipReviewCard);
       },
     });
-    hint.textContent = "Write the missing word in characters, with any keyboard.";
+    hint.textContent = listen
+      ? "Listen, and write the word from your cards that you hear."
+      : "Write the missing word in characters, with any keyboard.";
+    // Heard once on its own when the card comes up; the buttons say it again.
+    if (play && !_recall.played) {
+      _recall.played = true;
+      play("fast");
+    }
   } else if (recall) {
     _recall.result ||= checkAnswer(_recall.typed, savedWordForms(card.word));
     renderRecallBack(face, card, _recall.sentence, {
@@ -1534,6 +1547,18 @@ export function renderReviewCard(els) {
 }
 
 let _reviewCardId = null;
+
+// Says a Listen card's sentence. The video's own line is played from the
+// video when it can be — a real voice — and a new sentence, or the slow
+// version, by the app's voice.
+function sentencePlayer(card, sentence) {
+  const clip = sentence.fromVideo ? clipPlayerFor(card) : null;
+  return (rate) => {
+    stopClip();
+    if (clip && rate === "fast") clip();
+    else speak(sentence.text, state.learningLang, rate);
+  };
+}
 // The Recall card on screen: what's been typed, how it was judged once the
 // answer shows, and the sentence it was asked in.
 let _recall = { cardId: null, typed: "", result: null, sentence: null };
@@ -1543,7 +1568,7 @@ let _recall = { cardId: null, typed: "", result: null, sentence: null };
 // The reader can still press any of them. null for a Recognise card.
 export function suggestedGrade() {
   const card = getCurrentReviewCard();
-  if (!card || !state.showingBack || reviewMode(card) !== "recall") return null;
+  if (!card || !state.showingBack || reviewMode(card) === "recognise") return null;
   if (_recall.cardId !== card.id || !_recall.result) return null;
   return _recall.result.verdict === "right" || _recall.result.verdict === "almost" ? "good" : "again";
 }
