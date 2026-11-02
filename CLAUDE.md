@@ -755,8 +755,16 @@ candidates (交流, not 腳流) is part of the test. `checkAnswer` takes either
 script, position by position (頭发 is 頭髮), says "Almost" for one wrong
 character, and the outlined grade (what Space does) is Got it for right or
 almost, Forgot otherwise. A Forgot halves the interval, which brings the card
-back to Recognise. Fill in the blank cards are Recall from the start. The
+back to Recognise. A 💡 Hint button shows the word's meaning, only when asked for.
+Fill in the blank cards are Recall from the start. The
 Replay and stroke buttons stay off a Recall question: both show the word.
+**Listen** comes after: from a month apart (`LISTEN_AFTER_DAYS`), every other
+review (even `reps`) the sentence is only *heard* — said once when the card
+comes up, ▶ Play / ▶ Slowly again — and the reader writes the word they caught
+in it, its meaning shown as the hint (which word to listen for); the reviews between stay Recall. The video's own
+line plays from the video (a real voice) at normal speed; a new sentence, and
+every slow one, is the app's voice, so Listen wants piper (`VOICES=1 npm run
+sync`), not espeak-ng. No sentence: Recall by meaning instead.
 
 The sentence is a **new** one where it can be (`recallSentence`, a different
 one each review): after a few reviews the video's line is remembered as a

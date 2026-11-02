@@ -29,6 +29,7 @@ import {
   checkAnswer,
   wantsSentences,
   RECALL_AFTER_DAYS,
+  LISTEN_AFTER_DAYS,
 } from "../public/js/carddata.mjs";
 
 const LEGACY_CARD = {
@@ -441,4 +442,12 @@ test("a Chinese card without sentences wants them, once", () => {
   assert.equal(wantsSentences({ word: "改行" }), true);
   assert.equal(wantsSentences({ word: "改行", sentencesAt: 1 }), false);
   assert.equal(wantsSentences({ word: "career" }), false);
+});
+
+test("a card known for a month is heard every other review", () => {
+  const base = { word: "改行", templateId: BUILTIN_TEMPLATE_IDS.default, state: "review", interval: LISTEN_AFTER_DAYS };
+  assert.equal(reviewMode({ ...base, reps: 4 }), "listen");
+  assert.equal(reviewMode({ ...base, reps: 5 }), "recall");
+  assert.equal(reviewMode({ ...base, interval: LISTEN_AFTER_DAYS - 1, reps: 4 }), "recall");
+  assert.equal(reviewMode({ ...base, templateId: BUILTIN_TEMPLATE_IDS.cloze, reps: 4 }), "recall");
 });

@@ -18,12 +18,73 @@ function row(cls, text) {
 
 // Front. `typed` is what's in the box so far (kept across a re-render);
 // onInput(text) remembers it, onSubmit() checks it.
-export function renderRecallFront(el, card, sentence, { typed = "", onInput, onSubmit, lang = "zh" } = {}) {
+//
+// Listen (`listen` given): the sentence isn't shown at all — `listen.play(rate)`
+// says it, "fast" being normal speed — and the reader writes the word from
+// their cards that they heard in it.
+export function renderRecallFront(
+  el,
+  card,
+  sentence,
+  { typed = "", onInput, onSubmit, lang = "zh", listen = null, hinted = false, onHint = null } = {},
+) {
   el.textContent = "";
   el.classList.add("card-face", "recall-face");
-  if (sentence) {
+  if (listen && sentence) {
+    const buttons = row("listen-buttons");
+    for (const [rate, label] of [["fast", "▶ Play"], ["slow", "▶ Slowly"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `listen-play listen-${rate}`;
+      button.textContent = label;
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        listen.play(rate);
+      });
+      buttons.append(button);
+    }
+    el.append(buttons);
+    // Which word to listen for: its meaning, so the reader knows what they're
+    // catching (a sentence has several words they know).
+    if (card.translation) {
+      const hint = row("listen-hint");
+      const label = document.createElement("span");
+      label.className = "muted";
+      label.textContent = "The word means: ";
+      hint.append(label, card.translation);
+      el.append(hint);
+    }
+  } else if (sentence) {
     el.append(row("cf-cloze", blankOut(sentence.text, card.word)));
     if (sentence.translation) el.append(row("cf-exampleTranslation", sentence.translation));
+    // The word's meaning, only when asked for: the sentence's translation is
+    // often enough, and a hint taken is still remembered as one.
+    if (card.translation) {
+      const hint = row("recall-hint");
+      const showMeaning = () => {
+        hint.textContent = "";
+        const label = document.createElement("span");
+        label.className = "muted";
+        label.textContent = "The word means: ";
+        hint.append(label, card.translation);
+      };
+      if (hinted) {
+        showMeaning();
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "recall-hint-button";
+        button.textContent = "💡 Hint";
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          onHint?.();
+          showMeaning();
+          el.querySelector(".recall-input")?.focus({ preventScroll: true });
+        });
+        hint.append(button);
+      }
+      el.append(hint);
+    }
   } else {
     // No sentence that holds the word: ask by its meaning.
     el.append(row("cf-translation", card.translation || "—"));
