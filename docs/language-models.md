@@ -25,7 +25,7 @@ than ~3 are real. Every model named here was checked to exist under
 | hi | `opus-mt-tc-bible-big-inc-en` | 65.5 | 62.5 | `opus-mt-tc-bible-big-deu_eng_fra_por_spa-inc` | 59.2 | 54.2 |
 | es | `opus-mt-tc-bible-big-roa-en` | 59.7 | 57.1 | `opus-mt-tc-big-en-es` | 56.4 | 52.6 |
 | ar | `opus-mt-tc-big-ar-en` | 67.2 | 62.2 | `opus-mt-tc-big-en-ar` | 61.5 | 51.4 |
-| fr | `opus-mt-tc-bible-big-roa-en` (or `tc-big-fr-en`, 69.3) | 69.4 | 65.4 | `opus-mt-tc-big-en-fr` | 72.5 | 67.0 |
+| fr | `opus-mt-tc-bible-big-roa-en` (or `tc-big-fr-en`, 69.3) — **measured 67.5** against NLLB 64.1 (`tc-big-fr-en` 66.6), 9.5 s against 39 s | 69.4 | 65.4 | `opus-mt-tc-big-en-fr` — **measured 70.6** against NLLB 68.0, 10 s against 46 s | 72.5 | 67.0 |
 | bn | `opus-mt-tc-bible-big-inc-en` | 60.2 | 57.9 | `…deu_eng_fra_por_spa-inc` | 52.3 | 46.2 |
 | pt | `opus-mt-tc-bible-big-roa-en` | 72.3 | 69.0 | `opus-mt-tc-bible-big-gem-fra_ita_por_spa` (measured: use `opus-mt-tc-big-en-pt`, below) | 72.0 | 67.4 |
 | ru | `opus-mt-tc-big-zle-en` | 62.6 | 58.6 | `opus-mt-tc-big-en-zle` | 59.7 | 52.5 |
@@ -88,7 +88,7 @@ transcribes as well as Chinese does today on a CPU-only machine.
 | ru | 11.4 | 7.2 | 5.6 | very good |
 | ja | 12.0 | 7.1 | 5.3 | very good |
 | pl | 14.7 | 8.0 | 5.4 | very good |
-| fr | 15.0 | 8.7 | 8.3 | good |
+| fr | 15.0 | 8.7 | 8.3 | good. Measured on two clips with human subtitles: small 3.3% / 10.9% WER, medium 2.3% / 10.1% at 3× the time, and medium dropped more film excerpts, so small is kept |
 | tr | 15.9 | 10.4 | 8.4 | good |
 | id | 16.3 | 10.2 | 7.1 | good |
 | uk | 19.3 | 11.6 | 8.6 | good |
@@ -133,6 +133,7 @@ kana).
 | Lang | Model |
 |---|---|
 | es fr pt de it id tr pl en | `latin` (`en` for English only) |
+| fr (measured) | `latin` (`"ocr": "latin"`): reads Œ/œ and ï, which the default PP-OCRv6 read as CE and i; on 51 Easy French caption frames it also fixed s’'il and .. → ..., and ran 60 s against 69 s |
 | vi | `latin`. CLAUDE.md measured lost stacked tone marks with the default; re-measure on v5 latin |
 | ru uk | `cyrillic` (or `eslav`) |
 | ar ur fa | `arabic` |
@@ -173,6 +174,8 @@ pt (pt_BR, pt_PT), ru, de (thorsten high), vi, tr, fa, it, pl, uk.
 `pt_PT-tugão-medium` 30%, espeak-ng pt-br 51% / 16%. Cadu is the one
 `VOICES=1 npm run sync` fetches.
 
+**French, measured:** `fr_FR-siwis-medium` (CC BY 4.0). Read back through Whisper small, 12 test sentences came out at 3.9% WER (5.9% slow), against upmc 5.9/8.8, tom 4.9/5.9 (at twice the time), espeak-ng 52/38, and mls (speaker 0) unusable.
+
 **No piper voice:** bn, id, ur, ja, ko, th. Meta's MMS-TTS
 (`facebook/mms-tts-ben`, `-ind`, `-urd-script_arabic`, `-kor`, `-tha`) runs
 on the `transformers` the app already has. It is non-commercial licensed
@@ -180,6 +183,8 @@ on the `transformers` the app already has. It is non-commercial licensed
 Japanese, so Japanese stays on the browser voice or espeak-ng.
 
 ## Into Chinese instead of English
+
+Measured for French (FLORES, 100 sentences): NLLB fr→zh 13.8, against 14.4 for fr→en→zh through `opus-mt-en-zh`, which still stops partway through some sentences. That's no real win, so French stays on NLLB.
 
 No Opus-MT model goes X→zh for any of these languages, and NLLB-600M's en→zh
 is 19.6 chrF++. Options, best first: the chat model; pivoting through English
@@ -193,7 +198,7 @@ is 19.6 chrF++. Options, best first: the chat model; pivoting through English
 | 3 | hi | Opus group + `>>hin<<` | weak at small | devanagari | Indic romanisation, medium/large minimum | medium |
 | 4 | es | Opus | excellent | latin | lemmas | small |
 | 5 | ar | Opus tc-big | needs medium | arabic | RTL, vowel marks | large |
-| 6 | fr | Opus tc-big | good | latin | — | small |
+| 6 | fr | Opus roa-en / tc-big-en-fr | good (small) | latin | elision word cut, Wiktionary, siwis voice | done |
 | 7 | bn | Opus group | **broken** | **none** | new ASR engine | very large |
 | 8 | pt | Opus group | excellent | latin | — | small |
 | 9 | ru | Opus zle | very good | cyrillic | stress marks, lemmas | medium |

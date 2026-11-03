@@ -67,6 +67,10 @@ OPUS_ROUTES = {
     # chrF++, 100 sentences, against NLLB: see the Portuguese PR.
     ("pt", "en"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-roa-en"},
     ("en", "pt"): {"model": "Helsinki-NLP/opus-mt-tc-big-en-pt", "token": "por"},
+    # French. Both single-target, so no token; fr→en shares Spanish's model.
+    # FLORES chrF++, 100 sentences: see docs/language-models.md.
+    ("fr", "en"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-roa-en"},
+    ("en", "fr"): {"model": "Helsinki-NLP/opus-mt-tc-big-en-fr"},
 }
 OPUS_ZH_EN = OPUS_ROUTES[("zh", "en")]["model"]
 OPUS_EN_ZH = OPUS_ROUTES[("en", "zh")]["model"]

@@ -16,7 +16,8 @@ from transcribe import UnsupportedLanguage, choose_language  # noqa: E402
 class TableTest(unittest.TestCase):
     def test_chinese_and_english_are_offered(self):
         self.assertTrue({"zh", "en"} <= languages.offered())
-        self.assertNotIn("fr", languages.offered())
+        # Esperanto: Whisper can't transcribe it, so it never will be offered.
+        self.assertNotIn("eo", languages.offered())
 
     def test_whisper_codes_map_to_the_table(self):
         self.assertEqual(languages.table_code("no"), "nb")

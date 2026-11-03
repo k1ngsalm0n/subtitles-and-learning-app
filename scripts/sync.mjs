@@ -286,6 +286,9 @@ const VOICE_MODELS = [
   // Read back by Whisper: 4.8% word errors at normal speed, 3.8% slow
   // (faber 3.8/5.7, jeff 13.3, pt_PT tugão 30, espeak-ng 51/16).
   ["pt_BR-cadu-medium", "pt/pt_BR/cadu/medium"],
+  // French: siwis read 12 test sentences back through Whisper at 3.9% WER
+  // (5.9% slow); upmc 5.9/8.8, tom 4.9/5.9 at twice the time, espeak-ng 52/38.
+  ["fr_FR-siwis-medium", "fr/fr_FR/siwis/medium"],
 ];
 
 function ensureVoices() {

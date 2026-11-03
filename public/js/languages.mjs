@@ -118,7 +118,10 @@ const LATIN_WORDS = {
   es: ["es", "esta", "esto", "los", "las", "pero", "muy", "está", "porque", "una", "qué", "aquí", "hoy"],
   et: ["see", "aga", "mis", "oli", "kui", "kas", "väga", "nüüd", "ta", "ma"],
   fi: ["että", "mutta", "hän", "niin", "mitä", "kiitos", "minä", "olen", "tämä", "sitä", "meidän", "hyvin", "vain", "myös"],
-  fr: ["le", "les", "des", "est", "une", "pour", "dans", "pas", "nous", "avec"],
+  // French: il/un/au/ce/on are Italian, Latvian, Romanian and Estonian too
+  // and called real French lines Italian; these collide with none of the
+  // lists on 200 FLORES sentences per language. qu and j are elisions (qu'il, j'ai).
+  fr: ["le", "les", "des", "est", "une", "pour", "dans", "pas", "nous", "avec", "qu", "j", "vous", "du", "sur", "ça", "très", "être", "ils", "elle", "cette", "comme", "fait", "ont", "aussi", "qui", "sont", "été", "leur", "plus"],
   ga: ["agus", "tá", "níl", "bhfuil", "ní", "sé", "sí", "agam", "ach", "seo", "mé", "atá"],
   hu: ["és", "az", "egy", "hogy", "nem", "van", "csak", "volt", "nagyon", "kell"],
   id: ["yang", "dan", "tidak", "untuk", "dengan", "ini", "itu", "ke", "juga", "kami", "kita", "sangat", "tetapi", "adalah", "bisa", "karena", "kamu", "saya"],
@@ -164,6 +167,7 @@ const LATIN_HINTS = {
   // too (153 → 87 Estonian FLORES lines placed when it counted), and lh
   // caught "Dalhousie" in four languages.
   pt: /ã|ões\b/u,
+  fr: /[œû]/u,
   de: /ß/u,
   ca: /·/u,
   da: /[æø]/u,

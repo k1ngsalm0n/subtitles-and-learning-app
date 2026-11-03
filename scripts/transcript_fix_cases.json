@@ -743,6 +743,211 @@
    "fix": {}
   },
   {
+   "id": "fr-te-voir",
+   "language": "fr",
+   "real": true,
+   "note": "innerFrench (1hxeVSy8wlM), Whisper small, 2026-11-02; the uploader's subtitles give the answer",
+   "lines": [
+    "je suis excité de partir en vacances.",
+    "Ou alors, vous avez dit à un ami français, je suis excité d'autovoir.",
+    "Si c'est le cas, je suis sûr qu'on vous a expliqué qu'en français, le mot excité est un faux ami."
+   ],
+   "fix": {
+    "1": [
+     "Ou alors, vous avez dit à un ami français, je suis excité de te voir."
+    ]
+   }
+  },
+  {
+   "id": "fr-realite",
+   "language": "fr",
+   "real": true,
+   "note": "innerFrench (1hxeVSy8wlM), Whisper small, 2026-11-02; the uploader's subtitles give the answer",
+   "lines": [
+    "directement nos émotions, on fait une simple observation. C'est cool. Mais en réalisé,",
+    "il s'agit plutôt d'une différence culturelle et pas linguistique."
+   ],
+   "fix": {
+    "0": [
+     "directement nos émotions, on fait une simple observation. C'est cool. Mais en réalité,"
+    ]
+   }
+  },
+  {
+   "id": "fr-verres",
+   "language": "fr",
+   "real": true,
+   "note": "innerFrench (1hxeVSy8wlM), Whisper small, 2026-11-02; the uploader's subtitles give the answer",
+   "lines": [
+    "Plus sérieusement, c'est vrai que les Français ont tendance à être un peu moins exubérants",
+    "que les Américains, sauf après quelques vers de vin.",
+    "En général, ils sont assez réservés et ils partagent rarement leurs émotions."
+   ],
+   "fix": {
+    "1": [
+     "que les Américains, sauf après quelques verres de vin."
+    ]
+   }
+  },
+  {
+   "id": "fr-compte-a-rebours",
+   "language": "fr",
+   "real": true,
+   "note": "France 24 news (LD6YibCPxwg), Whisper small, 2026-11-02",
+   "lines": [
+    "Bonsoir à tous, il est 22h30 ici à Paris, 16h30 à Washington.",
+    "Ça y est, le Contarbourg a commencé aux États-Unis avant les élections de mi-mandat.",
+    "Le 3 novembre prochain, je vous le rappelle, les Américains réalisent les 435 membres",
+    "de la Chambre des représentants et un tiers des 100 sièges du Sénat."
+   ],
+   "fix": {
+    "1": [
+     "Ça y est, le compte à rebours a commencé aux États-Unis avant les élections de mi-mandat."
+    ],
+    "2": [
+     "Le 3 novembre prochain, je vous le rappelle, les Américains élisent les 435 membres"
+    ]
+   }
+  },
+  {
+   "id": "fr-gain-net",
+   "language": "fr",
+   "real": true,
+   "note": "France 24 news (LD6YibCPxwg), Whisper small, 2026-11-02",
+   "lines": [
+    "Pour les démocrates, c'est le chiffre magique. Le 3 novembre prochain, ils devront réaliser un",
+    "guinette de quatre sièges pour contrôler le Sénat, aujourd'hui aux mains des républicains."
+   ],
+   "fix": {
+    "1": [
+     "gain net de quatre sièges pour contrôler le Sénat, aujourd'hui aux mains des républicains."
+    ]
+   }
+  },
+  {
+   "id": "fr-briguer",
+   "language": "fr",
+   "real": true,
+   "note": "France 24 news (LD6YibCPxwg), Whisper small, 2026-11-02. The politician is James Talarico, so Whisper's Tallarico may be corrected.",
+   "lines": [
+    "Mais cette fois, la donne pourrait changer avec l'éclosion de James Tallarico, 37 ans,",
+    "étoile montante du Parti démocrate, que certains voient un jour briger le poste suprême."
+   ],
+   "fix": {
+    "1": [
+     "étoile montante du Parti démocrate, que certains voient un jour briguer le poste suprême."
+    ]
+   },
+   "allowChanged": [
+    0
+   ]
+  },
+  {
+   "id": "fr-poupe",
+   "language": "fr",
+   "real": true,
+   "note": "France 24 news (LD6YibCPxwg), Whisper small, 2026-11-02",
+   "lines": [
+    "Mathieu Mabin, comment expliquer cette dynamique ?",
+    "Les républicains, on vient de le voir, ils n'ont pas le vent en poube.",
+    "C'est le signe d'un rejet de la personnalité de Donald Trump,"
+   ],
+   "fix": {
+    "1": [
+     "Les républicains, on vient de le voir, ils n'ont pas le vent en poupe."
+    ]
+   }
+  },
+  {
+   "id": "fr-citer",
+   "language": "fr",
+   "real": true,
+   "note": "France 24 news (LD6YibCPxwg), Whisper small, 2026-11-02",
+   "lines": [
+    "On en a vu quelques-uns avec Florian Rodot à l'instant,",
+    "mais on peut parler du Texas également, de la Californie, de la Virginie pour ne suiter que ces États.",
+    "Et les démocrates doivent gagner quatre sièges nets pour reprendre le contrôle du Sénat"
+   ],
+   "fix": {
+    "1": [
+     "mais on peut parler du Texas également, de la Californie, de la Virginie pour ne citer que ces États."
+    ]
+   }
+  },
+  {
+   "id": "fr-cout",
+   "language": "fr",
+   "real": true,
+   "note": "France 24 news (LD6YibCPxwg), Whisper small, 2026-11-02",
+   "lines": [
+    "mais pour en revenir au mécontentement, c'est vrai, il est concret,",
+    "il porte sur le coup de la vie, les prix de l'énergie, en clair les conséquences économiques de la guerre.",
+    "Bon, sans convaincre grand monde."
+   ],
+   "fix": {
+    "1": [
+     "il porte sur le coût de la vie, les prix de l'énergie, en clair les conséquences économiques de la guerre."
+    ]
+   }
+  },
+  {
+   "id": "fr-mi-septembre",
+   "language": "fr",
+   "real": true,
+   "note": "France 24 news (LD6YibCPxwg), Whisper small, 2026-11-02",
+   "lines": [
+    "points sur son adversaire. Une dynamique suffisamment préoccupante pour que Donald Trump se déplace lui-même",
+    "dans cet état à l'amie septembre pour soutenir son candidat."
+   ],
+   "fix": {
+    "1": [
+     "dans cet état à la mi-septembre pour soutenir son candidat."
+    ]
+   }
+  },
+  {
+   "id": "fr-control-spoken",
+   "language": "fr",
+   "real": true,
+   "note": "innerFrench's subtitles (first line) and colloquial French: dropped ne, j'sais, y a, grave",
+   "lines": [
+    "Donc c'est pas le genre de choses que les Français disent",
+    "Ouais, j'sais pas, t'inquiète, on verra bien.",
+    "Y a pas de souci, c'est grave cool."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "fr-control-numbers",
+   "language": "fr",
+   "lines": [
+    "Bonsoir à tous, il est 22h30 ici à Paris, 16h30 à Washington.",
+    "Le 3 novembre prochain, les Américains élisent les 435 membres de la Chambre",
+    "et un tiers des 100 sièges du Sénat."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "fr-control-homophones",
+   "language": "fr",
+   "lines": [
+    "Il a mis ses lunettes et il est allé à la mer avec sa mère.",
+    "Ce verre vert est vers la fenêtre, c'est sûr.",
+    "Cent personnes sont venues sans leurs enfants."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "fr-control-plain",
+   "language": "fr",
+   "lines": [
+    "Salut, ça va ?",
+    "Ça va bien, merci, et toi ?",
+    "Tranquille, on fait aller."
+   ],
+   "fix": {}
+  },
+  {
    "id": "real-streettalk-ep1",
    "language": "zh",
    "real": true,

@@ -41,7 +41,7 @@
     { "code": "eo", "name": "Esperanto", "nllb": "epo_Latn", "whisper": null },
     { "code": "et", "name": "Estonian", "nllb": "est_Latn" },
     { "code": "fi", "name": "Finnish", "nllb": "fin_Latn" },
-    { "code": "fr", "name": "French", "nllb": "fra_Latn" },
+    { "code": "fr", "name": "French", "nllb": "fra_Latn", "offered": true, "ocr": "latin", "inaudible": "(inaudible)" },
     { "code": "de", "name": "German", "nllb": "deu_Latn" },
     { "code": "el", "name": "Greek", "nllb": "ell_Grek" },
     { "code": "he", "name": "Hebrew", "nllb": "heb_Hebr" },
