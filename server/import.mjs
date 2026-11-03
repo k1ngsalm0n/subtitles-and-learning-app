@@ -37,6 +37,7 @@ import { translateViaWorker } from "./translateWorker.mjs";
 import { llmCouldTranslate, translateSrtWithLlm } from "./llmTranslate.mjs";
 import { retranslateSoon } from "./retranslate.mjs";
 import { fixTranscriptSrt } from "./transcriptFix.mjs";
+import { toTraditional } from "./zhconvert.mjs";
 import { onImported } from "./prepare.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
@@ -80,31 +81,6 @@ const OCR_SCRIPT = path.join(__dirname, "ocr_captions.py");
 // nine-minute video), and Whisper hands segments over in bursts, so this is
 // what keeps a long import to tens of events rather than hundreds.
 const PARTIAL_INTERVAL_MS = 2000;
-const ZH_CONVERT_SCRIPT = path.join(__dirname, "zh_convert.py");
-// Subtitles are normalised to Traditional characters by default (the app's
-// current focus is Taiwanese content, and mixed-script sources — Simplified
-// clips embedded in Traditional broadcasts — read jarringly otherwise). Set
-// ZH_SCRIPT=off to keep each source's original script.
-const ZH_SCRIPT = process.env.ZH_SCRIPT || "trad";
-
-// Convert subtitle text to Traditional Chinese via OpenCC (zh_convert.py).
-// Best-effort: any failure returns the text unchanged. Chinese only: any other
-// study language passes through untouched (and costs no Python spawn).
-async function toTraditional(srt, language = "zh") {
-  if (language !== "zh" || ZH_SCRIPT !== "trad" || !srt) return srt;
-  try {
-    const result = await runCommand(PYTHON_BIN, [ZH_CONVERT_SCRIPT], {
-      timeoutMs: 60_000,
-      input: srt,
-    });
-    return result.stdout || srt;
-  } catch (err) {
-    console.warn(
-      `Traditional conversion skipped (${String(err.message || err).split("\n")[0]})`,
-    );
-    return srt;
-  }
-}
 // Where imported videos are kept, so a card's "jump back" can reload the video
 // and return to the moment it was made from.
 //

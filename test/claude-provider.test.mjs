@@ -77,3 +77,19 @@ test("subtitle lines are translated through Claude Code, fenced reply and all", 
   assert.match(out, /\[en\] 我喜歡你/);
   assert.match(out, /\[en\] 你的冷傲/);
 });
+
+// Into Chinese, the chat model's lines come out in the app's script
+// (zhconvert.mjs). Needs the venv's OpenCC, which CI's JS step doesn't have.
+const { PYTHON_BIN } = await import("../server/device.mjs");
+const { spawnSync } = await import("node:child_process");
+const hasOpenCC = spawnSync(PYTHON_BIN, ["-c", "import opencc"]).status === 0;
+
+test("a translation into Chinese is put into Traditional", { skip: !hasOpenCC && "no Python with OpenCC" }, async () => {
+  await fresh();
+  await saveLlmChoice({ provider: "claude" }, { testClaudeCode: async () => ({ ok: true }) });
+  // The fake echoes each line with the target's code: Simplified in, as a
+  // model writing "Chinese" usually answers.
+  const srt = "1\n00:00:01,000 --> 00:00:02,000\n头发很长\n";
+  const out = await translateSrtWithLlm(srt, "pt", "zh");
+  assert.match(out, /頭髮很長/);
+});

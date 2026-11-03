@@ -12,6 +12,7 @@
 // dropped connection — all return null and the caller runs the offline path.
 // A worse translation beats no translation.
 
+import { toTraditional } from "./zhconvert.mjs";
 import { readFileSync } from "node:fs";
 
 import { readPrefs } from "./prefs.mjs";
@@ -169,5 +170,8 @@ export async function translateSrtWithLlm(srt, from, to) {
   // different names for the same ship. Hand the whole job back instead.
   if (results.some((group) => group === null)) return null;
 
-  return rebuildSrt(cues, results.flat());
+  // Into Chinese, the app's script: "Chinese" in the prompt names no script,
+  // and models answer in Simplified under Traditional transcripts.
+  const translated = rebuildSrt(cues, results.flat());
+  return to === "zh" ? toTraditional(translated, "zh") : translated;
 }

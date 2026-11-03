@@ -768,7 +768,31 @@ def _translate_lines(texts, from_code, to_code):
             translations[i] = translated_text
         start += len(idx_chunk)
 
+    if to_code == "zh":
+        translations = in_app_script(translations)
     return translations
+
+
+_to_traditional = None
+
+
+def in_app_script(lines):
+    """Chinese output in the app's script: Traditional, as the transcripts are
+    (ZH_SCRIPT=trad, the default, as in import.mjs); any other value leaves
+    them as the model wrote them.
+
+    Asked for Traditional, the models still write some Simplified: on 100
+    FLORES sentences 45 of opus-mt-en-zh's lines (with its >>cmn_Hant<< token)
+    and 19-24 of NLLB's (pt, es -> zho_Hant) mixed in 临床, 公开, 处于. The
+    same OpenCC table the transcripts go through puts them right."""
+    if os.environ.get("ZH_SCRIPT", "trad") != "trad":
+        return lines
+    global _to_traditional
+    if _to_traditional is None:
+        from zh_convert import converter
+
+        _to_traditional = converter("trad")
+    return [_to_traditional(line) if line else line for line in lines]
 
 
 def translate_srt(srt_text, from_code, to_code="en", langs=None):
