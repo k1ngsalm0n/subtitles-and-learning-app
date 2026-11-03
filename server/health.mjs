@@ -22,6 +22,8 @@ import { ytdlpInfo, autoUpdateEnabled, STALE_AFTER_DAYS } from "./ytdlp.mjs";
 import { llmTranslationConfigured } from "./llmTranslate.mjs";
 import { llmStatus } from "./llmConfig.mjs";
 import { chatHealth } from "./chat.mjs";
+import { hasDictionary, NOT_WIKTIONARY } from "./wiktionary.mjs";
+import { offeredCodes, languageName } from "./languages.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -126,6 +128,9 @@ async function gatherFacts({ fresh = false } = {}) {
     llmFailure: chatHealth(),
     voices,
     strokes,
+    // Each offered study language Wiktionary defines: whether its file is there.
+    dictionaries: offeredCodes().filter((code) => !NOT_WIKTIONARY.has(code))
+      .map((code) => ({ name: languageName(code), ok: hasDictionary(code) })),
     ytdlp,
     ytdlpAutoUpdate: autoUpdateEnabled(),
     deno,
@@ -568,6 +573,27 @@ function strokesCheck({ strokes }) {
   });
 }
 
+// --- Word meanings for languages other than Chinese ---------------------
+// No row until a language other than Chinese and English is offered.
+function dictionaryCheck({ dictionaries = [] }) {
+  if (!dictionaries.length) return null;
+  const missing = dictionaries.filter((d) => !d.ok).map((d) => d.name);
+  const names = dictionaries.map((d) => d.name).join(", ");
+  return twoStateCheck({
+    id: "wiktionary",
+    label: "Dictionary",
+    ok: !missing.length,
+    missing: FALLBACK,
+    using: { yes: `Wiktionary (${names})`, no: `not downloaded: ${missing.join(", ")}` },
+    detail: {
+      yes: "A clicked word has its meanings, its dictionary form (falou → falar), and a noun its gender, with no chat model.",
+      no: "Those words' meanings come from the chat model, or else a one-word guess from the offline translator, with no dictionary form or gender.",
+    },
+    fix: "npm run sync",
+    fixNote: "Downloads each language's Wiktionary entries from kaikki.org (50–100 MB each).",
+  });
+}
+
 // Every capability the page reports, in the order it shows them. Add a new
 // fallback anywhere in the app and it gets a line here — that is the whole
 // point of this page, and a list is harder to forget to extend than a
@@ -584,13 +610,14 @@ const CAPABILITIES = [
   importPlanCheck,
   importCheck,
   strokesCheck,
+  dictionaryCheck,
 ];
 
 // Exported for the tests: the rows are a pure function of the facts, so every
 // state can be exercised by handing over made-up facts instead of installing
 // software.
 export function buildChecks(facts) {
-  const checks = CAPABILITIES.map((describe) => describe(facts));
+  const checks = CAPABILITIES.map((describe) => describe(facts)).filter(Boolean);
   return {
     checks,
     summary: {

@@ -235,6 +235,28 @@ if (process.env.SKIP_DICT) {
   }
 }
 
+// A Wiktionary dictionary for each offered study language other than Chinese
+// (CC-CEDICT, above) and English: meanings, dictionary forms and genders
+// for the word pop-up without a chat model (server/wiktionary.mjs). Each is
+// a 50–100 MB download from kaikki.org, cut to ~50 MB in data/. Best-effort.
+const offeredLanguages = JSON.parse(readFileSync(join(ROOT, "public", "data", "languages.json"), "utf8"))
+  .languages.filter((l) => l.offered && l.code !== "zh" && l.code !== "en").map((l) => l.code);
+const missingDicts = offeredLanguages.filter((code) => !existsSync(join(ROOT, "data", `wiktionary-${code}.tsv`)));
+if (process.env.SKIP_WIKTIONARY) {
+  console.log("\n→ SKIP_WIKTIONARY set — not downloading Wiktionary dictionaries.");
+} else if (!missingDicts.length) {
+  if (offeredLanguages.length) console.log("\n→ Wiktionary dictionaries already present in data/ — skipping.");
+} else {
+  console.log(`\n→ Downloading Wiktionary dictionaries (${missingDicts.join(", ")})…`);
+  const dl = spawnSync(process.execPath, [join(ROOT, "scripts", "fetch-wiktionary.mjs"), ...missingDicts], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+  if (dl.status !== 0) {
+    console.warn("  ⚠ a dictionary download failed — those words get the chat model or the offline translator. Re-run `npm run sync` to retry.");
+  }
+}
+
 if (process.env.SKIP_MODELS) {
   console.log("\n→ SKIP_MODELS set — not prefetching Whisper/NLLB.");
 } else {
