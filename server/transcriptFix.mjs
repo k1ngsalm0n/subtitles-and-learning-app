@@ -48,6 +48,9 @@ const HINTS = {
     "Traditional, Simplified stays Simplified.",
   en: "English speech recognition writes sound-alikes: a homophone with the wrong meaning, a name heard as ordinary words.",
   es: "Spanish speech recognition writes sound-alikes: a homophone with the wrong meaning, or b/v, s/z/c and a silent h confused.",
+  pt:
+    "Portuguese speech recognition writes sound-alikes: a homophone with the wrong meaning, a silent h, s/ss/c/ç, " +
+    "a final l heard as u, an infinitive that lost its final r, nasal endings confused, or words split or run together.",
 };
 
 export function buildFixPrompt(language) {
@@ -96,9 +99,12 @@ export function acceptFix(original, fixed, { placeholder = "" } = {}) {
   if (!after || after === before) return false;
   if (placeholder && (before.includes(placeholder) || after.includes(placeholder))) return false;
   // Punctuation and spacing only: churn, not a fix — and not something the
-  // speaker said.
+  // speaker said. Except a space that splits or joins words: Portuguese
+  // "Agente" (an agent) for "a gente" (we) is a mishearing.
   const bare = (s) => s.replace(PUNCT, "").toLowerCase();
-  if (bare(before) === bare(after)) return false;
+  const words = (s) => s.toLowerCase().split(/[\s\p{P}\p{S}]+/u).filter(Boolean).join(" ");
+  const spaced = /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}]/u.test(before);
+  if (bare(before) === bare(after) && (!spaced || words(before) === words(after))) return false;
   // A misheard word or two, not a new sentence. Measured on the letters and
   // characters only, so a stray comma doesn't count against a real fix.
   const length = Array.from(bare(before)).length;

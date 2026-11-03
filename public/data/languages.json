@@ -58,7 +58,7 @@
     { "code": "nb", "name": "Norwegian", "nllb": "nob_Latn", "whisper": "no" },
     { "code": "fa", "name": "Persian", "nllb": "pes_Arab" },
     { "code": "pl", "name": "Polish", "nllb": "pol_Latn" },
-    { "code": "pt", "name": "Portuguese", "nllb": "por_Latn" },
+    { "code": "pt", "name": "Portuguese", "nllb": "por_Latn", "offered": true, "inaudible": "(inaudível)" },
     { "code": "ro", "name": "Romanian", "nllb": "ron_Latn" },
     { "code": "ru", "name": "Russian", "nllb": "rus_Cyrl" },
     { "code": "sk", "name": "Slovak", "nllb": "slk_Latn" },

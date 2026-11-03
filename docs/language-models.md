@@ -27,7 +27,7 @@ than ~3 are real. Every model named here was checked to exist under
 | ar | `opus-mt-tc-big-ar-en` | 67.2 | 62.2 | `opus-mt-tc-big-en-ar` | 61.5 | 51.4 |
 | fr | `opus-mt-tc-bible-big-roa-en` (or `tc-big-fr-en`, 69.3) | 69.4 | 65.4 | `opus-mt-tc-big-en-fr` | 72.5 | 67.0 |
 | bn | `opus-mt-tc-bible-big-inc-en` | 60.2 | 57.9 | `…deu_eng_fra_por_spa-inc` | 52.3 | 46.2 |
-| pt | `opus-mt-tc-bible-big-roa-en` | 72.3 | 69.0 | `opus-mt-tc-bible-big-gem-fra_ita_por_spa` | 72.0 | 67.4 |
+| pt | `opus-mt-tc-bible-big-roa-en` | 72.3 | 69.0 | `opus-mt-tc-bible-big-gem-fra_ita_por_spa` (measured: use `opus-mt-tc-big-en-pt`, below) | 72.0 | 67.4 |
 | ru | `opus-mt-tc-big-zle-en` | 62.6 | 58.6 | `opus-mt-tc-big-en-zle` | 59.7 | 52.5 |
 | id | `opus-mt-tc-bible-big-poz-en` | 68.4 | 63.9 | `…deu_eng_fra_por_spa-pqw` | 70.5 | 66.6 |
 | ur | `opus-mt-tc-bible-big-inc-en` | 59.5 | 57.8 | `…deu_eng_fra_por_spa-iir` | 48.4 | 46.6 |
@@ -61,6 +61,15 @@ Notes:
   `flores_eval.py --languages zh` run before switching.
 - With a chat model configured, line translation goes through it anyway
   (`llmTranslate.mjs`); the table is the offline path.
+- **Portuguese, measured** (`flores_eval.py`, 100 sentences, chrF++, CPU,
+  CTranslate2, with #172's 400-character split): pt→en `tc-bible-big-roa-en`
+  69.97 in 7 s against NLLB 66.17 in 24 s (`ROMANCE-en` 64.8,
+  `roa-deu_eng_fra_por_spa` 66.0). en→pt `opus-mt-tc-big-en-pt` with
+  `>>por<<` 69.65 in 7 s, `>>pob<<` (Brazilian) 69.07, NLLB 67.28 in 28 s,
+  `deu_eng_fra_por_spa-roa` 68.97. The published pick,
+  `gem-fra_ita_por_spa`, measured 66.99 (before #172) against 67.65 for
+  `tc-big-en-pt` on the same run, so it isn't used. pt→zh: NLLB 13.1, and
+  pivoting through English (roa-en, then opus-mt-en-zh) 13.1 too: no gain.
 
 ## Transcription: Whisper's error rate by language and size
 
@@ -101,6 +110,14 @@ fine-tunes (Wav2Vec-BERT reached 14.4% on Bangla against 28.9% for a fine-tuned
 large-v2, [arXiv 2507.01931](https://arxiv.org/abs/2507.01931)) or AI4Bharat's
 IndicConformer. Either one is a new engine beside faster-whisper, so Bengali is
 a bigger job than the others.
+
+**Portuguese, measured:** small on a CPU, no hint, detected `pt` on all
+three test clips. Against the uploaded subtitles, 2.0% WER on a dubbed
+explainer (Kurzgesagt) and 15.6% on a native science channel (Nerdologia),
+where medium got 15.0% at three times the time; most of that is the
+reference's own formatting ("70km" for "70 quilômetros") and missing lines.
+The real errors were a proper noun (Mohole), "teimosia" and "sal", which
+medium also missed. No `WHISPER_MIN_MODEL` entry.
 
 Consequence for `_resolve_model`: "small on CPU" is fine for the European
 languages and Japanese, but Arabic, Hindi and Urdu want medium even on a CPU.
@@ -149,6 +166,12 @@ being per-inflection.
 Piper ([VOICES.md](https://github.com/rhasspy/piper/blob/master/VOICES.md))
 has: en, hi (pratham, priyamvada), es (es_ES/es_MX/es_AR), ar (kareem), fr,
 pt (pt_BR, pt_PT), ru, de (thorsten high), vi, tr, fa, it, pl, uk.
+
+**Portuguese, measured** (12 sentences each, read back by Whisper small):
+`pt_BR-cadu-medium` 4.8% word errors at normal speed and 3.8% slow,
+`pt_BR-faber-medium` 3.8% / 5.7%, `pt_BR-jeff-medium` 13.3%,
+`pt_PT-tugão-medium` 30%, espeak-ng pt-br 51% / 16%. Cadu is the one
+`VOICES=1 npm run sync` fetches.
 
 **No piper voice:** bn, id, ur, ja, ko, th. Meta's MMS-TTS
 (`facebook/mms-tts-ben`, `-ind`, `-urd-script_arabic`, `-kor`, `-tha`) runs

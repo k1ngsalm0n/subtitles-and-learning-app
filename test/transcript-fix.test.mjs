@@ -72,6 +72,9 @@ test("a fix is small, real, and never touches the inaudible placeholder", () => 
   assert.equal(acceptFix("我目前沒有出過果", "我目前沒有出過國"), true);
   assert.equal(acceptFix("我目前沒有出過果", "我目前沒有出過果。"), false, "punctuation only");
   assert.equal(acceptFix("Their going.", "Their going."), false, "unchanged");
+  assert.equal(acceptFix("Agente foi pra praia.", "A gente foi pra praia."), true, "a space that changes the words");
+  assert.equal(acceptFix("Olha, sou ateu", "Olha sou ateu."), false, "spacing around punctuation only");
+  assert.equal(acceptFix("我目前 沒有", "我目前沒有"), false, "Chinese spacing is still churn");
   assert.equal(acceptFix("I went to the store yesterday.", "Yesterday I visited a shop."), false, "rewritten");
   assert.equal(
     acceptFix("（聽不清楚的聲音）", "我不知道", { placeholder: "（聽不清楚的聲音）" }),
