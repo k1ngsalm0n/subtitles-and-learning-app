@@ -53,6 +53,12 @@ export const LEMMATISERS = {};
 // goes first when the word is a form of it; the word's own senses follow.
 export const PREFERRED_LEMMA = {};
 
+// The same for a word whose own entries are the two readings: French "pas"
+// is the adverb "not" before the noun "step", "son" the determiner "his,
+// her" before the noun "sound". `fr: { pas: "adv" }`, keys folded, values
+// a part of speech as the dictionary file writes it (noun, verb, adv, det…).
+export const PREFERRED_POS = {};
+
 // ---- The file on disk --------------------------------------------------
 
 const open = new Map(); // code -> { fd, size, mtimeMs }
@@ -262,8 +268,9 @@ export async function defineWord(word, code) {
   // one with a plain sense: Portuguese "assim" is "this way" before its
   // informal adjective "full of".
   const labelledOnly = (r) => (r.s || []).every((x) => x[2]);
+  const pos = PREFERRED_POS[code]?.[foldWord(clicked, code)];
   const major = own.filter((r) => !minor.includes(r) && !intj.includes(r))
-    .sort((a, b) => labelledOnly(a) - labelledOnly(b));
+    .sort((a, b) => (pos ? (b.p === pos) - (a.p === pos) : 0) || labelledOnly(a) - labelledOnly(b));
   const lemmaRecs = lemmas.flatMap((l) => l.records.map((r) => ({ ...r, lemmaOf: l.lemma })));
   const preferred = PREFERRED_LEMMA[code]?.[foldWord(clicked, code)];
   const first = preferred ? lemmaRecs.filter((r) => r.lemmaOf === preferred) : [];
