@@ -70,7 +70,7 @@ export function openWordList({ items, lang, to, lineText, isKnown, onKnown, onOp
         ${item.pinyin || gloss?.pinyin ? `<span class="wl-pron">${pron(item.pinyin || gloss.pinyin)}</span>` : ""}
         <span class="wl-gloss${gloss ? "" : " muted"}">${
           gloss
-            ? `${escapeHtml(gloss.meaning)}${gloss.parts ? ` <span class="wl-parts" title="Not in the dictionary as one word: its characters' meanings">(by character)</span>` : ""}`
+            ? `${gloss.lemma ? `<span class="wl-lemma" title="Its dictionary form">${escapeHtml(gloss.lemma)}:</span> ` : ""}${escapeHtml(gloss.meaning)}${gloss.parts ? ` <span class="wl-parts" title="Not in the dictionary as one word: its characters' meanings">(by character)</span>` : ""}`
             : escapeHtml(lineText(item.line) || "")
         }</span>
       </div>
@@ -148,7 +148,9 @@ export function openWordList({ items, lang, to, lineText, isKnown, onKnown, onOp
   panel.scrollTop = 0;
   (panel.querySelector(".wl-word") || panel).focus();
 
-  if (lang === "zh" && to === "en" && items.length) {
+  // CC-CEDICT (Chinese) and Wiktionary (other study languages) both define
+  // in English; the server answers {} for a language with no dictionary.
+  if (lang && lang !== "en" && to === "en" && items.length) {
     api("/api/glosses", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -10,6 +10,7 @@ import { sendJson, runCommand, readJsonBody } from "./util.mjs";
 import { PYTHON_BIN } from "./device.mjs";
 import { isLanguageCode, languageName } from "./languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
+import { defineWord, glossWordsFrom, hasDictionary } from "./wiktionary.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "data");
@@ -631,10 +632,23 @@ function dictionaryResult(word, pinyin, map) {
   return null;
 }
 
+// What the Wiktionary dictionary knows about a word beyond its meaning,
+// carried onto whichever layer answers: its dictionary form, gender, plural.
+function wordForms(dict) {
+  if (!dict || dict.source !== "dictionary" || !("forms" in dict)) return {};
+  const { lemma, formOf, forms, gender, plural } = dict;
+  return { lemma, formOf, forms, gender, plural };
+}
+
 async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
-  // CC-CEDICT is Chinese with English definitions, so it answers only a
-  // reader who reads English.
-  const dictResult = lang === "zh" && to === "en" ? dictionaryResult(word, pinyin, await loadDict()) : null;
+  // CC-CEDICT is Chinese with English definitions, and Wiktionary's glosses
+  // (wiktionary.mjs, every other study language) are English too, so both
+  // answer only a reader who reads English.
+  const dictResult = to !== "en"
+    ? null
+    : lang === "zh"
+      ? dictionaryResult(word, pinyin, await loadDict())
+      : await defineWord(word, lang).catch(() => null);
 
   // Claude prepared this word for this line (mcp.mjs): answer at once. Its
   // notes are written in English (prepare.mjs), so only for an English reader.
@@ -646,6 +660,7 @@ async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
       meaning: note.meaning,
       explanation: note.explanation || "",
       defs: dictResult?.defs || [],
+      ...wordForms(dictResult),
       source: "claude-prepared",
     };
   }
@@ -659,6 +674,7 @@ async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
     const fits = !dictResult?.readings?.length || !heard || isReadingOf(heard, dictResult.readings);
     return {
       ...llm,
+      ...wordForms(dictResult),
       defs: dictResult?.defs || [],
       pronunciation: (fits && heard) || (pinyin && (!dictResult || isReadingOf(pinyin, dictResult.readings)) ? pinyin : "") ||
         dictResult?.pronunciation || heard || "",
@@ -672,7 +688,8 @@ async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
   // mixed one reading's senses with another's. A single character's meaning
   // is already chosen by the transcript's reading (glyphMeaning), so it
   // isn't asked.
-  if (dictResult && context && dictResult.defs.length > 1 && [...word].length > 1) {
+  // Chinese only: the ranker reads CC-CEDICT's senses against the line.
+  if (lang === "zh" && dictResult && context && dictResult.defs.length > 1 && [...word].length > 1) {
     const ranked = await rankWithContext(word, context, dictResult.defs, lang);
     if (ranked) {
       return { ...dictResult, meaning: ranked.meaning || dictResult.meaning, source: "nllb" };
@@ -815,10 +832,14 @@ export async function handleGlosses(req, res) {
       word: item.word,
       pinyin: typeof item.pinyin === "string" && /^[\p{L}\p{M}: ]{0,120}$/u.test(item.pinyin) ? item.pinyin : "",
     }));
-  // CC-CEDICT is Chinese with English definitions: other pairs get nothing
-  // here, and the list says to click a word for its meaning.
-  const glosses = lang === "zh" && to === "en"
-    ? glossWords(clean, await loadDict(), { characters: body?.characters === true && clean.length <= 50 })
-    : {};
+  // CC-CEDICT for Chinese, Wiktionary for the other study languages, both
+  // with English definitions: other readers get nothing here, and the list
+  // says to click a word for its meaning.
+  let glosses = {};
+  if (to === "en" && lang === "zh") {
+    glosses = glossWords(clean, await loadDict(), { characters: body?.characters === true && clean.length <= 50 });
+  } else if (to === "en" && hasDictionary(lang)) {
+    glosses = await glossWordsFrom(clean, lang, shortGloss);
+  }
   sendJson(res, 200, { glosses });
 }

@@ -1693,6 +1693,27 @@ function paintKnownButton(bubble) {
   button.title = known ? "Show this word as new again" : "Dim this word wherever it appears (K)";
 }
 
+const GENDER_NAMES = { m: "masculine", f: "feminine", n: "neuter", c: "common" };
+
+// The dictionary's word-form line (Wiktionary languages): the form a clicked
+// inflection belongs to — "form of falar · third-person singular preterite
+// indicative" — and a noun's gender and plural, which a learner of a
+// gendered language needs in place of a reading. A homograph whose meaning
+// is its own (casa "house") says what else it is a form of.
+export function wordFormHtml(result) {
+  const parts = [];
+  if (result?.lemma) {
+    parts.push(`form of <b>${escapeHtml(result.lemma)}</b>${result.formOf ? ` · ${escapeHtml(result.formOf)}` : ""}`);
+  } else if (result?.forms?.length) {
+    const f = result.forms[0];
+    parts.push(`also a form of <b>${escapeHtml(f.lemma)}</b>${f.description ? ` (${escapeHtml(f.description)})` : ""}`);
+  }
+  const gender = String(result?.gender || "").split("/").map((g) => GENDER_NAMES[g]).filter(Boolean);
+  if (gender.length) parts.push(`${gender.join(" or ")} noun`);
+  if (result?.plural) parts.push(`plural <b>${escapeHtml(result.plural)}</b>`);
+  return parts.length ? `<div class="bubble-form">${parts.join(" · ")}</div>` : "";
+}
+
 // `line` is the subtitle the word was clicked in. Its text as shown on screen —
 // the script the reader picked — is the context and the card's example, so the
 // example is made of the same glyphs as its word and a fill-in-the-blank card
@@ -1742,6 +1763,7 @@ async function openWordBubble(anchor, line, els) {
           : escapeHtml(result.pronunciation)
       }</div>`
     : "";
+  const formHtml = wordFormHtml(result);
   // Four sections, in the order a learner builds the word up: what each
   // character means, the word they make, how this video uses it, then every
   // dictionary sense. Each appears only when there is something to put in it.
@@ -1797,6 +1819,7 @@ async function openWordBubble(anchor, line, els) {
   bubble.innerHTML = `
     <div class="bubble-word">${escapeHtml(word)}${speakButtonsHtml()}</div>
     ${pron}
+    ${formHtml}
     ${charsHtml}
     ${wordHtml}
     ${explanationHtml}

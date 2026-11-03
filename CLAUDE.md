@@ -71,6 +71,14 @@ lifting — speech-to-text and offline translation — runs through Python.
   not 了 liǎo; 得 inside 覺得 is a verb ending). Offline, the context ranker's
   "explanation" was the word translated on its own ("What is it?" for both
   什麼 and 吧) and is no longer shown.
+- **Other study languages have a dictionary too** (`wiktionary.mjs`): English
+  Wiktionary from kaikki.org, cut by `scripts/fetch-wiktionary.mjs` to
+  `data/wiktionary-<code>.tsv` (sorted, binary-searched on disk; `npm run
+  sync` fetches one per offered language but zh/en, `SKIP_WIKTIONARY=1`). A
+  clicked form finds its lemma (falou → falar, from form-of entries and the
+  lemma's own tables, two hops at most), a noun its gender and plural; a
+  homograph keeps its own meaning first (casa "house", also casar's form).
+  `LEMMATISERS` takes a language's own guesser for forms no table lists.
 - **Pinyin for Traditional text** is read from its Simplified conversion
   (`_pinyin_source` in romanize.py): pypinyin's phrases are Simplified, and on
   the reader's videos 38 of 240 lines read differently, every one a fix —

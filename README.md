@@ -199,6 +199,13 @@ Stroke-order data comes from
 graphics derive from Arphic Technology fonts released under the
 [Arphic Public License](https://github.com/skishore/makemeahanzi/blob/master/APL.txt).
 
+Word meanings for study languages other than Chinese come from
+[Wiktionary](https://en.wiktionary.org/), via the machine-readable extracts
+at [kaikki.org](https://kaikki.org/) (Tatu Ylonen, *Wiktextract*, LREC 2022)
+(`data/wiktionary-<code>.tsv`, downloaded by `npm run sync`, not committed).
+Wiktionary's text is licensed
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) and GFDL.
+
 ## Your data, and where it sits
 
 Everything stays on this machine. Nothing is uploaded, with one exception you
