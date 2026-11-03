@@ -855,6 +855,240 @@
     20,
     68
    ]
+  },
+  {
+   "id": "pt-real-teimosia",
+   "language": "pt",
+   "lines": [
+    "Não se esqueça de curtir e compartilhar o vídeo e assinem o nosso canal pra mais",
+    "temboasia russa e até a próxima quinta.",
+    "Por favor, críticas, comentários, sugestões aqui embaixo e nos nossos perfis no Twitter"
+   ],
+   "fix": {
+    "1": [
+     "teimosia russa e até a próxima quinta."
+    ]
+   },
+   "real": true
+  },
+  {
+   "id": "pt-real-pos-sal",
+   "language": "pt",
+   "lines": [
+    "Por cima dessas bactérias se depositou uma camada de sal que pressionou e cozinhou o material pré-sal até formar petróleo,",
+    "que depois foi soterrado por mais solo, o Pós-Sau.",
+    "Em 1961, os americanos criaram um projeto chamado Borro,"
+   ],
+   "fix": {
+    "1": [
+     "que depois foi soterrado por mais solo, o pós-sal.",
+     "que depois foi soterrado por mais solo, o Pós-Sal."
+    ]
+   },
+   "real": true
+  },
+  {
+   "id": "pt-real-parati",
+   "language": "pt",
+   "lines": [
+    "E só são tentadas porque o petróleo compensa.",
+    "Na bacia de Campos foram gastos mais de 240 milhões de dólares para perforar o poste para ti.",
+    "São dois quilômetros de profundidade no mar para se chegar até o solo oceânico."
+   ],
+   "fix": {
+    "1": [
+     "Na bacia de Campos foram gastos mais de 240 milhões de dólares para perfurar o poço de Parati."
+    ]
+   },
+   "real": true
+  },
+  {
+   "id": "pt-real-sou-ateu",
+   "language": "pt",
+   "lines": [
+    "Como é isso?",
+    "Olha o seu ateu.",
+    "E esse ateísmo engraçado, eu acho que você precisa para..."
+   ],
+   "fix": {
+    "1": [
+     "Olha, sou ateu.",
+     "Olha, eu sou ateu."
+    ]
+   },
+   "real": true
+  },
+  {
+   "id": "pt-real-ser-ateu",
+   "language": "pt",
+   "lines": [
+    "Bom, é considerado quase que imoral, você se ateu.",
+    "Como se todas as qualidades humanas, que são muitas,",
+    "só pudessem aflorar por meio das religiões."
+   ],
+   "fix": {
+    "0": [
+     "Bom, é considerado quase que imoral, você ser ateu."
+    ]
+   },
+   "real": true
+  },
+  {
+   "id": "pt-conserto",
+   "language": "pt",
+   "lines": [
+    "O carro quebrou de novo na estrada.",
+    "Amanhã eu levo ele pro concerto.",
+    "Espero que não fique muito caro."
+   ],
+   "fix": {
+    "1": [
+     "Amanhã eu levo ele pro conserto."
+    ]
+   }
+  },
+  {
+   "id": "pt-sessao",
+   "language": "pt",
+   "lines": [
+    "Como tá o seu joelho?",
+    "Melhorando, tenho mais uma cessão de fisioterapia na quinta.",
+    "Que bom."
+   ],
+   "fix": {
+    "1": [
+     "Melhorando, tenho mais uma sessão de fisioterapia na quinta."
+    ]
+   }
+  },
+  {
+   "id": "pt-mas-mais",
+   "language": "pt",
+   "lines": [
+    "A gente ia viajar ontem.",
+    "A gente ia sair cedo, mais o ônibus atrasou duas horas.",
+    "Chegamos só de noite."
+   ],
+   "fix": {
+    "1": [
+     "A gente ia sair cedo, mas o ônibus atrasou duas horas."
+    ]
+   }
+  },
+  {
+   "id": "pt-mau",
+   "language": "pt",
+   "lines": [
+    "Não liga pra ele.",
+    "Ele não é um cara mal, só é meio tímido.",
+    "Depois ele se solta."
+   ],
+   "fix": {
+    "1": [
+     "Ele não é um cara mau, só é meio tímido."
+    ]
+   }
+  },
+  {
+   "id": "pt-falar",
+   "language": "pt",
+   "lines": [
+    "Você tem um minuto?",
+    "Eu preciso fala com você sobre o projeto.",
+    "Claro, pode falar."
+   ],
+   "fix": {
+    "1": [
+     "Eu preciso falar com você sobre o projeto."
+    ]
+   }
+  },
+  {
+   "id": "pt-agente",
+   "language": "pt",
+   "lines": [
+    "O que vocês fizeram no fim de semana?",
+    "Agente foi pra praia e voltou domingo à noite.",
+    "Que delícia."
+   ],
+   "fix": {
+    "1": [
+     "A gente foi pra praia e voltou domingo à noite."
+    ]
+   }
+  },
+  {
+   "id": "pt-control-slang",
+   "language": "pt",
+   "lines": [
+    "E aí, beleza?",
+    "Cê viu o jogo ontem? Foi massa demais, tá ligado?",
+    "Pô, num vi não, tava trabalhando."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "pt-control-paulista",
+   "language": "pt",
+   "lines": [
+    "Ô meu, tô morrendo de fome.",
+    "Bora comer um pastel ali na feira?",
+    "Bora, mano."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "pt-control-european",
+   "language": "pt",
+   "lines": [
+    "Estou a fazer o jantar.",
+    "Queres ficar cá? Há bacalhau para todos.",
+    "Pois, se calhar fico."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "pt-control-plain",
+   "language": "pt",
+   "lines": [
+    "Eu acordo cedo todos os dias.",
+    "Tomo um café e saio de casa às sete e meia.",
+    "Chego no trabalho antes das oito."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "pt-real-control-easy",
+   "language": "pt",
+   "lines": [
+    "Ou vou pra academia cedo ou já começo a trabalhar, né,",
+    "agora com essa rotina de trabalho remoto,",
+    "a gente fica muito de casa, né?"
+   ],
+   "fix": {},
+   "real": true
+  },
+  {
+   "id": "pt-real-control-varella",
+   "language": "pt",
+   "lines": [
+    "As religiões todas propõem uma vida pós-morte.",
+    "E essa vida pós-morte tem vários significados de acordo com cada religião.",
+    "Eu não consigo acreditar nisso."
+   ],
+   "fix": {},
+   "real": true
+  },
+  {
+   "id": "pt-real-control-nerdologia",
+   "language": "pt",
+   "lines": [
+    "Hoje vamos ver o que há no centro da Terra.",
+    "E não falo das milhares de pessoas que vivem em túneis esquecidos em cidades como Paris ou dos Morlocks.",
+    "Falo de ir bem mais fundo."
+   ],
+   "fix": {},
+   "real": true
   }
  ]
 }

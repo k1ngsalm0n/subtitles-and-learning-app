@@ -129,7 +129,8 @@ const LATIN_WORDS = {
   nb: ["av", "hva", "deg", "dere", "ikke", "jeg", "vet", "noe", "veldig", "meg", "og", "mye"],
   nl: ["een", "niet", "ik", "we", "maar", "ook", "deze", "heb", "zijn", "wij"],
   pl: ["nie", "jest", "się", "że", "ale", "jak", "tak", "mnie", "tego", "bardzo"],
-  pt: ["não", "uma", "com", "mais", "muito", "você", "ele", "isso", "aqui", "está", "mas", "é", "sei"],
+  pt: ["não", "uma", "com", "mais", "muito", "você", "ele", "isso", "aqui", "está", "mas", "é", "sei",
+    "também", "são", "foi", "então", "pra", "pelo", "pela", "nós", "eles", "elas", "ao", "às", "em", "ainda", "agora", "né"],
   ro: ["și", "este", "care", "pentru", "dar", "să", "mai", "ce", "foarte", "aici"],
   sk: ["sa", "som", "sme", "sú", "nie", "viem", "neviem", "či", "čo", "aj", "len", "veľmi", "ďakujem", "ktoré", "bol", "tu"],
   sl: ["ki", "pa", "bi", "kaj", "sem", "tudi", "lahko", "hvala", "ne", "vem", "ali", "ampak"],
@@ -159,7 +160,10 @@ const LATIN_HINTS = {
   et: /õ/u,
   eo: /[ĉĝĥĵŝŭ]/u,
   es: /[ñ¿¡]/u,
-  pt: /ã/u,
+  // ã, and the plural -ões (milhões, informações). A bare õ is Estonian
+  // too (153 → 87 Estonian FLORES lines placed when it counted), and lh
+  // caught "Dalhousie" in four languages.
+  pt: /ã|ões\b/u,
   de: /ß/u,
   ca: /·/u,
   da: /[æø]/u,

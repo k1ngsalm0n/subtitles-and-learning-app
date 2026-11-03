@@ -62,6 +62,11 @@ OPUS_ROUTES = {
     # 100 sentences, against NLLB: see the Spanish PR.
     ("es", "en"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-roa-en"},
     ("en", "es"): {"model": "Helsinki-NLP/opus-mt-tc-big-en-es"},
+    # Portuguese. tc-big-en-pt writes Brazilian (pob) or general (por)
+    # Portuguese; por scored higher on FLORES (Brazilian) than pob. FLORES
+    # chrF++, 100 sentences, against NLLB: see the Portuguese PR.
+    ("pt", "en"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-roa-en"},
+    ("en", "pt"): {"model": "Helsinki-NLP/opus-mt-tc-big-en-pt", "token": "por"},
 }
 OPUS_ZH_EN = OPUS_ROUTES[("zh", "en")]["model"]
 OPUS_EN_ZH = OPUS_ROUTES[("en", "zh")]["model"]

@@ -283,6 +283,9 @@ const VOICE_DIR = join(
 const VOICE_MODELS = [
   ["zh_CN-xiao_ya-medium", "zh/zh_CN/xiao_ya/medium"],
   ["en_US-amy-medium", "en/en_US/amy/medium"],
+  // Read back by Whisper: 4.8% word errors at normal speed, 3.8% slow
+  // (faber 3.8/5.7, jeff 13.3, pt_PT tugão 30, espeak-ng 51/16).
+  ["pt_BR-cadu-medium", "pt/pt_BR/cadu/medium"],
 ];
 
 function ensureVoices() {

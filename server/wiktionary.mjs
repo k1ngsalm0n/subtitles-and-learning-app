@@ -47,14 +47,34 @@ export function foldWord(word, code = "") {
 // tried in order when a word has no record: one entry per language,
 // `code: (word) => [candidate, …]` (sync or async). Turkish, whose suffixes
 // stack beyond any table, is the expected first user.
-export const LEMMATISERS = {};
+export const LEMMATISERS = {
+  // An infinitive before an enclitic pronoun drops its r and takes an accent
+  // (colocá-lo, fazê-la, pô-lo), and the segmenter cuts at the hyphen, so
+  // "colocá" is clicked alone. Its stem gets the r back.
+  pt: (word) => {
+    const m = /^(\p{L}+)([áêô])$/u.exec(word);
+    if (!m) return [];
+    const plain = { á: "a", ê: "e", ô: "o" }[m[2]];
+    return m[2] === "ô" ? [`${m[1]}ôr`, `${m[1]}${plain}r`] : [`${m[1]}${plain}r`];
+  },
+};
 
 // The commonest words whose own entry is the rarer reading: French "est"
 // is être before it is "east", "fait" faire before "fact". With no
 // frequencies in Wiktionary, a language lists them here, one block per
 // code: `fr: { est: "être", fait: "faire" }` (keys folded). The named lemma
 // goes first when the word is a form of it; the word's own senses follow.
-export const PREFERRED_LEMMA = {};
+export const PREFERRED_LEMMA = {
+  // Checked on every word of three Portuguese transcripts: the article
+  // before the pronoun (a "her"), ser before "healthy" (são) and before ir
+  // (foi, fora: "was" outnumbers "went"), the contraction before the noun
+  // or pronoun it is spelled like (pelo "hair", nos "us"), the determiner
+  // before a rare noun (essa "catafalque", nossos "our folks").
+  pt: {
+    a: "o", as: "o", os: "o", são: "ser", foi: "ser", era: "ser", fora: "ser",
+    pelo: "por", nos: "em", essa: "esse", nossos: "nosso",
+  },
+};
 
 // The same for a word whose own entries are the two readings: French "pas"
 // is the adverb "not" before the noun "step", "son" the determiner "his,
