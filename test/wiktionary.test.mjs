@@ -240,6 +240,16 @@ test("a language can name the lemma its commonest homographs usually mean", asyn
   assert.equal((await wikt.defineWord("casa", "pt")).meaning, "house; home");
 });
 
+test("a language can name the part of speech a word usually is", async () => {
+  wikt.PREFERRED_POS.pt = { assim: "adj" };
+  try {
+    assert.equal((await wikt.defineWord("Assim", "pt")).partOfSpeech, "adj");
+  } finally {
+    delete wikt.PREFERRED_POS.pt;
+  }
+  assert.equal((await wikt.defineWord("assim", "pt")).meaning, "this way");
+});
+
 test("a contraction's lemma is its preposition", async () => {
   const r = await wikt.defineWord("ao", "pt");
   assert.equal(r.lemma, "a");
@@ -248,4 +258,9 @@ test("a contraction's lemma is its preposition", async () => {
 
 test("a plain sense before an entry that is only informal", async () => {
   assert.equal((await wikt.defineWord("assim", "pt")).meaning, "this way");
+});
+
+test("a typographic apostrophe matches the plain one", () => {
+  assert.equal(wikt.foldWord("Aujourd’hui", "fr"), "aujourd'hui");
+  assert.equal(wikt.foldWord("lʼ"), "l'");
 });

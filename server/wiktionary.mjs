@@ -31,8 +31,11 @@ export function dictionaryPath(code) {
 // Turkish "İyi" is "iyi" and "Işık" "ışık", where a plain toLowerCase()
 // gives "i̇yi" and "işik". German capitalises every noun and every first
 // word, so "Gehen" must still find "gehen".
+// Typographic apostrophes are the plain one: Wiktionary writes l' and
+// aujourd'hui with ', uploaded subtitles and OCR often with ’ (or ʼ), and
+// "l’" found nothing.
 export function foldWord(word, code = "") {
-  const text = String(word ?? "").normalize("NFC").trim();
+  const text = String(word ?? "").normalize("NFC").trim().replace(/[’ʼ‘]/g, "'");
   try {
     return code ? text.toLocaleLowerCase(code) : text.toLowerCase();
   } catch {
@@ -52,6 +55,12 @@ export const LEMMATISERS = {};
 // code: `fr: { est: "être", fait: "faire" }` (keys folded). The named lemma
 // goes first when the word is a form of it; the word's own senses follow.
 export const PREFERRED_LEMMA = {};
+
+// The same for a word whose own entries are the two readings: French "pas"
+// is the adverb "not" before the noun "step", "son" the determiner "his,
+// her" before the noun "sound". `fr: { pas: "adv" }`, keys folded, values
+// a part of speech as the dictionary file writes it (noun, verb, adv, det…).
+export const PREFERRED_POS = {};
 
 // ---- The file on disk --------------------------------------------------
 
@@ -262,8 +271,9 @@ export async function defineWord(word, code) {
   // one with a plain sense: Portuguese "assim" is "this way" before its
   // informal adjective "full of".
   const labelledOnly = (r) => (r.s || []).every((x) => x[2]);
+  const pos = PREFERRED_POS[code]?.[foldWord(clicked, code)];
   const major = own.filter((r) => !minor.includes(r) && !intj.includes(r))
-    .sort((a, b) => labelledOnly(a) - labelledOnly(b));
+    .sort((a, b) => (pos ? (b.p === pos) - (a.p === pos) : 0) || labelledOnly(a) - labelledOnly(b));
   const lemmaRecs = lemmas.flatMap((l) => l.records.map((r) => ({ ...r, lemmaOf: l.lemma })));
   const preferred = PREFERRED_LEMMA[code]?.[foldWord(clicked, code)];
   const first = preferred ? lemmaRecs.filter((r) => r.lemmaOf === preferred) : [];
