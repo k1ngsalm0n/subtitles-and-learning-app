@@ -109,3 +109,44 @@ class WordFrequencyTest(unittest.TestCase):
         out = romanize({"lang": "zh", "lines": ["我想改行。"], "frequencies": True})
         self.assertEqual(len(out["freqs"][0]), len(out["words"][0]))
         self.assertNotIn("freqs", romanize({"lang": "zh", "lines": ["我"]}))
+
+
+class ElidedWordsTests(unittest.TestCase):
+    """French glues words with apostrophes and hyphens. Intl.Segmenter keeps
+    "qu'il" whole and splits "peut-être"; a click should find a real word."""
+
+    def words(self, text):
+        from romanize import elided_words
+
+        cut = elided_words(text, "fr")
+        self.assertEqual("".join(cut), text)
+        return [w for w in cut if any(c.isalnum() for c in w)]
+
+    def test_elisions_become_their_own_word(self):
+        self.assertEqual(self.words("L’homme qu’il a vu"), ["L’", "homme", "qu’", "il", "a", "vu"])
+        self.assertEqual(self.words("J'ai dit qu'on s'en va"), ["J'", "ai", "dit", "qu'", "on", "s'", "en", "va"])
+
+    def test_words_spelled_with_an_apostrophe_stay_whole(self):
+        self.assertEqual(self.words("aujourd'hui quelqu'un jusqu'à"), ["aujourd'hui", "quelqu'un", "jusqu'à"])
+
+    def test_hyphenated_words_stay_whole(self):
+        self.assertEqual(self.words("peut-être l'arc-en-ciel ce week-end"), ["peut-être", "l'", "arc-en-ciel", "ce", "week-end"])
+
+    def test_pronouns_after_a_verb_are_peeled_off(self):
+        self.assertEqual(self.words("Est-ce dites-le-moi a-t-il"), ["Est", "ce", "dites", "le", "moi", "a", "t", "il"])
+        self.assertEqual(self.words("Qu'est-ce que c'est"), ["Qu'", "est", "ce", "que", "c'", "est"])
+
+    def test_ci_and_la_after_a_demonstrative_stay(self):
+        self.assertEqual(self.words("celui-ci, ce jour-là"), ["celui-ci", "ce", "jour", "là"])
+        self.assertEqual(self.words("rendez-vous"), ["rendez-vous"])
+
+    def test_loose_hyphens_and_apostrophes_survive(self):
+        for text in ("22h30 - non", "'citation' -tiret", "fin-", "l'", "« Où ? » — oui"):
+            self.words(text)
+
+    def test_other_languages_get_nothing(self):
+        from romanize import elided_words, word_splitter
+
+        self.assertEqual(elided_words("l'uomo", "it"), [])
+        self.assertIsNone(word_splitter("en"))
+        self.assertEqual(word_splitter("fr")("c'est"), ["c'", "est"])

@@ -141,7 +141,7 @@ Only what the language needs:
 | Detection samples (two sentences, `TUNED` and `HELD_OUT`) | `test/languages.test.mjs` | already there for all 44; fix if detection is wrong |
 | Detection word list / letter hints | `LATIN_WORDS`, `LATIN_HINTS`, `CYRILLIC`, `ARABIC` in `public/js/languages.mjs` | detection fails on real subtitles |
 | Romanization line | `get_tokenizer` in `server/romanize.py` | non-Latin script (Latin gets none, others get unidecode transliteration; Japanese gets romaji) |
-| Word boundaries | `words` from `server/romanize.py` (only `chinese_words` today) | the script has no spaces (Thai, Japanese); otherwise the browser's `Intl.Segmenter` is used |
+| Word boundaries | `words` from `server/romanize.py` (`chinese_words`; `ELIDED` for spaced languages) | the script has no spaces (Thai, Japanese); or words are glued by apostrophes and hyphens — an `ELIDED` entry (French: l'homme → l' + homme, peut-être whole, dis-moi → dis + moi). Otherwise the browser's `Intl.Segmenter` is used |
 | Speech-text check | `hasSpeechText` in `server/captions.mjs` | the language uses Han characters (Japanese is already there) |
 | Hallucination phrases | `HALLUCINATION_RE` in `server/captions.mjs` | Whisper invents credits/outros in this language |
 | Voice | a piper `.onnx` voice in `~/.local/share/stele/voices` | for a better voice than espeak-ng |
