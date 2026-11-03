@@ -19,10 +19,10 @@ romanized (punctuation, spaces, already-Latin text).
 
 `words[i]` is the same line cut into words, as a list of strings that also
 concatenate back to it. Pronunciation is per character but *clicking* is per
-word, and the two boundaries are different — so they travel separately. Only
-Chinese fills this in; everything else sends an empty list and the frontend
-falls back to Intl.Segmenter, which is adequate for scripts that put spaces
-between their words.
+word, and the two boundaries are different — so they travel separately.
+Chinese fills this in (jieba), and so do the languages in ELIDED (French),
+whose words are spaced but glued by apostrophes and hyphens; everything else
+sends an empty list and the frontend falls back to Intl.Segmenter.
 """
 
 import json
@@ -260,10 +260,85 @@ def chinese_words(text):
     return words if "".join(words) == text else []
 
 
+# Spaced languages that glue words together with an apostrophe or a hyphen.
+# The browser's Intl.Segmenter keeps "qu'il", "l'homme" and "c'est" as one word,
+# so a click looked up a word no dictionary has, and splits "peut-être" and
+# "arc-en-ciel", which are single words. Per language:
+#   elisions: the clipped words that lean on the next one ("l'" in l'homme).
+#     They become their own word, apostrophe and all. Anything else before an
+#     apostrophe stays joined (aujourd'hui, quelqu'un, jusqu'à).
+#   clitics: words hyphenated onto a verb (dis-moi, est-ce, a-t-il). Peeled
+#     off the end of a hyphenated chain; the rest of the chain stays one word.
+#   keep: hyphenated words whose last part looks like a clitic but isn't.
+#   demonstratives: before -ci/-là the chain stays one word (celui-ci), after
+#     anything else -ci/-là is peeled (ce jour-là).
+ELIDED = {
+    "fr": {
+        "elisions": {"l", "d", "j", "m", "n", "s", "t", "c", "qu", "lorsqu", "puisqu", "quoiqu"},
+        "clitics": {
+            "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles", "ce",
+            "moi", "toi", "le", "la", "les", "lui", "leur", "y", "en", "t", "ci", "là",
+        },
+        "keep": {"rendez-vous", "chez-moi", "sans-le-sou"},
+        "demonstratives": {"celui", "celle", "ceux", "celles"},
+    },
+}
+
+_APOSTROPHES = "'’"
+_CHAIN = re.compile(r"\w+(?:[-'’]\w+)*[-'’]?")
+
+
+def _cut_chain(chain, table):
+    """One run of letters joined by apostrophes and hyphens -> its words."""
+    out = []
+    # Elisions, from the front: l'arc-en-ciel -> l' + arc-en-ciel.
+    while True:
+        m = re.match(r"(\w+)([" + _APOSTROPHES + r"])(?=\w)", chain)
+        if not m or m.group(1).lower() not in table["elisions"]:
+            break
+        out.append(m.group(0))
+        chain = chain[m.end():]
+    # Clitics, from the back: dites-le-moi -> dites - le - moi.
+    parts = chain.split("-")
+    tail = []
+    if chain.lower() not in table["keep"] and "" not in parts:
+        while len(parts) > 1 and parts[-1].lower() in table["clitics"]:
+            if parts[-1].lower() in ("ci", "là") and len(parts) == 2 and parts[0].lower() in table["demonstratives"]:
+                break
+            tail[:0] = ["-", parts.pop()]
+    out.append("-".join(parts))
+    return out + tail
+
+
+def elided_words(text, lang):
+    """`text` cut into words for a language in ELIDED, or [] when there's none.
+
+    Every character lands in exactly one piece, spaces and punctuation as
+    pieces of their own, so the pieces rebuild the line."""
+    table = ELIDED.get(lang)
+    if not table:
+        return []
+    words, at = [], 0
+    for m in _CHAIN.finditer(text):
+        if m.start() > at:
+            words.extend(text[at:m.start()])
+        chain = m.group(0)
+        trailing = chain[-1] if chain[-1] in "-" + _APOSTROPHES else ""
+        words.extend(_cut_chain(chain[: len(chain) - len(trailing)], table))
+        if trailing:
+            words.append(trailing)
+        at = m.end()
+    words.extend(text[at:])
+    return words if "".join(words) == text else []
+
+
 def word_splitter(lang):
     lang = (lang or "").lower()
     if lang in ("zh", "zh-cn", "zh-tw", "chinese"):
         return chinese_words
+    base = lang.split("-")[0]
+    if base in ELIDED:
+        return lambda text: elided_words(text, base)
     return None
 
 
