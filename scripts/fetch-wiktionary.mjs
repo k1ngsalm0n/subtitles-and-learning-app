@@ -140,6 +140,8 @@ export function compactEntry(entry) {
     const tags = sense.tags || [];
     for (const [tag, g] of GENDERS) if (tags.includes(tag)) genders.add(g);
     const pointers = [...(sense.form_of || []), ...(sense.alt_of || [])].filter((p) => p?.word);
+    // "a: misspelling of há" points a learner at the wrong word.
+    if (tags.includes("misspelling")) continue;
     const derived = tags.some((t) => DERIVATIONAL.has(t));
     if (pointers.length && !derived) {
       for (const p of pointers) {

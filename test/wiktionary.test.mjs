@@ -108,6 +108,11 @@ test("an entry keeps glosses, IPA, gender, plural and what it is a form of", () 
   assert.equal(compactEntry({ word: "por favor", pos: "phrase", senses: [sense(["please"])] }), null, "a phrase can't be clicked");
 });
 
+test("a misspelling is no one's form", () => {
+  const r = compactEntry({ word: "a", pos: "verb", senses: [sense(["misspelling of há"], { tags: ["form-of", "misspelling"], form_of: [{ word: "há" }] })] });
+  assert.equal(r, null);
+});
+
 test("a derivational form-of stays a definition", () => {
   const r = compactEntry(ENTRIES[19]);
   assert.equal(r.f, undefined);
