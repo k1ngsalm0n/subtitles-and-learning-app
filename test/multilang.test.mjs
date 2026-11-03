@@ -27,13 +27,14 @@ import { defaultTarget, meaningLanguage } from "../public/js/languages.mjs";
 // every one of them edit this test (and conflict with each other).
 test("offered languages come from the table; others are refused by name", () => {
   assert.ok(isOffered("zh") && isOffered("en"));
-  assert.ok(!isOffered("fr"));
+  // Esperanto: Whisper can't transcribe it, so it never will be offered.
+  assert.ok(!isOffered("eo"));
   const codes = offeredCodes();
   assert.deepEqual(codes.slice(0, 2), ["zh", "en"], "Chinese and English lead");
-  const message = notOfferedMessage("fr");
-  assert.match(message, /French/);
+  const message = notOfferedMessage("eo");
+  assert.match(message, /Esperanto/);
   for (const code of codes) assert.match(message, new RegExp(languageName(code)));
-  const err = notOfferedError("fr");
+  const err = notOfferedError("eo");
   assert.equal(err.status, 422);
   assert.equal(err.code, "UNSUPPORTED_LANGUAGE");
 });
@@ -77,10 +78,10 @@ test("what to study depends on the language the reader already reads", () => {
   assert.equal(studyBase(en, song, "zh"), "en");
   // Speech Stele can't study, with a track it can: the track — one the reader
   // doesn't already read.
-  assert.equal(studyBase({ language: "fr", probability: 0.9 }, song, "en"), "zh");
-  assert.equal(studyBase({ language: "fr", probability: 0.9 }, song, "zh"), "en");
+  assert.equal(studyBase({ language: "eo", probability: 0.9 }, song, "en"), "zh");
+  assert.equal(studyBase({ language: "eo", probability: 0.9 }, song, "zh"), "en");
   // Nothing better on offer: the spoken language stands (and is refused later).
-  assert.equal(studyBase({ language: "fr", probability: 0.9 }, { manual: ["fr"], auto: [] }, "en"), "fr");
+  assert.equal(studyBase({ language: "eo", probability: 0.9 }, { manual: ["eo"], auto: [] }, "en"), "eo");
   assert.equal(studyBase({ language: "en", probability: 0.2 }, song, "zh"), "");
 });
 
@@ -89,7 +90,7 @@ test("a confident detection spares transcription its vote, unless Chinese might 
   assert.equal(transcriptionHint({ language: "en", probability: 0.9, zhAvg: 0.01, zhMax: 0.02 }), "en");
   // A window that is surely Chinese: transcription's own vote must decide.
   assert.equal(transcriptionHint({ language: "en", probability: 0.9, zhAvg: 0.1, zhMax: 0.6 }), null);
-  assert.equal(transcriptionHint({ language: "fr", probability: 0.9, zhAvg: 0, zhMax: 0 }), null);
+  assert.equal(transcriptionHint({ language: "eo", probability: 0.9, zhAvg: 0, zhMax: 0 }), null);
   assert.equal(transcriptionHint({ language: "en", probability: 0.3 }), null);
   assert.equal(transcriptionHint(null), null);
 });
@@ -98,7 +99,8 @@ test("each language gets its own placeholder for speech nobody could make out", 
   assert.equal(unintelligibleFor("zh"), UNINTELLIGIBLE);
   assert.equal(unintelligibleFor(), UNINTELLIGIBLE);
   assert.equal(unintelligibleFor("en"), "(inaudible)");
-  assert.equal(unintelligibleFor("fr"), "(…)");
+  assert.equal(unintelligibleFor("eo"), "(…)");
+  assert.equal(unintelligibleFor("fr"), "(inaudible)");
   const garbled = [
     { start: 0, end: 2, text: "uh mm", logprob: -2 },
     { start: 2.5, end: 4, text: "again", logprob: -2 },

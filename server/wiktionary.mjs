@@ -74,13 +74,23 @@ export const PREFERRED_LEMMA = {
     a: "o", as: "o", os: "o", são: "ser", foi: "ser", era: "ser", fora: "ser",
     pelo: "por", nos: "em", essa: "esse", nossos: "nosso",
   },
+  // French: the homographs among the words of three French transcripts and
+  // the commonest verb forms whose own entry came first: est "east", a the
+  // letter, une "front page", la "her", va "version anglaise", fait "fact".
+  fr: {
+    est: "être", "été": "être", fut: "être", a: "avoir", as: "avoir", une: "un", la: "le", "s'": "se",
+    fait: "faire", dit: "dire", va: "aller", vu: "voir", passe: "passer", vit: "vivre",
+  },
 };
 
 // The same for a word whose own entries are the two readings: French "pas"
 // is the adverb "not" before the noun "step", "son" the determiner "his,
 // her" before the noun "sound". `fr: { pas: "adv" }`, keys folded, values
 // a part of speech as the dictionary file writes it (noun, verb, adv, det…).
-export const PREFERRED_POS = {};
+export const PREFERRED_POS = {
+  // French: ne … pas "not" before "step", son "his, her" before "sound".
+  fr: { pas: "adv", son: "det" },
+};
 
 // ---- The file on disk --------------------------------------------------
 
