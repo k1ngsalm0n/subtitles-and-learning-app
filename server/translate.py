@@ -318,13 +318,32 @@ def get_tokenizer(model_name):
 _SENTENCE_END = re.compile(r"(?<=[。！？!?…])|(?<=[.!?])(?=\s)")
 # Nothing to gain from splitting a line this short, and a lot of overhead.
 _SPLIT_OVER = 120
+# Text with spaces between its words, going into a language that has them too,
+# holds far more before a model gives up: 120 characters is a short French or
+# English sentence, and cutting there split one sentence in four. On 100 FLORES
+# sentences (chrF++), 400 gave fr→en 64.6 → 67.5, en→fr 68.0 → 70.6, es→en
+# 53.7 → 55.5, en→es 51.8 → 52.9, NLLB fr→en 61.4 → 64.1; into Chinese it lost
+# (en→zh 15.1 → 14.1, NLLB fr→zh 13.5 → 12.7), so that keeps 120.
+_SPLIT_OVER_SPACED = 400
+# Chinese, Japanese and Korean text: denser, and where the 120 was measured.
+_CJK = re.compile(r"[\u1100-\u11ff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+# Targets written that way, as the app's codes and as NLLB's Flores prefixes.
+CJK_TARGETS = {"zh", "ja", "ko"}
+CJK_FLORES = {"zho", "yue", "jpn", "kor"}
 # A clause with no sentence end in it still has to be broken somewhere; commas
 # are the least bad seam.
 _CLAUSE_END = re.compile(r"(?<=[，,;；])")
 
 
-def _split_for_model(text, limit=_SPLIT_OVER):
+def _split_limit(text, into_cjk=True):
+    """How long a piece of `text` may be. Unknown target: the short limit."""
+    return _SPLIT_OVER if into_cjk or _CJK.search(text) else _SPLIT_OVER_SPACED
+
+
+def _split_for_model(text, limit=None, into_cjk=True):
     """One line -> the pieces to translate, in order. Rejoining them restores it."""
+    if limit is None:
+        limit = _split_limit(text, into_cjk)
     if len(text) <= limit:
         return [text]
 
@@ -340,8 +359,11 @@ def _split_for_model(text, limit=_SPLIT_OVER):
         buf = ""
         for clause in clauses:
             while len(clause) > limit:
-                out.append((buf + clause[:limit]) if buf else clause[:limit])
-                clause = clause[limit:]
+                # At a space when there is one in the back half, so a word
+                # isn't cut in two ("Clinical and Sc" + "ientific").
+                cut = clause.rfind(" ", limit // 2, limit) + 1 or limit
+                out.append((buf + clause[:cut]) if buf else clause[:cut])
+                clause = clause[cut:]
                 buf = ""
             if len(buf) + len(clause) > limit:
                 out.append(buf)
@@ -353,14 +375,14 @@ def _split_for_model(text, limit=_SPLIT_OVER):
     return out or [text]
 
 
-def _translate_split(texts, translate_pieces):
+def _translate_split(texts, translate_pieces, into_cjk=True):
     """Translate `texts`, splitting the long ones and rejoining their pieces.
 
     `translate_pieces` takes a flat list and returns one translation each, so
     every piece of every line still goes through the model in a single batch —
     splitting must not cost a round trip per sentence.
     """
-    plan = [_split_for_model(text) for text in texts]
+    plan = [_split_for_model(text, into_cjk=into_cjk) for text in texts]
     flat = [piece for pieces in plan for piece in pieces]
     if not flat:
         return []
@@ -375,7 +397,7 @@ def _translate_split(texts, translate_pieces):
     return out
 
 
-def translate_batch_opus(texts, route):
+def translate_batch_opus(texts, route, to_code=None):
     """Translate a list of strings with a bilingual Marian model.
 
     No NLLB-style language codes: a single-pair model only knows its pair,
@@ -388,6 +410,7 @@ def translate_batch_opus(texts, route):
     # A route from OPUS_ROUTES, or a bare model name for a single-pair model.
     model_name = route["model"] if isinstance(route, dict) else route
     prefix = opus_prefix(route)
+    into_cjk = to_code is None or to_code in CJK_TARGETS
 
     translator = get_ct2(model_name)
     if translator is not None:
@@ -395,6 +418,7 @@ def translate_batch_opus(texts, route):
         return _translate_split(
             texts,
             lambda pieces: _ct2_translate(translator, tokenizer, [prefix + p for p in pieces]),
+            into_cjk,
         )
 
     tokenizer, model, device = get_opus(model_name)
@@ -415,7 +439,7 @@ def translate_batch_opus(texts, route):
         )
         return tokenizer.batch_decode(translated, skip_special_tokens=True)
 
-    return _translate_split(texts, run_pieces)
+    return _translate_split(texts, run_pieces, into_cjk)
 
 
 _cn_char_sets = None
@@ -595,12 +619,13 @@ def translate_batch(texts, src_lang, tgt_lang):
     if not texts:
         return []
 
+    into_cjk = tgt_lang.split("_")[0] in CJK_FLORES
     translator = get_ct2(MODEL_NAME)
     if translator is not None:
         tokenizer = get_tokenizer(MODEL_NAME)
         tokenizer.src_lang = src_lang
         return _translate_split(
-            texts, lambda pieces: _ct2_translate(translator, tokenizer, pieces, tgt_lang)
+            texts, lambda pieces: _ct2_translate(translator, tokenizer, pieces, tgt_lang), into_cjk
         )
 
     tokenizer, _ = get_model()
@@ -659,7 +684,7 @@ def translate_batch(texts, src_lang, tgt_lang):
     # Same reason as the Opus path: NLLB is a sentence model too, and a long
     # line loses its tail rather than being cut off cleanly. attempt() keeps its
     # OOM halving — it now just sees more, shorter items.
-    return _translate_split(texts, attempt)
+    return _translate_split(texts, attempt, into_cjk)
 
 
 def translate_text(text, src_lang, tgt_lang):
@@ -726,7 +751,7 @@ def _translate_lines(texts, from_code, to_code):
         idx_chunk = order[start : start + size]
         chunk = [prepped[i] for i in idx_chunk]
         out = (
-            translate_batch_opus(chunk, opus)
+            translate_batch_opus(chunk, opus, to_code)
             if opus
             else translate_batch(chunk, src_lang, tgt_lang)
         )
