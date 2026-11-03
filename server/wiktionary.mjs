@@ -31,8 +31,11 @@ export function dictionaryPath(code) {
 // Turkish "İyi" is "iyi" and "Işık" "ışık", where a plain toLowerCase()
 // gives "i̇yi" and "işik". German capitalises every noun and every first
 // word, so "Gehen" must still find "gehen".
+// Typographic apostrophes are the plain one: Wiktionary writes l' and
+// aujourd'hui with ', uploaded subtitles and OCR often with ’ (or ʼ), and
+// "l’" found nothing.
 export function foldWord(word, code = "") {
-  const text = String(word ?? "").normalize("NFC").trim();
+  const text = String(word ?? "").normalize("NFC").trim().replace(/[’ʼ‘]/g, "'");
   try {
     return code ? text.toLocaleLowerCase(code) : text.toLowerCase();
   } catch {

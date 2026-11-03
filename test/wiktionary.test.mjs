@@ -259,3 +259,8 @@ test("a contraction's lemma is its preposition", async () => {
 test("a plain sense before an entry that is only informal", async () => {
   assert.equal((await wikt.defineWord("assim", "pt")).meaning, "this way");
 });
+
+test("a typographic apostrophe matches the plain one", () => {
+  assert.equal(wikt.foldWord("Aujourd’hui", "fr"), "aujourd'hui");
+  assert.equal(wikt.foldWord("lʼ"), "l'");
+});
