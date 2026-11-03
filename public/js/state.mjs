@@ -392,8 +392,16 @@ export function saveDecks() {
 // One spelling per word: case doesn't make an English word a different word.
 // Chinese has no case, so this leaves it alone; the two scripts are matched
 // at render time instead (savedWordForms), because that needs the converter.
-export function knownKey(word) {
-  return String(word || "").trim().toLowerCase();
+//
+// Turkish and Azerbaijani pair I with ı and İ with i, so lowercasing follows
+// the open video's language: plain toLowerCase made a sentence-initial "İyi"
+// "i̇yi" (i plus a combining dot) and "Işık" "işık", neither of them the word
+// the same line has mid-sentence.
+const DOTTED_I = new Set(["tr", "az"]);
+
+export function knownKey(word, lang = state.learningLang) {
+  const text = String(word || "").trim();
+  return DOTTED_I.has(String(lang || "").split(/[-_]/)[0]) ? text.toLocaleLowerCase("tr") : text.toLowerCase();
 }
 
 export function isKnownWord(word) {

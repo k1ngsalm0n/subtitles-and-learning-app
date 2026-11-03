@@ -111,3 +111,21 @@ test("words to learn: one entry per word whatever its case, keeping a reading fo
 test("a number isn't counted as a new word", () => {
   assert.equal(countNewWords(["2024", "年", "100", "年"], () => ""), 1);
 });
+
+test("Turkish words are the same word at the start of a sentence", async () => {
+  const { knownKey, state } = await import("../public/js/state.mjs");
+  assert.equal(knownKey("İyi", "tr"), knownKey("iyi", "tr"));
+  assert.equal(knownKey("Işık", "tr"), "ışık");
+  assert.notEqual(knownKey("Işık", "tr"), knownKey("işık", "tr"));
+  // Everywhere else I is i.
+  assert.equal(knownKey("I", "en"), "i");
+  const before = state.learningLang;
+  state.learningLang = "tr";
+  try {
+    const markOf = buildWordMarks({ knownWords: ["ırmak"] });
+    assert.equal(markOf("Irmak"), " known");
+    assert.equal(countNewWords(["İyi", "iyi", "Işık", "ışık"], () => ""), 2);
+  } finally {
+    state.learningLang = before;
+  }
+});
