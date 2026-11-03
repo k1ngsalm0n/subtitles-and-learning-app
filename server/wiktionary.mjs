@@ -169,6 +169,9 @@ export function recordsFor(word, code) {
 // A part of speech that is rarely what a word with another one means.
 const SECONDARY_WHEN_FORM = new Set(["intj"]);
 const MAX_HOPS = 2;
+// The part of speech a form's lemma has when it isn't the form's own: a
+// contraction is its preposition's (ao is a "to" + o, not a "her").
+const LEMMA_POS = { contraction: ["prep"] };
 
 export function senseText([head, detail, label]) {
   return `${label ? `(${label}) ` : ""}${head}${detail ? ` — ${detail}` : ""}`;
@@ -195,7 +198,7 @@ function resolveLemma(lemma, pos, code, hops = 1) {
   const recs = recordsFor(lemma, code);
   const withSenses = recs.filter((r) => r.s && !r.t);
   if (withSenses.length) {
-    const same = withSenses.filter((r) => r.p === pos);
+    const same = withSenses.filter((r) => r.p === pos || LEMMA_POS[pos]?.includes(r.p));
     return { lemma, records: same.length ? [...same, ...withSenses.filter((r) => r.p !== pos)] : withSenses };
   }
   if (hops >= MAX_HOPS) return null;
@@ -255,7 +258,12 @@ export async function defineWord(word, code) {
   const capitalised = /^\p{Lu}/u.test(clicked);
   const minor = own.filter((r) => r.m && !(r.p === "name" && r.w === clicked && capitalised));
   const intj = own.filter((r) => !minor.includes(r) && SECONDARY_WHEN_FORM.has(r.p));
-  const major = own.filter((r) => !minor.includes(r) && !intj.includes(r));
+  // An entry whose every sense is labelled (informal, Brazil, slang…) after
+  // one with a plain sense: Portuguese "assim" is "this way" before its
+  // informal adjective "full of".
+  const labelledOnly = (r) => (r.s || []).every((x) => x[2]);
+  const major = own.filter((r) => !minor.includes(r) && !intj.includes(r))
+    .sort((a, b) => labelledOnly(a) - labelledOnly(b));
   const lemmaRecs = lemmas.flatMap((l) => l.records.map((r) => ({ ...r, lemmaOf: l.lemma })));
   const preferred = PREFERRED_LEMMA[code]?.[foldWord(clicked, code)];
   const first = preferred ? lemmaRecs.filter((r) => r.lemmaOf === preferred) : [];

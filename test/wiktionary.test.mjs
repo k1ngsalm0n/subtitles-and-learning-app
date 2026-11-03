@@ -68,6 +68,12 @@ const ENTRIES = [
   { word: "candidata", pos: "noun", lang_code: "pt",
     senses: [sense(["female equivalent of candidato"], { tags: ["feminine", "form-of"], form_of: [{ word: "candidato" }] })],
     forms: [{ form: "candidatas", tags: ["plural"] }] },
+  { word: "assim", pos: "adj", lang_code: "pt", senses: [sense(["full of; replete"], { tags: ["informal"] })] },
+  { word: "assim", pos: "adv", lang_code: "pt", senses: [sense(["this way; like this (in this manner)"])] },
+  { word: "a", pos: "pron", lang_code: "pt", senses: [sense(["her, it"])] },
+  { word: "a", pos: "prep", lang_code: "pt", senses: [sense(["to"])] },
+  { word: "ao", pos: "contraction", lang_code: "pt",
+    senses: [sense(["contraction of a + o"], { tags: ["form-of"], form_of: [{ word: "a" }] })] },
   { word: "Haus", pos: "noun", lang_code: "de", senses: [sense(["house"])] }, // another language: skipped
 ];
 
@@ -232,4 +238,14 @@ test("a language can name the lemma its commonest homographs usually mean", asyn
     delete wikt.PREFERRED_LEMMA.pt;
   }
   assert.equal((await wikt.defineWord("casa", "pt")).meaning, "house; home");
+});
+
+test("a contraction's lemma is its preposition", async () => {
+  const r = await wikt.defineWord("ao", "pt");
+  assert.equal(r.lemma, "a");
+  assert.equal(r.meaning, "to");
+});
+
+test("a plain sense before an entry that is only informal", async () => {
+  assert.equal((await wikt.defineWord("assim", "pt")).meaning, "this way");
 });
