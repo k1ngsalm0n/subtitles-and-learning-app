@@ -46,6 +46,13 @@ export function foldWord(word, code = "") {
 // stack beyond any table, is the expected first user.
 export const LEMMATISERS = {};
 
+// The commonest words whose own entry is the rarer reading: French "est"
+// is être before it is "east", "fait" faire before "fact". With no
+// frequencies in Wiktionary, a language lists them here, one block per
+// code: `fr: { est: "être", fait: "faire" }` (keys folded). The named lemma
+// goes first when the word is a form of it; the word's own senses follow.
+export const PREFERRED_LEMMA = {};
+
 // ---- The file on disk --------------------------------------------------
 
 const open = new Map(); // code -> { fd, size, mtimeMs }
@@ -250,7 +257,9 @@ export async function defineWord(word, code) {
   const intj = own.filter((r) => !minor.includes(r) && SECONDARY_WHEN_FORM.has(r.p));
   const major = own.filter((r) => !minor.includes(r) && !intj.includes(r));
   const lemmaRecs = lemmas.flatMap((l) => l.records.map((r) => ({ ...r, lemmaOf: l.lemma })));
-  const ordered = [...major, ...lemmaRecs, ...intj, ...minor];
+  const preferred = PREFERRED_LEMMA[code]?.[foldWord(clicked, code)];
+  const first = preferred ? lemmaRecs.filter((r) => r.lemmaOf === preferred) : [];
+  const ordered = [...first, ...major, ...lemmaRecs.filter((r) => !first.includes(r)), ...intj, ...minor];
   const primary = ordered[0];
 
   const tag = (r) => (major.length && r.lemmaOf ? `${r.lemmaOf}: ` : "");

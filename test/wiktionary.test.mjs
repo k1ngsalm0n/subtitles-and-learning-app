@@ -215,3 +215,16 @@ test("a form has its own gender, not its lemma's, and no plural", async () => {
   assert.equal(r.gender, "f");
   assert.equal(r.plural, "");
 });
+
+test("a language can name the lemma its commonest homographs usually mean", async () => {
+  wikt.PREFERRED_LEMMA.pt = { casa: "casar" };
+  try {
+    const r = await wikt.defineWord("Casa", "pt");
+    assert.equal(r.lemma, "casar");
+    assert.equal(r.meaning, "to marry");
+    assert.ok(r.defs.includes("house — structure serving as an abode of human beings"), "its own senses follow");
+  } finally {
+    delete wikt.PREFERRED_LEMMA.pt;
+  }
+  assert.equal((await wikt.defineWord("casa", "pt")).meaning, "house; home");
+});
