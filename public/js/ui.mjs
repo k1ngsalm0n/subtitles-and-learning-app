@@ -102,10 +102,11 @@ export function renderTranscript(els) {
       // characters — not the one computed for the script it was loaded in.
       const shown = displayText(line);
       const tokens = displayTokens(line);
+      // No reading over a Latin-script line, but maybe the server's cut of it.
       const original =
         tokens && tokens.length
           ? renderRubyTranscript(tokens, shown, markOf, displayWords(line))
-          : tokenize(shown, markOf);
+          : tokenize(shown, markOf, displayWords(line));
       return `<article class="line ${index === state.activeIndex ? "active" : ""}" data-index="${index}">
         <span class="time">${line.start == null ? "" : formatTime(line.start)}</span>
         <div>
