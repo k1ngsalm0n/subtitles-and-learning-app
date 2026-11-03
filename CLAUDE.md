@@ -390,7 +390,9 @@ skips videos with no on-screen text), `zh_convert.py` (subtitles normalised
 to Traditional via OpenCC by default; `ZH_SCRIPT=off` keeps the source
 script), `lookup.mjs` (word
 explanations), `translate.py` / `translateWorker.mjs` (NLLB), `romanize.py`
-(pronunciation), `strokes.mjs` (Han stroke order: indexes
+(pronunciation), `lemmas.py` / `lemmas.mjs` (a language's own analyser for
+clicked words whose forms outrun a dictionary's tables — one `LEMMATISERS`
+entry per language), `strokes.mjs` (Han stroke order: indexes
 `data/graphics.txt` once by byte range and serves
 `GET /api/strokes?chars=你好`; degrades to `{}` when the file is absent),
 `segment.mjs`, `cookies.mjs`, `backup.mjs`, `device.mjs` (see below). Python
