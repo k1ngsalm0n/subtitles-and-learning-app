@@ -21,9 +21,13 @@ function isWord(seg) {
 }
 
 // `markOf(word)` (knownwords.mjs, built once per render) gives each word its
-// " saved" / " known" class.
-export function tokenize(text, markOf) {
-  const segments = [..._segmenter.segment(text)];
+// " saved" / " known" class. `words`, when given, is the server's cut of the
+// line (/api/romanize: French splits l'homme into l' + homme and keeps
+// peut-être whole), used whenever it rebuilds the line exactly.
+export function tokenize(text, markOf, words) {
+  const segments = words?.length && words.join("") === text
+    ? words.map((segment) => ({ segment, isWordLike: /[\p{L}\p{N}]/u.test(segment) }))
+    : [..._segmenter.segment(text)];
   return segments
     .map((seg) => {
       if (isWord(seg)) {
