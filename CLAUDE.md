@@ -32,7 +32,10 @@ lifting — speech-to-text and offline translation — runs through Python.
   for multi-target models, a `token` prepended to every sentence as `>>id<<`.
   `opus-mt-en-zh` is one of those and ran without its token for months — it
   wrote Simplified; it now gets `>>cmn_Hant<<` (`>>cmn_Hans<<` with
-  `ZH_SCRIPT=off`). `docs/language-models.md` has the model to use per pair.
+  `ZH_SCRIPT=off`). Even with it, 45 of 100 FLORES lines mixed in
+  Simplified (临床, 公开), as did NLLB's into zho_Hant; every translation
+  into Chinese, offline (`in_app_script`) or from the chat model
+  (`zhconvert.mjs`), now goes through the transcripts' OpenCC table. `docs/language-models.md` has the model to use per pair.
 - **Word lookups:** any OpenAI-compatible chat API (currently free Groq,
   `openai/gpt-oss-120b` — Groq retired `llama-3.3-70b-versatile`, and a dead
   model fails *silently* into the NLLB fallback), falls back to NLLB.
