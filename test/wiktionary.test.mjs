@@ -87,6 +87,8 @@ const ENTRIES = [
   { word: "ein", pos: "article", lang_code: "pt", senses: [sense(["a, an"])] },
   { word: "eine", pos: "num", lang_code: "pt",
     senses: [sense(["feminine nominative singular of ein"], { tags: ["form-of"], form_of: [{ word: "ein" }] })] },
+  { word: "casa's", pos: "contraction", lang_code: "pt",
+    senses: [sense(["contraction of casa es"], { tags: ["form-of"], form_of: [{ word: "casa es" }] })] },
   { word: "ich", pos: "pron", lang_code: "pt", senses: [sense(["I"])] },
   { word: "Ich", pos: "noun", lang_code: "pt", senses: [sense(["ego; self"], { tags: ["neuter"] })] },
   { word: "sie", pos: "pron", lang_code: "pt", senses: [sense(["she"])] },
@@ -330,6 +332,19 @@ test("a lemmatiser can say how a word is made of its lemma", async () => {
     assert.equal(r.lemma, "casa");
     assert.equal(r.formOf, "Haus + casa");
     assert.equal(r.forms.length, 1);
+  } finally {
+    if (saved) wikt.LEMMATISERS.pt = saved;
+    else delete wikt.LEMMATISERS.pt;
+  }
+});
+
+test("a lemmatiser is asked when the dictionary's entries lead nowhere", async () => {
+  const saved = wikt.LEMMATISERS.pt;
+  wikt.LEMMATISERS.pt = (word) => (word === "casa's" ? [{ lemma: "casa", description: "casa + es" }] : []);
+  try {
+    const r = await wikt.defineWord("casa's", "pt");
+    assert.equal(r.lemma, "casa");
+    assert.equal(r.formOf, "casa + es");
   } finally {
     if (saved) wikt.LEMMATISERS.pt = saved;
     else delete wikt.LEMMATISERS.pt;

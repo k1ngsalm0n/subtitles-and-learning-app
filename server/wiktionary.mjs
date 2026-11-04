@@ -272,7 +272,13 @@ export async function defineWord(word, code) {
   if (!clicked) return null;
   let recs = recordsFor(clicked, code);
   let guessed = [];
-  if (!recs.length && LEMMATISERS[code]) {
+  // Asked when the dictionary has nothing to say, which includes entries
+  // that lead nowhere: German "geht's" is a contraction of "geht es", a
+  // phrase with no entry of its own.
+  const leadsSomewhere = recs.some(
+    (r) => r.s || (r.f || []).some(([lemma]) => lemma !== clicked && resolveLemma(lemma, r.p, code)),
+  );
+  if (!leadsSomewhere && LEMMATISERS[code]) {
     try {
       // A candidate is a word, or { lemma, description } to say how the
       // clicked word is made of it (a German compound: "Jugend + Protest").
