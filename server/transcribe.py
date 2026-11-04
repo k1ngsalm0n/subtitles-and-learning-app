@@ -118,7 +118,12 @@ def _apple_silicon():
 # 30.6 -> 20.4 WER), so on a CPU, where "auto" picks small, they are raised to
 # this. docs/language-models.md has the numbers. Empty until a language needs
 # it; e.g. {"ar": "medium", "hi": "medium", "ur": "medium"}.
-WHISPER_MIN_MODEL = {}
+WHISPER_MIN_MODEL = {
+    # German: on Tagesschau and a vlog, small misheard ~1 word in 10
+    # ("Ege Metall", "Hallo Leiter", "Ginzer" for Gänse) and medium ~1 in 50;
+    # on Easy German 22.6% against 19.7% WER. ~2.5x the time on a CPU.
+    "de": "medium",
+}
 # Smallest to largest, for comparing a choice against a minimum. A name not in
 # this list (a custom path, distil-*) is left alone.
 MODEL_SIZES = ["tiny", "base", "small", "medium", "large-v3"]

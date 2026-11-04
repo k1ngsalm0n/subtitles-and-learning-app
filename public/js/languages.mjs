@@ -112,7 +112,15 @@ const LATIN_WORDS = {
   ca: ["és", "això", "però", "amb", "aquest", "aquesta", "els", "les", "són", "hem", "avui", "perquè"],
   cs: ["se", "jsem", "jsme", "jsou", "není", "byl", "vím", "nevím", "které", "jako", "jsi", "jestli", "tady", "děkuji", "můžu", "taky"],
   da: ["og", "ikke", "jeg", "ved", "af", "hvad", "kun", "dig", "sådan", "hvis", "jer", "meget"],
-  de: ["der", "die", "das", "und", "ist", "nicht", "ein", "ich", "zu", "auch"],
+  // German: "die" is Afrikaans too (405 times in its 200 FLORES lines, which
+  // were all called German), du French, es Catalan and Spanish, ja Finnish
+  // and Estonian, so they're left out; each of these appears in no other
+  // list's FLORES lines more than a few times.
+  de: ["der", "das", "und", "ist", "nicht", "ein", "eine", "einen", "einem", "einer", "ich", "zu", "auch", "sie", "wir",
+    "mit", "auf", "dass", "sich", "für", "über", "wird", "wurde", "sind", "haben", "hat", "hatte", "kann", "noch", "aber",
+    "wenn", "dann", "jetzt", "immer", "schon", "doch", "halt", "sehr", "gibt", "bin", "bist", "nichts", "mich", "dich",
+    "eigentlich", "genau", "bisschen", "mein", "meine", "meinem", "meinen", "dein", "deine", "deinem", "deinen", "denen",
+    "gab", "hast", "habe", "kein", "keine", "weil", "denn", "wieder", "gesagt", "gemacht"],
   en: ["the", "and", "you", "that", "this", "with", "have", "what", "are", "but", "not"],
   eo: ["kaj", "estas", "estis", "mi", "por", "kun", "tio", "sed", "ĉi", "ĝi"],
   es: ["es", "esta", "esto", "los", "las", "pero", "muy", "está", "porque", "una", "qué", "aquí", "hoy"],

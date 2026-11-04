@@ -71,6 +71,13 @@ OPUS_ROUTES = {
     # FLORES chrF++, 100 sentences: see docs/language-models.md.
     ("fr", "en"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-roa-en"},
     ("en", "fr"): {"model": "Helsinki-NLP/opus-mt-tc-big-en-fr"},
+    # German. en→de is a multi-target model (deu, eng, fra, por, spa); de→zh
+    # an older one whose targets are cmn, yue, zh_TW… — >>zh_TW<< wrote HTML
+    # garbage and >>zh<< Cantonese, so cmn, then the app's own script. FLORES
+    # chrF++: see docs/language-models.md.
+    ("de", "en"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-gmw-en"},
+    ("en", "de"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-deu_eng_fra_por_spa-gmw", "token": "deu"},
+    ("de", "zh"): {"model": "Helsinki-NLP/opus-mt-de-ZH", "token": "cmn"},
 }
 OPUS_ZH_EN = OPUS_ROUTES[("zh", "en")]["model"]
 OPUS_EN_ZH = OPUS_ROUTES[("en", "zh")]["model"]

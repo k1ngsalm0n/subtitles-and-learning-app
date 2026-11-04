@@ -48,6 +48,10 @@ const HINTS = {
     "Traditional, Simplified stays Simplified.",
   en: "English speech recognition writes sound-alikes: a homophone with the wrong meaning, a name heard as ordinary words.",
   es: "Spanish speech recognition writes sound-alikes: a homophone with the wrong meaning, or b/v, s/z/c and a silent h confused.",
+  // German: with this hint Claude fixed 10 of 12 real Whisper errors on both
+  // runs (Hecker Angriff among them), without it 9; 0 false alarms in 28
+  // correct lines either way.
+  de: "German speech recognition writes sound-alikes: a word with the wrong meaning, one word split in two or two words run together, and a name or abbreviation heard as ordinary words.",
   pt:
     "Portuguese speech recognition writes sound-alikes: a homophone with the wrong meaning, a silent h, s/ss/c/ç, " +
     "a final l heard as u, an infinitive that lost its final r, nasal endings confused, or words split or run together.",

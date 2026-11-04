@@ -48,6 +48,12 @@ export function foldWord(word, code = "") {
 // `code: (word) => [candidate, …]` (sync or async). Turkish, whose suffixes
 // stack beyond any table, is the expected first user.
 export const LEMMATISERS = {
+  // German writes compounds as one word, and the dictionary can't list them
+  // all (Jugendproteste, Hackerangriff, Touristenattraktion). A compound is
+  // its last part — the part that gives it its meaning, gender and plural —
+  // so the longest last part that is a word, after a first part that is one
+  // too (with or without a linking s, es, n, en or e: Straße|n|parade).
+  de: (word) => germanCompound(word),
   // An infinitive before an enclitic pronoun drops its r and takes an accent
   // (colocá-lo, fazê-la, pô-lo), and the segmenter cuts at the hyphen, so
   // "colocá" is clicked alone. Its stem gets the r back.
@@ -58,6 +64,43 @@ export const LEMMATISERS = {
     return m[2] === "ô" ? [`${m[1]}ôr`, `${m[1]}${plain}r`] : [`${m[1]}${plain}r`];
   },
 };
+
+const LINKS = ["", "s", "es", "n", "en", "e", "er"];
+const MIN_PART = 3;
+
+function isWordAsWritten(word) {
+  return recordsFor(word, "de").some((r) => r.w.toLowerCase() === word.toLowerCase() && !r.m);
+}
+
+export function germanCompound(word) {
+  // geht's, gibt's, wie geht's: a verb and es, written as one word.
+  const clitic = /^(\p{L}+)['’]s$/u.exec(word);
+  if (clitic && recordsFor(clitic[1], "de").length) return [{ lemma: clitic[1], description: `${clitic[1]} + es` }];
+  if (!/^\p{L}+$/u.test(word)) return [];
+  // A present participle, inflected or used as a noun: Tanzende are
+  // dancing ones (tanzen), not Tanz + Ende.
+  const participle = /^(\p{L}{2,}en)d(?:e|er|en|es|em)?$/u.exec(word.toLowerCase());
+  if (participle && recordsFor(participle[1], "de").some((r) => r.w === participle[1] && r.p === "verb")) {
+    return [{ lemma: participle[1], description: "present participle" }];
+  }
+  if (word.length < MIN_PART * 2 + 1) return [];
+  const noun = /^\p{Lu}/u.test(word);
+  for (let at = MIN_PART; at <= word.length - MIN_PART; at++) {
+    const rest = word.slice(at);
+    // A noun's last part is a noun, capitalised; an adjective's isn't.
+    const head = noun ? rest[0].toUpperCase() + rest.slice(1) : rest;
+    if (!recordsFor(head, "de").some((r) => r.w === head)) continue;
+    const front = word.slice(0, at);
+    for (const link of LINKS) {
+      if (link && !front.toLowerCase().endsWith(link)) continue;
+      const first = front.slice(0, front.length - link.length);
+      if (first.length >= MIN_PART && isWordAsWritten(first)) {
+        return [{ lemma: head, description: `${first} + ${head}` }];
+      }
+    }
+  }
+  return [];
+}
 
 // The commonest words whose own entry is the rarer reading: French "est"
 // is être before it is "east", "fait" faire before "fact". With no
@@ -81,6 +124,10 @@ export const PREFERRED_LEMMA = {
     est: "être", "été": "être", fut: "être", a: "avoir", as: "avoir", une: "un", la: "le", "s'": "se",
     fait: "faire", dit: "dire", va: "aller", vu: "voir", passe: "passer", vit: "vivre",
   },
+  // German: weiß is wissen ("ich weiß") before "white", Tage Tag's plural
+  // before "that time of the month", am an + dem before the superlative's
+  // particle, einen the article before "to unite".
+  de: { "weiß": "wissen", tage: "Tag", am: "an", einen: "ein" },
 };
 
 // The same for a word whose own entries are the two readings: French "pas"
@@ -90,6 +137,11 @@ export const PREFERRED_LEMMA = {
 export const PREFERRED_POS = {
   // French: ne … pas "not" before "step", son "his, her" before "sound".
   fr: { pas: "adv", son: "det" },
+  // German: ein/eine/einen the article "a, an" before the numeral "one";
+  // the adverb of words a conversation uses as one — genau "exactly",
+  // natürlich "of course", mehr "more", eben "just" — before the adjective
+  // or pronoun the entry lists first.
+  de: { ein: "article", eine: "article", einen: "article", genau: "adv", "natürlich": "adv", mehr: "adv", eben: "adv" },
 };
 
 // ---- The file on disk --------------------------------------------------

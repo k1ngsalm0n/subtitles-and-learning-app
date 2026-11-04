@@ -31,7 +31,7 @@ than ~3 are real. Every model named here was checked to exist under
 | ru | `opus-mt-tc-big-zle-en` | 62.6 | 58.6 | `opus-mt-tc-big-en-zle` | 59.7 | 52.5 |
 | id | `opus-mt-tc-bible-big-poz-en` | 68.4 | 63.9 | `…deu_eng_fra_por_spa-pqw` | 70.5 | 66.6 |
 | ur | `opus-mt-tc-bible-big-inc-en` | 59.5 | 57.8 | `…deu_eng_fra_por_spa-iir` | 48.4 | 46.6 |
-| de | `opus-mt-tc-bible-big-gmw-en` | 68.8 | 65.3 | `opus-mt-tc-bible-big-gem-deu_eng_fra_por_spa` | 64.9 | 59.4 |
+| de | `opus-mt-tc-bible-big-gmw-en` — **measured 65.4** against NLLB 64.1 (300 sentences; `opus-mt-de-en` 63.4, `…gmw-deu_eng_fra_por_spa` >>eng<< 64.2 on 100), 18 s against 61 s | 68.8 | 65.3 | **`opus-mt-tc-bible-big-deu_eng_fra_por_spa-gmw` >>deu<<**, not the leaderboard's `…gem-deu_eng_fra_por_spa` — **measured 60.4** against NLLB 58.2 (300 sentences; `opus-mt-en-de` 59.8 at half the time, `…gem-…` 60.3 on 100), 19 s against 73 s | 64.9 | 59.4 |
 | ja | **NLLB** (best Opus 48.7) | — | 50.2 | **NLLB** (best Opus 10.9) | — | 23.6 |
 | vi | `opus-mt-tc-bible-big-mul-deu_eng_nld` | 57.0 | 58.1 | `…deu_eng_fra_por_spa-aav` | 60.0 | 56.4 |
 | tr | `opus-mt-tc-big-tr-en` | 64.1 | 60.0 | `opus-mt-tc-big-en-tr` | 62.8 | 52.9 |
@@ -84,7 +84,7 @@ transcribes as well as Chinese does today on a CPU-only machine.
 | es | 5.6 | 3.6 | 3.0 | excellent |
 | pt | 7.3 | 5.0 | 4.3 | excellent |
 | it | 9.8 | 5.2 | 4.0 | excellent |
-| de | 10.2 | 6.5 | 4.5 | excellent |
+| de | 10.2 | 6.5 | 4.5 | excellent on FLEURS, but **medium is the minimum** (`WHISPER_MIN_MODEL`). Measured on three clips: small misheard ~1 word in 10 on Tagesschau and a vlog ("Ege Metall", "Hallo Leiter", "Ginzer" for Gänse) and medium ~1 in 50; Easy German against its captions 22.6% / 19.7% WER. ~2.5× the time (35 s against 12 s for 3 minutes). Medium writes Swiss ss for ß ("weiss", "heisst"), which `respell.mjs` repairs from the dictionary |
 | ru | 11.4 | 7.2 | 5.6 | very good |
 | ja | 12.0 | 7.1 | 5.3 | very good |
 | pl | 14.7 | 8.0 | 5.4 | very good |
@@ -133,6 +133,7 @@ kana).
 | Lang | Model |
 |---|---|
 | es fr pt de it id tr pl en | `latin` (`en` for English only) |
+| de (measured) | `latin` (`"ocr": "latin"`): both models read ä ö ü ß exactly on rendered sentences, but the default dropped the opening „ twice and read a background sign ("IPIPW"). On a 4-minute Easy German caption pass latin also kept a German line the default dropped as furniture, and ran 45 s against 62 s |
 | fr (measured) | `latin` (`"ocr": "latin"`): reads Œ/œ and ï, which the default PP-OCRv6 read as CE and i; on 51 Easy French caption frames it also fixed s’'il and .. → ..., and ran 60 s against 69 s |
 | vi | `latin`. CLAUDE.md measured lost stacked tone marks with the default; re-measure on v5 latin |
 | ru uk | `cyrillic` (or `eslav`) |
@@ -156,6 +157,8 @@ kana).
 | ar, fa, ur | spaces | vowel marks matter more than Latin letters: Arabic is written without short vowels. Options: a diacritiser (camel-tools/Mishkal) for ar; unidecode-level transliteration for fa/ur is poor. **Right-to-left layout** needs `dir="rtl"` on lines |
 | ru, uk | spaces | **stress marks** (`ruaccent`), the thing learners actually need; transliteration optional |
 
+**German, measured** on every word of three clips (562 distinct): Wiktionary finds 92.2% as cut by `Intl.Segmenter` (96.8% of tokens), and 95.7% (98.2%) with `LEMMATISERS.de`, which reads a compound the dictionary lacks as its last part (Jugendproteste → Protest, "Jugend + Proteste"), a present participle as its verb (Tanzende → tanzen) and geht's as geht. The rest are names, English words and Whisper's own mishearings. Separable verbs ("rufe … an") are not joined. Pronunciation line: none; the pop-up shows IPA, and a noun's gender and plural.
+
 Inflected languages (ru, uk, pl, de, ar, tr, …): a clicked "говорил" or
 "hablaba" should find its dictionary form. The chat model handles that. For the
 offline path and the known-words list, a lemmatiser (`simplemma` is pure
@@ -176,6 +179,8 @@ pt (pt_BR, pt_PT), ru, de (thorsten high), vi, tr, fa, it, pl, uk.
 
 **French, measured:** `fr_FR-siwis-medium` (CC BY 4.0). Read back through Whisper small, 12 test sentences came out at 3.9% WER (5.9% slow), against upmc 5.9/8.8, tom 4.9/5.9 (at twice the time), espeak-ng 52/38, and mls (speaker 0) unusable.
 
+**German, measured** (24 sentences, read back by Whisper small): `de_DE-eva_k-x_low` 4.4% WER (4.3% slow), thorsten-high 4.9/5.4 at 3.5× the time and 5× the size, kerstin 6.5/3.3, karlsson 7.1/5.5, thorsten-medium 7.7/7.1, ramona 12/20; pavoque is non-commercial. Eva_k (M-AILABS, 20 MB) is the one `VOICES=1 npm run sync` fetches.
+
 **No piper voice:** bn, id, ur, ja, ko, th. Meta's MMS-TTS
 (`facebook/mms-tts-ben`, `-ind`, `-urd-script_arabic`, `-kor`, `-tha`) runs
 on the `transformers` the app already has. It is non-commercial licensed
@@ -185,6 +190,8 @@ Japanese, so Japanese stays on the browser voice or espeak-ng.
 ## Into Chinese instead of English
 
 Measured for French (FLORES, 100 sentences): NLLB fr→zh 13.8, against 14.4 for fr→en→zh through `opus-mt-en-zh`, which still stops partway through some sentences. That's no real win, so French stays on NLLB.
+
+Measured for German (FLORES, 100 sentences): **`opus-mt-de-ZH` with `>>cmn<<` 14.0**, in 3 s, against NLLB 11.7 in 20 s. Its targets are `cmn, yue, zh_TW…`: `>>zh_TW<<` wrote HTML-like garbage (11.7) and `>>zh<<` Cantonese (12.1). A pivot through English scored 14.8 but still stops partway through sentences. So this paragraph's "no Opus-MT model" is wrong for German.
 
 No Opus-MT model goes X→zh for any of these languages, and NLLB-600M's en→zh
 is 19.6 chrF++. Options, best first: the chat model; pivoting through English
@@ -204,7 +211,7 @@ is 19.6 chrF++. Options, best first: the chat model; pivoting through English
 | 9 | ru | Opus zle | very good | cyrillic | stress marks, lemmas | medium |
 | 10 | id | Opus group | good | latin | MMS voice | small |
 | 11 | ur | Opus group | weak | arabic | RTL, MMS voice | large |
-| 12 | de | Opus group | excellent | latin | — | small |
+| 12 | de | Opus group, `de-ZH` into Chinese | **medium minimum** | latin | ß repair, compounds | **done** |
 | 13 | ja | NLLB | very good | japan/ch | MeCab words + furigana | medium |
 | 14 | vi | mixed | like zh | latin? | word joining, tone-mark OCR | medium |
 | 15 | tr | Opus tc-big | good | latin | — | small |

@@ -289,6 +289,10 @@ const VOICE_MODELS = [
   // French: siwis read 12 test sentences back through Whisper at 3.9% WER
   // (5.9% slow); upmc 5.9/8.8, tom 4.9/5.9 at twice the time, espeak-ng 52/38.
   ["fr_FR-siwis-medium", "fr/fr_FR/siwis/medium"],
+  // German: eva_k read 24 test sentences back through Whisper at 4.4% WER
+  // (4.3% slow); thorsten-high 4.9/5.4 at 3.5x the time and 5x the size,
+  // kerstin 6.5/3.3, karlsson 7.1/5.5, thorsten-medium 7.7/7.1, ramona 12/20.
+  ["de_DE-eva_k-x_low", "de/de_DE/eva_k/x_low"],
 ];
 
 function ensureVoices() {
