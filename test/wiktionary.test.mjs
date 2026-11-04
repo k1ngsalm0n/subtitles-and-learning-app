@@ -81,6 +81,12 @@ const ENTRIES = [
   { word: "Habe", pos: "noun", lang_code: "pt", senses: [sense(["belongings, possession"], { tags: ["feminine"] })] },
   { word: "haben", pos: "verb", lang_code: "pt",
     senses: [sense(["forms the perfect aspect"]), sense(["As a transitive verb:", "to have"]), sense(["to have, get"])] },
+  { word: "nein", pos: "intj", lang_code: "pt", senses: [sense(["no"])] },
+  { word: "Nein", pos: "noun", lang_code: "pt", senses: [sense(["a no"], { tags: ["neuter"] })] },
+  { word: "ein", pos: "num", lang_code: "pt", senses: [sense(["one"])] },
+  { word: "ein", pos: "article", lang_code: "pt", senses: [sense(["a, an"])] },
+  { word: "eine", pos: "num", lang_code: "pt",
+    senses: [sense(["feminine nominative singular of ein"], { tags: ["form-of"], form_of: [{ word: "ein" }] })] },
   { word: "ich", pos: "pron", lang_code: "pt", senses: [sense(["I"])] },
   { word: "Ich", pos: "noun", lang_code: "pt", senses: [sense(["ego; self"], { tags: ["neuter"] })] },
   { word: "sie", pos: "pron", lang_code: "pt", senses: [sense(["she"])] },
@@ -300,4 +306,18 @@ test("a capitalised word starting a sentence is the function word first", async 
   // Itself a pronoun as written: formal "Sie" is not "sie".
   assert.equal((await wikt.defineWord("Sie", "pt")).meaning, "you");
   assert.equal((await wikt.defineWord("sie", "pt")).meaning, "she");
+});
+
+test("an interjection before a capitalised noun spelled alike", async () => {
+  assert.equal((await wikt.defineWord("nein", "pt")).meaning, "no");
+});
+
+test("a preferred part of speech orders the lemma's entries too", async () => {
+  assert.equal((await wikt.defineWord("eine", "pt")).meaning, "one");
+  wikt.PREFERRED_POS.pt = { eine: "article" };
+  try {
+    assert.equal((await wikt.defineWord("eine", "pt")).meaning, "a, an");
+  } finally {
+    delete wikt.PREFERRED_POS.pt;
+  }
 });

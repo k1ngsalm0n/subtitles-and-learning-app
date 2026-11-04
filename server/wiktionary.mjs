@@ -333,10 +333,16 @@ export async function defineWord(word, code) {
     if (!promoted.length) otherCase = [];
   }
   const sameCase = [...promoted, ...major.filter((r) => !otherCase.includes(r) && !promoted.includes(r))];
-  const lemmaRecs = lemmas.flatMap((l) => l.records.map((r) => ({ ...r, lemmaOf: l.lemma })));
+  // The preferred part of speech orders the lemma's entries too: German
+  // "eine" is ein the article ("a, an") before ein the numeral ("one").
+  const lemmaRecs = lemmas
+    .flatMap((l) => l.records.map((r) => ({ ...r, lemmaOf: l.lemma })))
+    .sort((a, b) => (pos ? (b.p === pos) - (a.p === pos) : 0));
   const preferred = PREFERRED_LEMMA[code]?.[foldWord(clicked, code)];
   const first = preferred ? lemmaRecs.filter((r) => r.lemmaOf === preferred) : [];
-  const ordered = [...first, ...sameCase, ...lemmaRecs.filter((r) => !first.includes(r)), ...otherCase, ...intj, ...minor];
+  // A word spelled with other capitals comes after the word's own
+  // interjection too: "nein" is "no" before das Nein "a no".
+  const ordered = [...first, ...sameCase, ...lemmaRecs.filter((r) => !first.includes(r)), ...intj, ...otherCase, ...minor];
   const primary = ordered[0];
 
   const tag = (r) => (sameCase.length && r.lemmaOf ? `${r.lemmaOf}: ` : "");
