@@ -258,6 +258,55 @@ async function rankWithContext(word, context, defs, lang) {
 // Chinese has none): the word put through the offline translator. A gloss,
 // not an explanation — but a meaning in the reader's language rather than
 // nothing at all, which is what a non-Chinese lookup gave without a chat model.
+// What of a dictionary meaning goes to the translator: its first sense's
+// first piece, without asides or the infinitive's "to" (a second sense
+// added more noise than meaning: Spanish perro "dog; 衣服套件"). The offline
+// en→zh model writes "to be" as 要 ("want to") and "to have" as 需要, but
+// "be" as 是 and "have" as 有; "eye, organ that is sensitive to light…"
+// came back as a garbled sentence, "eye" as 眼睛.
+export function englishGloss(meaning) {
+  return String(meaning || "")
+    .split(/;\s*/)
+    .map((sense) => sense.replace(/\s*\([^()]*\)/g, "").split(/,\s*/)[0].replace(/^to\s+(?=\S)/i, "").trim())
+    .filter(Boolean)
+    .slice(0, 1);
+}
+
+// A dictionary entry with its meaning in the reader's language, or null.
+// `translate` turns English into it. The word's lemma, gender, plural and
+// IPA stay; its English definitions don't — they are in the wrong language.
+export async function throughEnglish(entry, word, translate) {
+  const pieces = englishGloss(entry?.meaning);
+  if (!pieces.length) return null;
+  const translated = await Promise.all(pieces.map((p) => translate(p).catch(() => "")));
+  const meaning = [...new Set(translated.map((t) => String(t || "").trim()).filter(Boolean))].join("; ");
+  if (!meaning) return null;
+  return {
+    word,
+    pronunciation: entry.pronunciation || "",
+    meaning,
+    defs: [],
+    ...wordForms(entry),
+    partOfSpeech: entry.partOfSpeech || "",
+    source: "dictionary",
+  };
+}
+
+// One short English text in another language, offline; cached.
+async function translateText(text, from, to) {
+  const key = `nllb-text:${from}:${to}:${text}`;
+  const known = await cache.get(key);
+  if (known) return known.meaning;
+  const srt = await translateViaWorker(`1\n00:00:00,000 --> 00:00:01,000\n${text}\n`, from, to);
+  const meaning = String(srt || "")
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !/^\d+$/.test(line.trim()) && !line.includes("-->"))
+    .join(" ")
+    .trim();
+  if (meaning) await cache.set(key, { meaning });
+  return meaning;
+}
+
 async function translateWord(word, lang, to) {
   if (!lang || lang === to) return null;
   const key = `nllb-word:${lang}:${to}:${word}`;
@@ -697,6 +746,16 @@ async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
   }
 
   if (dictResult) return dictResult;
+  // A reader of another language, with no chat model: the dictionary's
+  // English meaning, translated. German "Wetter" given to the offline
+  // translator alone came back 天氣問題 ("weather problem") and "Stadt"
+  // 市區以外的地區 ("outside the city"); its gloss "weather", translated, is
+  // 天氣: 17 of 20 words of a German vlog right, against 5 to 7.
+  if (lang !== "zh" && lang !== to && hasDictionary(lang)) {
+    const entry = await defineWord(word, lang).catch(() => null);
+    const viaEnglish = await throughEnglish(entry, word, (text) => translateText(text, "en", to));
+    if (viaEnglish) return viaEnglish;
+  }
   const offline = await translateWord(word, lang, to);
   if (offline) return offline;
   return { word, pronunciation: "", meaning: "", source: "none" };

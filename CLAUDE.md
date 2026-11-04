@@ -82,6 +82,9 @@ lifting — speech-to-text and offline translation — runs through Python.
   lemma's own tables, two hops at most), a noun its gender and plural; a
   homograph keeps its own meaning first (casa "house", also casar's form).
   `LEMMATISERS` takes a language's own guesser for forms no table lists.
+  A reader of another language gets the entry's first English sense
+  translated offline (`throughEnglish`): German Wetter 天氣, not the
+  translator's 天氣問題 for the word alone.
 - **Pinyin for Traditional text** is read from its Simplified conversion
   (`_pinyin_source` in romanize.py): pypinyin's phrases are Simplified, and on
   the reader's videos 38 of 240 lines read differently, every one a fix —
