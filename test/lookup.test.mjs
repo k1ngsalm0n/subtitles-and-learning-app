@@ -312,3 +312,26 @@ test("glossWords gives every reading and, when asked, each character", () => {
   assert.deepEqual(out["改行"].characters.map((c) => [c.char, c.pinyin]), [["改", "gǎi"], ["行", "háng"]]);
   assert.equal(glossWords([{ word: "改行" }], dict)["改行"].characters, undefined, "only when asked");
 });
+
+test("a reader of another language gets the dictionary's meaning, translated", async () => {
+  const { englishGloss, throughEnglish } = await import("../server/lookup.mjs");
+  assert.deepEqual(englishGloss("weather; climate; storm"), ["weather"]);
+  assert.deepEqual(englishGloss("to be; to be located"), ["be"]);
+  assert.deepEqual(englishGloss("eye, organ that is sensitive to light"), ["eye"]);
+  assert.deepEqual(englishGloss("dog (Canis familiaris); suit"), ["dog"]);
+  const entry = {
+    word: "Gänse", meaning: "goose", pronunciation: "/ˈɡɛnzə/", lemma: "Gans", formOf: "plural",
+    forms: [{ lemma: "Gans", description: "plural" }], gender: "", plural: "", partOfSpeech: "noun",
+    defs: ["goose", "hen"], source: "dictionary",
+  };
+  const asked = [];
+  const r = await throughEnglish({ ...entry, meaning: "goose; hen" }, "Gänse", async (text) => (asked.push(text), "鵝"));
+  assert.deepEqual(asked, ["goose"]);
+  assert.equal(r.meaning, "鵝");
+  assert.equal(r.lemma, "Gans");
+  assert.equal(r.pronunciation, "/ˈɡɛnzə/");
+  assert.deepEqual(r.defs, [], "the English definitions are left out");
+  // No meaning, or a translator that fails: nothing, so the next layer answers.
+  assert.equal(await throughEnglish({ meaning: "" }, "x", async () => "y"), null);
+  assert.equal(await throughEnglish(entry, "Gänse", async () => { throw new Error("no model"); }), null);
+});
