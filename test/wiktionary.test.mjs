@@ -321,3 +321,17 @@ test("a preferred part of speech orders the lemma's entries too", async () => {
     delete wikt.PREFERRED_POS.pt;
   }
 });
+
+test("a lemmatiser can say how a word is made of its lemma", async () => {
+  const saved = wikt.LEMMATISERS.pt;
+  wikt.LEMMATISERS.pt = (word) => (word === "Hauscasa" ? [{ lemma: "casa", description: "Haus + casa" }, "casa"] : []);
+  try {
+    const r = await wikt.defineWord("Hauscasa", "pt");
+    assert.equal(r.lemma, "casa");
+    assert.equal(r.formOf, "Haus + casa");
+    assert.equal(r.forms.length, 1);
+  } finally {
+    if (saved) wikt.LEMMATISERS.pt = saved;
+    else delete wikt.LEMMATISERS.pt;
+  }
+});

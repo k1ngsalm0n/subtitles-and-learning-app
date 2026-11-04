@@ -274,7 +274,12 @@ export async function defineWord(word, code) {
   let guessed = [];
   if (!recs.length && LEMMATISERS[code]) {
     try {
-      guessed = unique(await LEMMATISERS[code](clicked)).filter((w) => w !== clicked);
+      // A candidate is a word, or { lemma, description } to say how the
+      // clicked word is made of it (a German compound: "Jugend + Protest").
+      const seenGuess = new Set();
+      guessed = (await LEMMATISERS[code](clicked))
+        .map((g) => (typeof g === "string" ? { lemma: g, description: "" } : g))
+        .filter((g) => g?.lemma && g.lemma !== clicked && !seenGuess.has(g.lemma) && seenGuess.add(g.lemma));
     } catch {
       guessed = [];
     }
@@ -283,7 +288,7 @@ export async function defineWord(word, code) {
   const own = recs.filter((r) => r.s);
   const pointers = [];
   for (const r of recs) for (const [lemma, description] of r.f || []) pointers.push({ lemma, description, pos: r.p });
-  for (const lemma of guessed) pointers.push({ lemma, description: "", pos: "" });
+  for (const { lemma, description = "" } of guessed) pointers.push({ lemma, description, pos: "" });
 
   const lemmas = [];
   const seen = new Set();
