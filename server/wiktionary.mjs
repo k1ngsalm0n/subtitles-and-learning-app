@@ -219,7 +219,10 @@ export function senseText([head, detail, label]) {
 // A sense's head, short, for the one-line meaning: "to be (to have the given
 // quality), especially a quality that is intrinsic…" is "to be". The whole
 // sense stays under All definitions.
-export function shortHead([head]) {
+export function shortHead([head, detail]) {
+  // A heading is not a meaning: Wiktionary files German sein's "to be"
+  // under "As a copulative verb:". A gloss with sub-senses ("space:") is.
+  if (/^as an?\b.*:\s*$/i.test(String(head)) && detail) return shortHead([detail]);
   const short = String(head)
     .replace(/\s*\([^()]*\)/g, "")
     .replace(/,\s+(especially|usually|often|typically)\b.*$/i, "")
@@ -227,6 +230,11 @@ export function shortHead([head]) {
     .trim();
   return short || head;
 }
+// Closed-class parts of speech: words far commoner than any noun spelled
+// like them.
+const FUNCTION_POS = new Set(["pron", "article", "det", "conj", "prep", "particle", "contraction", "adv"]);
+// A sense that is a word's grammar rather than its meaning.
+const GRAMMAR_SENSE = /\b(forms|used to form) the\b/i;
 // A cross-reference is not a meaning: "See ter de, ter que."
 const CROSS_REF = /^(see|compare|cf\.?)\s/i;
 
@@ -304,17 +312,45 @@ export async function defineWord(word, code) {
   const pos = PREFERRED_POS[code]?.[foldWord(clicked, code)];
   const major = own.filter((r) => !minor.includes(r) && !intj.includes(r))
     .sort((a, b) => (pos ? (b.p === pos) - (a.p === pos) : 0) || labelledOnly(a) - labelledOnly(b));
+  // A lowercase word is not the capitalised word spelled like it: German
+  // "habe" is haben's form before die Habe "belongings", "würde" werden's
+  // before die Würde "dignity". A capitalised word may only be starting a
+  // sentence, so it keeps both — but a function word in lowercase comes
+  // before a rare noun or a letter: "Ich" is "I" before das Ich "ego", "Es"
+  // "it" before "E-flat", "Aber" "but" before "an objection". "Sie", itself
+  // a pronoun, stays "you".
+  const lower = clicked.toLowerCase();
+  const asClicked = recs.some((r) => r.w === clicked);
+  let otherCase = [];
+  let promoted = [];
+  if (clicked === lower && asClicked) {
+    otherCase = major.filter((r) => r.w !== clicked && r.w.toLowerCase() === lower);
+  } else if (!pos && /^\p{Lu}\p{Ll}*$/u.test(clicked) && !major.some((r) => r.w === clicked && FUNCTION_POS.has(r.p))) {
+    // Only against a capitalised word of its own (Le the surname, das Ich):
+    // Portuguese "Cerca" starting a sentence is still the noun "fence".
+    otherCase = major.filter((r) => r.w === clicked);
+    promoted = otherCase.length ? major.filter((r) => r.w === lower && FUNCTION_POS.has(r.p)) : [];
+    if (!promoted.length) otherCase = [];
+  }
+  const sameCase = [...promoted, ...major.filter((r) => !otherCase.includes(r) && !promoted.includes(r))];
   const lemmaRecs = lemmas.flatMap((l) => l.records.map((r) => ({ ...r, lemmaOf: l.lemma })));
   const preferred = PREFERRED_LEMMA[code]?.[foldWord(clicked, code)];
   const first = preferred ? lemmaRecs.filter((r) => r.lemmaOf === preferred) : [];
-  const ordered = [...first, ...major, ...lemmaRecs.filter((r) => !first.includes(r)), ...intj, ...minor];
+  const ordered = [...first, ...sameCase, ...lemmaRecs.filter((r) => !first.includes(r)), ...otherCase, ...intj, ...minor];
   const primary = ordered[0];
 
-  const tag = (r) => (major.length && r.lemmaOf ? `${r.lemmaOf}: ` : "");
+  const tag = (r) => (sameCase.length && r.lemmaOf ? `${r.lemmaOf}: ` : "");
   const defs = unique(ordered.flatMap((r) => (r.s || []).map((s) => tag(r) + senseText(s))));
   // One piece per sense ("to be; forms the passive voice" is "to be"), so
   // the line isn't "to be; to be; to be".
-  const heads = unique((primary.s || []).filter((x) => !CROSS_REF.test(x[0])).map((x) => shortHead(x).split(/;\s*/)[0]));
+  // A grammatical use ("forms the perfect tense" for sein and haben) comes
+  // after what the word means.
+  const senses = (primary.s || []).filter((x) => !CROSS_REF.test(x[0]));
+  // Tested on the piece the meaning shows: Spanish haber's "to have; forms
+  // the perfect aspect" is "to have".
+  const isGrammar = (x) => GRAMMAR_SENSE.test(shortHead(x).split(/;\s*/)[0]);
+  const ranked = [...senses.filter((x) => !isGrammar(x)), ...senses.filter(isGrammar)];
+  const heads = unique(ranked.map((x) => shortHead(x).split(/;\s*/)[0]));
   const meaning = (heads.length ? heads : (primary.s || []).map((x) => x[0])).slice(0, 3).join("; ");
   // Gender and plural are a noun's, from the entries the meaning comes from:
   // "é" is ser's form, so neither the letter name's masculine nor the noun
