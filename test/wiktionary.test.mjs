@@ -74,6 +74,25 @@ const ENTRIES = [
   { word: "a", pos: "prep", lang_code: "pt", senses: [sense(["to"])] },
   { word: "ao", pos: "contraction", lang_code: "pt",
     senses: [sense(["contraction of a + o"], { tags: ["form-of"], form_of: [{ word: "a" }] })] },
+  // German-shaped (filed as pt here): a lowercase form beside a capitalised
+  // noun, and a verb whose meaning sits under a heading after its grammar.
+  { word: "habe", pos: "verb", lang_code: "pt",
+    senses: [sense(["first-person singular present of haben"], { tags: ["form-of"], form_of: [{ word: "haben" }] })] },
+  { word: "Habe", pos: "noun", lang_code: "pt", senses: [sense(["belongings, possession"], { tags: ["feminine"] })] },
+  { word: "haben", pos: "verb", lang_code: "pt",
+    senses: [sense(["forms the perfect aspect"]), sense(["As a transitive verb:", "to have"]), sense(["to have, get"])] },
+  { word: "nein", pos: "intj", lang_code: "pt", senses: [sense(["no"])] },
+  { word: "Nein", pos: "noun", lang_code: "pt", senses: [sense(["a no"], { tags: ["neuter"] })] },
+  { word: "ein", pos: "num", lang_code: "pt", senses: [sense(["one"])] },
+  { word: "ein", pos: "article", lang_code: "pt", senses: [sense(["a, an"])] },
+  { word: "eine", pos: "num", lang_code: "pt",
+    senses: [sense(["feminine nominative singular of ein"], { tags: ["form-of"], form_of: [{ word: "ein" }] })] },
+  { word: "casa's", pos: "contraction", lang_code: "pt",
+    senses: [sense(["contraction of casa es"], { tags: ["form-of"], form_of: [{ word: "casa es" }] })] },
+  { word: "ich", pos: "pron", lang_code: "pt", senses: [sense(["I"])] },
+  { word: "Ich", pos: "noun", lang_code: "pt", senses: [sense(["ego; self"], { tags: ["neuter"] })] },
+  { word: "sie", pos: "pron", lang_code: "pt", senses: [sense(["she"])] },
+  { word: "Sie", pos: "pron", lang_code: "pt", senses: [sense(["you (formal)"])] },
   { word: "Haus", pos: "noun", lang_code: "de", senses: [sense(["house"])] }, // another language: skipped
 ];
 
@@ -263,4 +282,71 @@ test("a plain sense before an entry that is only informal", async () => {
 test("a typographic apostrophe matches the plain one", () => {
   assert.equal(wikt.foldWord("Aujourd’hui", "fr"), "aujourd'hui");
   assert.equal(wikt.foldWord("lʼ"), "l'");
+});
+
+test("a lowercase form is its lemma's before a capitalised word spelled alike", async () => {
+  const habe = await wikt.defineWord("habe", "pt");
+  assert.equal(habe.lemma, "haben");
+  assert.match(habe.meaning, /^to have/);
+  assert.ok(habe.defs.some((d) => /belongings/.test(d)), "the noun is still among the definitions");
+  // Clicked as written, the capitalised word is itself.
+  const noun = await wikt.defineWord("Habe", "pt");
+  assert.equal(noun.lemma, "");
+  assert.match(noun.meaning, /belongings/);
+});
+
+test("a heading gives way to its gloss, and grammar to the meaning", async () => {
+  const haben = await wikt.defineWord("haben", "pt");
+  assert.equal(haben.meaning, "to have; to have, get; forms the perfect aspect");
+  assert.equal(wikt.shortHead(["As a copulative verb:", "to be", ""]), "to be");
+  assert.equal(wikt.shortHead(["inflection of casar:", ""]), "inflection of casar");
+});
+
+test("a capitalised word starting a sentence is the function word first", async () => {
+  assert.equal((await wikt.defineWord("Ich", "pt")).meaning, "I");
+  assert.ok((await wikt.defineWord("Ich", "pt")).defs.some((d) => /ego/.test(d)));
+  // Itself a pronoun as written: formal "Sie" is not "sie".
+  assert.equal((await wikt.defineWord("Sie", "pt")).meaning, "you");
+  assert.equal((await wikt.defineWord("sie", "pt")).meaning, "she");
+});
+
+test("an interjection before a capitalised noun spelled alike", async () => {
+  assert.equal((await wikt.defineWord("nein", "pt")).meaning, "no");
+});
+
+test("a preferred part of speech orders the lemma's entries too", async () => {
+  assert.equal((await wikt.defineWord("eine", "pt")).meaning, "one");
+  wikt.PREFERRED_POS.pt = { eine: "article" };
+  try {
+    assert.equal((await wikt.defineWord("eine", "pt")).meaning, "a, an");
+  } finally {
+    delete wikt.PREFERRED_POS.pt;
+  }
+});
+
+test("a lemmatiser can say how a word is made of its lemma", async () => {
+  const saved = wikt.LEMMATISERS.pt;
+  wikt.LEMMATISERS.pt = (word) => (word === "Hauscasa" ? [{ lemma: "casa", description: "Haus + casa" }, "casa"] : []);
+  try {
+    const r = await wikt.defineWord("Hauscasa", "pt");
+    assert.equal(r.lemma, "casa");
+    assert.equal(r.formOf, "Haus + casa");
+    assert.equal(r.forms.length, 1);
+  } finally {
+    if (saved) wikt.LEMMATISERS.pt = saved;
+    else delete wikt.LEMMATISERS.pt;
+  }
+});
+
+test("a lemmatiser is asked when the dictionary's entries lead nowhere", async () => {
+  const saved = wikt.LEMMATISERS.pt;
+  wikt.LEMMATISERS.pt = (word) => (word === "casa's" ? [{ lemma: "casa", description: "casa + es" }] : []);
+  try {
+    const r = await wikt.defineWord("casa's", "pt");
+    assert.equal(r.lemma, "casa");
+    assert.equal(r.formOf, "casa + es");
+  } finally {
+    if (saved) wikt.LEMMATISERS.pt = saved;
+    else delete wikt.LEMMATISERS.pt;
+  }
 });
