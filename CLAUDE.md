@@ -360,6 +360,16 @@ With several human Chinese tracks, all are fetched and the most
 purely Chinese one wins (`chineseShare`): a channel's bare `zh` track can carry
 pinyin and English on every line.
 
+**YouTube's speech recognition is not the transcript.** When the only
+original-language track is YouTube's own (`<lang>-orig`), the import
+transcribes the audio instead (`preferWhisper`); that track only names the
+language for Whisper and stands in if transcription fails. On eight TED/TEDx
+talks against their human transcripts, Whisper small made fewer word errors
+on 7 (12.0% against 13.4%), and YouTube's English and Spanish tracks had no
+punctuation at all — 110–180-character lines, 15–22 in four minutes. ~20 s
+of CPU per four minutes of audio; `STELE_AUTO_CAPTIONS=youtube` keeps the
+old path. Uploaders' tracks still come first; Chinese is unchanged.
+
 **The title is not a hint.** Putting the video's title in Whisper's prompt
 (`本片標題：…`) was measured and dropped: on the four lyric-checked songs the
 character error rate went from 0.22 to 0.25 (one better, two worse), and on a

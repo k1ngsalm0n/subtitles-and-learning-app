@@ -581,19 +581,19 @@ async function importUrl(req, res) {
     report.stage("Looking for existing subtitles\u2026");
     const subtitle = await getExistingSubtitle(url.href, workspace, meta, origBase, preferred);
 
-    if (subtitle) {
-      const language = toTableCode(subtitle.lang);
+    const finishWithTrack = async (track) => {
+      const language = toTableCode(track.lang);
       const target = translationTarget(language, preferred);
-      let subtitles = await toTraditional(subtitle.text, language);
+      let subtitles = await toTraditional(track.text, language);
       // YouTube's speech-recognition captions mishear like Whisper does; an
       // uploader's own track is what they meant to write and is left alone.
-      if (subtitle.source === "auto-subtitles") {
+      if (track.source === "auto-subtitles") {
         subtitles = await fixTranscript(subtitles, language, report);
       }
-      // A creator-provided translation (subtitle.translation) is already aligned
+      // A creator-provided translation (track.translation) is already aligned
       // to the source and is more accurate than machine translation — use it as
       // is. Otherwise fall back to machine translation on the clean source text.
-      let translation = subtitle.translation || "";
+      let translation = track.translation || "";
       if (translation && importTranslation.getStore()) importTranslation.getStore().uploader = true;
       if (!translation && language && language !== target) {
         report.stage("Translating the subtitles\u2026");
@@ -602,13 +602,25 @@ async function importUrl(req, res) {
       report.done({
         title: meta.title,
         videoUrl,
-        source: subtitle.source,
+        source: track.source,
         language: language || "",
         translationLanguage: translation ? target : "",
         subtitles,
         translation,
-        words: subtitle.words || [],
+        words: track.words || [],
       });
+    };
+
+    // YouTube's own speech recognition is the original-language track: the
+    // audio is transcribed instead, and YouTube's track only says which
+    // language to listen for and stands in if transcription fails
+    // (preferWhisper).
+    const youtubeFallback = preferWhisper(subtitle) ? subtitle : null;
+    if (youtubeFallback && isOffered(toTableCode(youtubeFallback.lang))) {
+      spokenHint ??= toTableCode(youtubeFallback.lang);
+    }
+    if (subtitle && !youtubeFallback) {
+      await finishWithTrack(subtitle);
       return;
     }
 
@@ -837,23 +849,36 @@ async function importUrl(req, res) {
     // No burned-in captions either: the transcription started above is the
     // result. Without a local video (or if its audio extraction failed), fall
     // back to a direct audio download and transcribe that.
-    if (!audioPath) audioPath = await downloadAudio(url.href, workspace);
-    // This block now owns the stage line, so point the speech progress at it \u2014
-    // the transcription may have been running since the OCR branch above, in
-    // which case its readings were being drawn into that block's message.
-    repaintSpeech = () =>
-      report.stage("Transcribing the speech \u2014 this is the slow part\u2026", speechProgress);
-    repaintSpeech();
-    const whisperResult = await transcribeWithWhisper(
-      audioPath,
-      workspace,
-      speechPromise,
-      report,
-      onSpeechProgress,
-      onSpeechSegment,
-      { language: spokenHint, music: isMusic(meta) },
-      preferred,
-    );
+    let whisperResult;
+    try {
+      if (!audioPath) audioPath = await downloadAudio(url.href, workspace);
+      // This block now owns the stage line, so point the speech progress at it \u2014
+      // the transcription may have been running since the OCR branch above, in
+      // which case its readings were being drawn into that block's message.
+      repaintSpeech = () =>
+        report.stage("Transcribing the speech \u2014 this is the slow part\u2026", speechProgress);
+      repaintSpeech();
+      whisperResult = await transcribeWithWhisper(
+        audioPath,
+        workspace,
+        speechPromise,
+        report,
+        onSpeechProgress,
+        onSpeechSegment,
+        { language: spokenHint, music: isMusic(meta) },
+        preferred,
+      );
+      if (youtubeFallback && !String(whisperResult?.subtitles || "").trim()) {
+        throw new Error("the transcription came back empty");
+      }
+    } catch (err) {
+      if (!youtubeFallback) throw err;
+      console.warn(
+        `Transcription failed (${String(err.message || err).split("\n")[0]}); using YouTube's own captions instead`,
+      );
+      await finishWithTrack(youtubeFallback);
+      return;
+    }
     const { subtitles, translation } = await withUploaderTranslation(
       whisperResult.subtitles,
       whisperResult.words || [],
@@ -1042,6 +1067,21 @@ export function studyBase(detection, meta, target = "en") {
     .map(baseLang)
     .find((b) => b !== spoken && toTableCode(b) !== target && isOffered(toTableCode(b)));
   return other || spoken;
+}
+
+// Whether to transcribe the audio rather than study YouTube's own
+// speech-recognition track ("<lang>-orig"). Measured on eight TED/TEDx talks
+// against their human transcripts (first 4 minutes each): Whisper small made
+// fewer word errors on 7 of 8 (12.0% against 13.4% on average), and YouTube's
+// English and Spanish tracks carry no punctuation at all, so they could only
+// be cut into 110-180-character lines (15-22 of them in four minutes) where
+// Whisper wrote sentences. It costs ~20 s of CPU per four minutes of audio;
+// STELE_AUTO_CAPTIONS=youtube keeps YouTube's track, the old, faster path.
+// Chinese isn't affected: YouTube makes no Chinese track to prefer.
+export function preferWhisper(track, env = process.env) {
+  if (!track || track.source !== "auto-subtitles") return false;
+  if (env.STELE_AUTO_CAPTIONS === "youtube") return false;
+  return toTableCode(track.lang) !== "zh";
 }
 
 // The language to hand transcription so it can skip its own vote, from a
