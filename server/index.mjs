@@ -7,7 +7,7 @@ import { startYtdlpUpdates } from "./ytdlp.mjs";
 import { startRetranslating } from "./retranslate.mjs";
 import { PYTHON_BIN } from "./device.mjs";
 import { handleGetCookies, handleSaveCookies } from "./cookies.mjs";
-import { handleGlosses, handleLookup } from "./lookup.mjs";
+import { handleGlosses, handleLemmas, handleLookup } from "./lookup.mjs";
 import { handleSentences } from "./sentences.mjs";
 import { handleTranslate } from "./translate.mjs";
 import { handleRomanize } from "./romanize.mjs";
@@ -56,6 +56,7 @@ const ROUTES = [
   { methods: ["POST"], path: "/api/cookies", run: handleSaveCookies },
   { methods: ["GET"], prefix: "/api/lookup", run: handleLookup },
   { methods: ["POST"], path: "/api/glosses", run: handleGlosses },
+  { methods: ["POST"], path: "/api/lemmas", run: handleLemmas },
   { methods: ["POST"], path: "/api/sentences", run: handleSentences },
   { methods: ["GET", "DELETE"], prefix: "/api/library/", run: (req, res) => handleLibrary(req, res, { videoDir: VIDEO_DIR }) },
   { methods: ["POST"], path: "/api/locate", run: handleLocate },

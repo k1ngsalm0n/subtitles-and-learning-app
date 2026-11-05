@@ -10,7 +10,7 @@ import { sendJson, runCommand, readJsonBody } from "./util.mjs";
 import { PYTHON_BIN } from "./device.mjs";
 import { isLanguageCode, languageName } from "./languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
-import { defineWord, glossWordsFrom, hasDictionary } from "./wiktionary.mjs";
+import { defineWord, glossWordsFrom, hasDictionary, lemmasOf } from "./wiktionary.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "data");
@@ -901,4 +901,23 @@ export async function handleGlosses(req, res) {
     glosses = await glossWordsFrom(clean, lang, shortGloss);
   }
   sendJson(res, 200, { glosses });
+}
+
+// POST /api/lemmas {lang, words: [string]} → {lemmas: {word: lemma}}: the
+// dictionary form of each form, so the page can mark a word known by its
+// lemma. Chinese has no inflection and English no dictionary here: {}.
+const MAX_LEMMA_WORDS = 3000;
+export async function handleLemmas(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, error.status || 400, { error: error.message || "A JSON body is required." });
+    return;
+  }
+  const lang = String(body?.lang || "");
+  const words = (Array.isArray(body?.words) ? body.words : [])
+    .filter((w) => typeof w === "string" && w.length <= 40)
+    .slice(0, MAX_LEMMA_WORDS);
+  sendJson(res, 200, { lemmas: lang === "zh" ? {} : await lemmasOf(words, lang) });
 }
