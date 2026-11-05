@@ -109,16 +109,17 @@ class OpusRouteTableTest(unittest.TestCase):
         # No dedicated model into Chinese: NLLB (or the chat model).
         self.assertIsNone(opus_route("es", "zh"))
 
-    def test_token_is_prepended_and_follows_the_chinese_script(self):
+    def test_token_is_prepended_and_english_to_chinese_asks_for_simplified(self):
         from unittest import mock
 
         from translate import opus_prefix, opus_route
 
         self.assertEqual(opus_prefix(opus_route("zh", "en")), "")
-        with mock.patch.dict(os.environ, {"ZH_SCRIPT": "trad"}):
-            self.assertEqual(opus_prefix(opus_route("en", "zh")), ">>cmn_Hant<< ")
-        with mock.patch.dict(os.environ, {"ZH_SCRIPT": "off"}):
-            self.assertEqual(opus_prefix(opus_route("en", "zh")), ">>cmn_Hans<< ")
+        # Simplified whatever the app's script: >>cmn_Hant<< stops at the
+        # first comma, and in_app_script converts afterwards.
+        for script in ("trad", "off"):
+            with mock.patch.dict(os.environ, {"ZH_SCRIPT": script}):
+                self.assertEqual(opus_prefix(opus_route("en", "zh")), ">>cmn_Hans<< ")
         # A group model, as a per-language entry would add it.
         group = {"model": "Helsinki-NLP/opus-mt-tc-big-en-zle", "token": "rus"}
         self.assertEqual(opus_prefix(group), ">>rus<< ")

@@ -50,7 +50,9 @@ Notes:
   start of every source sentence, or it picks a target language itself.
   `translate_batch_opus` prepends it from the route's `token` in
   `OPUS_ROUTES` (`server/translate.py`); the existing en→zh model needed one
-  too (`cmn_Hant`) and had been running without.
+  too and had been running without. It gets `cmn_Hans`, not `cmn_Hant`:
+  asked for Traditional it stopped at the first comma on half the FLORES
+  lines; the app converts its Simplified to Traditional afterwards.
 - The old single-pair `opus-mt-xx-en` models (2020) are mostly superseded by
   the `tc-big`/`tc-bible-big` ones above; the leaderboard has no FLORES row
   for most of them, so measure before keeping one.
