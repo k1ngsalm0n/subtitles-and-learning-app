@@ -350,3 +350,22 @@ test("a lemmatiser is asked when the dictionary's entries lead nowhere", async (
     else delete wikt.LEMMATISERS.pt;
   }
 });
+
+test("lemmasOf gives each form its dictionary form, and nothing for a lemma", async () => {
+  const lemmas = await wikt.lemmasOf(["falou", "falar", "casa", "nada-disso", "falou"], "pt");
+  assert.equal(lemmas.falou, "falar");
+  assert.equal("falar" in lemmas, false);
+  assert.equal("nada-disso" in lemmas, false);
+  assert.deepEqual(await wikt.lemmasOf(["falou"], "xx"), {});
+  // A compound told by its last part is not a form of it.
+  const saved = wikt.LEMMATISERS.pt;
+  wikt.LEMMATISERS.pt = (w) => (w === "Grandecasa" ? [{ lemma: "casa", description: "Grande + casa" }] : w === "casa's" ? [{ lemma: "casa", description: "casa + es" }] : []);
+  try {
+    const more = await wikt.lemmasOf(["Grandecasa", "casa's"], "pt");
+    assert.equal("Grandecasa" in more, false);
+    assert.equal(more["casa's"], "casa");
+  } finally {
+    if (saved) wikt.LEMMATISERS.pt = saved;
+    else delete wikt.LEMMATISERS.pt;
+  }
+});

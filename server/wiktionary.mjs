@@ -447,6 +447,26 @@ export async function defineWord(word, code) {
   };
 }
 
+// The dictionary form of each word, for marking a word known by its lemma
+// (knowing "mangeons" dims "manger" and "mange"): { word: lemma }, only for
+// words that are a form of something else. Dictionary only, all at once.
+export async function lemmasOf(words, code) {
+  const out = {};
+  if (!hasDictionary(code)) return out;
+  for (const word of words) {
+    if (typeof word !== "string" || !word || word in out) continue;
+    const found = await defineWord(word, code).catch(() => null);
+    if (!found?.lemma || found.lemma === word) continue;
+    // A compound told by its last part (Waffengeschäft, "Waffen + geschäft")
+    // isn't a form of it: knowing Geschäfte doesn't make it known. A form
+    // begins like its lemma; a compound only ends like it.
+    const made = / \+ /.test(found.formOf || "");
+    if (made && foldWord(word, code).slice(0, 3) !== foldWord(found.lemma, code).slice(0, 3)) continue;
+    out[word] = found.lemma;
+  }
+  return out;
+}
+
 // Short meanings for many words at once ("Words to learn"), never the chat
 // model. { word: { pinyin: "", meaning, parts: false, lemma } }.
 export async function glossWordsFrom(items, code, shorten = (m) => m) {

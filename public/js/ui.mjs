@@ -30,6 +30,7 @@ import { spokenProgress } from "./karaoke.mjs";
 import { paintHighlight } from "./imagehighlight.mjs";
 import { speak } from "./tts.mjs";
 import { speakButtonsHtml } from "./speakbuttons.mjs";
+import { fetchLemmas, lemmaLookup } from "./lemmas.mjs";
 import {
   displayText,
   displayTokens,
@@ -129,6 +130,7 @@ export function renderTranscript(els) {
     (html || `<p class="muted">No matching subtitles.</p>`) + toggle;
   setRovingFocus(e);
   showNewWordCount(e, markOf, query);
+  loadLemmas(e);
 
   // Keeps the Chinese script toggle (and Loop Line) in step with what is on
   // screen. Cheap unless something still needs converting, and the re-render it
@@ -141,6 +143,21 @@ function currentWordMarks() {
     cards: state.cards,
     knownWords: state.knownWords,
     formsOf: savedWordForms,
+    lemmaOf: lemmaLookup(state.learningLang),
+  });
+}
+
+// Lemmas for the words on screen, the known words and the cards' words; the
+// marks are drawn again when they arrive. Re-asks nothing already asked.
+function loadLemmas(e) {
+  const lang = state.learningLang;
+  const wanted = [
+    ...words(e).map((w) => w.dataset.word),
+    ...state.knownWords,
+    ...state.cards.map((c) => c.word).filter(Boolean),
+  ];
+  fetchLemmas(lang, wanted).then((changed) => {
+    if (changed && state.learningLang === lang) refreshWordMarks(e);
   });
 }
 
@@ -208,12 +225,12 @@ export function refreshWordMarks(els) {
 }
 
 export function wordIsKnown(word) {
-  return knownEntriesFor(word, state.knownWords, savedWordForms).length > 0;
+  return knownEntriesFor(word, state.knownWords, savedWordForms, lemmaLookup(state.learningLang)).length > 0;
 }
 
 // Flip a word between known and not. Returns whether it is known now.
 export function toggleWordKnown(word, els) {
-  const entries = knownEntriesFor(word, state.knownWords, savedWordForms);
+  const entries = knownEntriesFor(word, state.knownWords, savedWordForms, lemmaLookup(state.learningLang));
   if (entries.length) for (const entry of entries) setWordKnown(entry, false);
   else setWordKnown(word, true);
   refreshWordMarks(els);

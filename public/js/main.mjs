@@ -1458,13 +1458,16 @@ async function openSource(source, { at = null, play = false } = {}) {
   }
   state.currentSourceId = source.id;
   setProvisional(false);
-  loadSubtitles(entry.subtitles || "", entry.translation || "");
-  state.wordTimings = Array.isArray(entry.words) ? entry.words : [];
+  // The language before the lines: loading them draws the transcript and
+  // asks for its reading and word cut, and a German video drawn as the
+  // default "zh" was cut as Chinese, with its words marked as Chinese ones.
   if (entry.language) {
     const lang = entry.language.toLowerCase();
     state.learningLang = lang === "chinese" ? "zh" : lang;
     syncTranslateLangs(els, entry.translationLanguage || "");
   }
+  loadSubtitles(entry.subtitles || "", entry.translation || "");
+  state.wordTimings = Array.isArray(entry.words) ? entry.words : [];
   // The session is what a reload brings back (restoreSession).
   saveSession({
     sourceId: source.id,

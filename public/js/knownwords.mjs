@@ -11,33 +11,48 @@
 
 import { knownKey } from "./state.mjs";
 
+// `lemmaOf(word)` is a word's dictionary form, or "" when it is one (or the
+// language has none): French "mangeons" is "manger". A word is known, or
+// saved, when it or its lemma is — knowing "mangeons" dims "manger" and
+// "mange", where "known" used to be one inflection at a time.
+const noLemma = () => "";
+
+// Every key a word may be found under: its forms, and its lemma's.
+function keysOf(word, formsOf, lemmaOf) {
+  const lemma = lemmaOf(word);
+  return [...formsOf(word), ...(lemma ? formsOf(lemma) : [])];
+}
+
 // Returns `markOf(word)`: " known", " saved" or "" — a class suffix for the
 // word's <span>. Built once per render; each lookup is a Set check.
-export function buildWordMarks({ cards = [], knownWords = [], formsOf = (w) => [w] }) {
+export function buildWordMarks({ cards = [], knownWords = [], formsOf = (w) => [w], lemmaOf = noLemma }) {
   const saved = new Set();
   for (const card of cards) {
-    if (card.word) for (const form of formsOf(card.word)) saved.add(form);
+    if (card.word) for (const form of keysOf(card.word, formsOf, lemmaOf)) saved.add(knownKey(form));
   }
   const known = new Set();
   for (const word of knownWords) {
-    for (const form of formsOf(word)) known.add(knownKey(form));
+    for (const form of keysOf(word, formsOf, lemmaOf)) known.add(knownKey(form));
   }
   return (word) => {
+    const lemma = lemmaOf(word);
+    const has = (set) => set.has(knownKey(word)) || (lemma && set.has(knownKey(lemma)));
     // Known wins over saved: a card you've since said you know is no longer
     // something the transcript needs to point out.
-    if (known.has(knownKey(word))) return " known";
-    if (saved.has(word)) return " saved";
+    if (has(known)) return " known";
+    if (has(saved)) return " saved";
     return "";
   };
 }
 
 // The stored entries that make `word` count as known. Usually just the word,
 // but a word known as 头发 is what makes 頭髮 dim, so undoing it on 頭髮 has to
-// remove 头发 — removing 頭髮 would change nothing.
-export function knownEntriesFor(word, knownWords = [], formsOf = (w) => [w]) {
-  const key = knownKey(word);
+// remove 头发 — removing 頭髮 would change nothing. The same for a form known
+// through its lemma: undoing "mange" removes the "mangeons" that dimmed it.
+export function knownEntriesFor(word, knownWords = [], formsOf = (w) => [w], lemmaOf = noLemma) {
+  const wanted = new Set(keysOf(word, formsOf, lemmaOf).map(knownKey));
   return knownWords.filter((entry) =>
-    formsOf(entry).some((form) => knownKey(form) === key),
+    keysOf(entry, formsOf, lemmaOf).some((form) => wanted.has(knownKey(form))),
   );
 }
 

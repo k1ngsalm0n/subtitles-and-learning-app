@@ -129,3 +129,24 @@ test("Turkish words are the same word at the start of a sentence", async () => {
     state.learningLang = before;
   }
 });
+
+// French forms and their lemmas, as /api/lemmas gives them.
+const LEMMAS = { mangeons: "manger", mange: "manger", est: "être", sont: "être" };
+const lemmaOf = (w) => LEMMAS[w] || "";
+
+test("a word is known by its lemma: knowing one form dims the others", () => {
+  const markOf = buildWordMarks({ knownWords: ["mangeons"], lemmaOf });
+  assert.equal(markOf("mangeons"), " known");
+  assert.equal(markOf("manger"), " known");
+  assert.equal(markOf("mange"), " known");
+  assert.equal(markOf("sont"), "", "another lemma's form stays new");
+  // Knowing the lemma itself dims its forms.
+  assert.equal(buildWordMarks({ knownWords: ["être"], lemmaOf })("est"), " known");
+});
+
+test("a card's word underlines its other forms, and undo finds the form that was known", () => {
+  assert.equal(buildWordMarks({ cards: [{ word: "mange" }], lemmaOf })("mangeons"), " saved");
+  assert.deepEqual(knownEntriesFor("mange", ["mangeons", "est"], (w) => [w], lemmaOf), ["mangeons"]);
+  // With no lemmas (Chinese, an old server) nothing changes.
+  assert.deepEqual(knownEntriesFor("mange", ["mangeons"]), []);
+});
