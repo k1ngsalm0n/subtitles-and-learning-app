@@ -940,6 +940,14 @@ async function getMediaMeta(url) {
   try {
     info = JSON.parse(result.stdout.trim());
   } catch {
+    info = undefined;
+  }
+  // A link to no video (deleted, private, a mistyped id): yt-dlp prints
+  // `null` and says why on stderr. That used to reach `info.language` and
+  // end the import with "Cannot read properties of null".
+  if (!info || typeof info !== "object") {
+    const why = unavailableReason(result.stderr);
+    if (why) throw new Error(why);
     return { title: "Imported media", language: "", manual: [], auto: [], categories: [] };
   }
   let language = String(info.language || "").toLowerCase();
@@ -951,6 +959,17 @@ async function getMediaMeta(url) {
     auto: Object.keys(info.automatic_captions || {}),
     categories: Array.isArray(info.categories) ? info.categories : [],
   };
+}
+
+// yt-dlp's own reason a link has no video, for the reader: "ERROR:
+// [youtube] xb_5JkD5S6k: This video is unavailable" → "This video is
+// unavailable." The last ERROR line, without its extractor and id prefix.
+export function unavailableReason(stderr) {
+  const lines = String(stderr || "").split(/\r?\n/).filter((l) => /^ERROR:/.test(l.trim()));
+  if (!lines.length) return "";
+  const text = lines.at(-1).trim().replace(/^ERROR:\s*/, "").replace(/^\[[^\]]+\]\s*(?:[\w-]+:\s*)?/, "").trim();
+  if (!text) return "";
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
 // YouTube's own category. "Music" is what decides the bigger Whisper model on
