@@ -102,6 +102,107 @@ export function germanCompound(word) {
   return [];
 }
 
+// ---- A word read with its line --------------------------------------------
+
+// A language's rule for a word whose dictionary form depends on the rest of
+// its line: `code: async (word, context) => ({ lemma, description }) | null`.
+// German (and Dutch) split a verb: "Ich rufe dich morgen an" is anrufen,
+// "to phone", not rufen "to call out".
+export const CONTEXT_LEMMAS = {
+  de: (word, context) => germanSeparable(word, context),
+};
+
+// Particles a German verb leaves at the end of its clause, as written. Not "weiter":
+// "sagte Zapatero weiter" is "said further", not weitersagen "pass on".
+const SEPARABLE = new Set(
+  ("ab an auf aus bei dar ein empor fern fest fort frei her herab heran herauf heraus herbei herein herum " +
+    "herunter hervor hin hinab hinauf hinaus hinein hinterher hinunter hoch los mit nach nieder statt teil " +
+    "um vor voran voraus vorbei vorher weg wieder zu zurecht zurück zusammen durch über unter").split(" "),
+);
+// A clause ends at punctuation, and at a conjunction joining two: in "gab
+// er den Forderungen nach und willigte ein", nach is gab's (nachgeben) and
+// ein willigte's.
+const CLAUSE_END = /^(?:[.,;:!?…–—"„“»«]|und|oder|aber|sondern)$/u;
+
+function tokensOf(context) {
+  // A number is a word too, with its own points and commas ("auf 1.300 Wagen
+  // an" is one clause, anheben).
+  return String(context || "").match(/\p{N}+(?:[.,:]\p{N}+)*|[\p{L}\p{M}'’]+|[.,;:!?…–—"„“»«]/gu) || [];
+}
+
+// The verb a clause-final particle belongs with, when particle + verb is a
+// verb of its own: clicked on the verb ("rufe" → anrufen) or on the particle
+// ("an" → anrufen). Nothing when the particle isn't the clause's last word,
+// or the dictionary has no such verb (so "Ich gehe an" stays gehen).
+async function germanSeparable(word, context) {
+  const tokens = tokensOf(context);
+  const fold = (w) => foldWord(w, "de");
+  const at = tokens.findIndex((t) => fold(t) === fold(word));
+  if (at < 0) return null;
+  const clauseOf = (i) => {
+    let start = i;
+    while (start > 0 && !CLAUSE_END.test(tokens[start - 1])) start--;
+    let end = i;
+    while (end + 1 < tokens.length && !CLAUSE_END.test(tokens[end + 1])) end++;
+    return [start, end];
+  };
+  const [start, end] = clauseOf(at);
+  const last = tokens[end];
+  // As written: "Weg" is a noun ("Es gibt nur einen Weg"), not weg.
+  if (!SEPARABLE.has(last) || end === start) return null;
+  // "vom Rücken ihrer Pferde aus" is von … aus, "from", not a verb's aus.
+  if (last === "aus" && tokens.slice(start, end).some((t) => t === "von" || t === "vom")) return null;
+  // A verb as written: "drehende" (an adjective) and "Rücken" (a noun) are
+  // spelled like verb forms, but aren't the clause's verb.
+  const verbLemma = async (form) => {
+    const found = await defineWord(form, "de");
+    if (found?.partOfSpeech !== "verb" || /participle/i.test(found.formOf || "")) return "";
+    return fold(found.lemma || form);
+  };
+  const joined = (particle, lemma) => {
+    const verb = `${fold(particle)}${lemma}`;
+    return recordsFor(verb, "de").some((r) => r.w === verb && r.p === "verb" && (r.s || []).length) ? verb : "";
+  };
+  // Clicked on the verb: it and the clause's last word.
+  if (at !== end) {
+    const lemma = await verbLemma(word);
+    const verb = lemma && joined(last, lemma);
+    return verb ? { lemma: verb, description: `${word} … ${last}` } : null;
+  }
+  // Clicked on the particle: the clause's verbs, first first.
+  for (let i = start; i < end; i++) {
+    if (!/\p{L}/u.test(tokens[i])) continue;
+    const lemma = await verbLemma(tokens[i]);
+    const verb = lemma && joined(last, lemma);
+    if (verb) return { lemma: verb, description: `${tokens[i]} … ${last}` };
+  }
+  return null;
+}
+
+// defineWord, with the line it was clicked in: a language's context rule
+// first (German "rufe" in "Ich rufe dich an" is anrufen), else the word.
+export async function defineInContext(word, context, code) {
+  const rule = CONTEXT_LEMMAS[code];
+  if (rule && context && hasDictionary(code)) {
+    const hit = await Promise.resolve(rule(word, context)).catch(() => null);
+    const entry = hit && (await defineWord(hit.lemma, code));
+    if (entry?.meaning) {
+      const own = await defineWord(word, code).catch(() => null);
+      return {
+        ...entry,
+        word,
+        lemma: hit.lemma,
+        formOf: hit.description,
+        forms: [{ lemma: hit.lemma, description: hit.description }],
+        pronunciation: own?.pronunciation || "",
+        gender: "",
+        plural: "",
+      };
+    }
+  }
+  return defineWord(word, code);
+}
+
 // The commonest words whose own entry is the rarer reading: French "est"
 // is être before it is "east", "fait" faire before "fact". With no
 // frequencies in Wiktionary, a language lists them here, one block per

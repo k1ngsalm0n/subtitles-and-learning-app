@@ -10,7 +10,7 @@ import { sendJson, runCommand, readJsonBody } from "./util.mjs";
 import { PYTHON_BIN } from "./device.mjs";
 import { isLanguageCode, languageName } from "./languages.mjs";
 import { translateViaWorker } from "./translateWorker.mjs";
-import { defineWord, glossWordsFrom, hasDictionary, lemmasOf } from "./wiktionary.mjs";
+import { defineInContext, glossWordsFrom, hasDictionary, lemmasOf } from "./wiktionary.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "data");
@@ -697,7 +697,7 @@ async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
     ? null
     : lang === "zh"
       ? dictionaryResult(word, pinyin, await loadDict())
-      : await defineWord(word, lang).catch(() => null);
+      : await defineInContext(word, context, lang).catch(() => null);
 
   // Claude prepared this word for this line (mcp.mjs): answer at once. Its
   // notes are written in English (prepare.mjs), so only for an English reader.
@@ -752,7 +752,7 @@ async function lookupLayers(word, lang, context, to = "en", pinyin = "") {
   // 市區以外的地區 ("outside the city"); its gloss "weather", translated, is
   // 天氣: 17 of 20 words of a German vlog right, against 5 to 7.
   if (lang !== "zh" && lang !== to && hasDictionary(lang)) {
-    const entry = await defineWord(word, lang).catch(() => null);
+    const entry = await defineInContext(word, context, lang).catch(() => null);
     const viaEnglish = await throughEnglish(entry, word, (text) => translateText(text, "en", to));
     if (viaEnglish) return viaEnglish;
   }
