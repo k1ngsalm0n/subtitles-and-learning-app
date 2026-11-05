@@ -53,11 +53,14 @@ MODEL_NAME = "facebook/nllb-200-distilled-600M"
 # yue, wuu, lzh, …) and its model card says the token is required. Without one
 # it wrote Simplified ("今天天气不错"), so an English video's Chinese
 # translation came out in the other script from every Chinese subtitle in the
-# app. Traditional Mandarin matches the app's Traditional default (ZH_SCRIPT,
-# as in import.mjs); ZH_SCRIPT=off asks for Simplified (opus_prefix).
+# app. It is asked for Simplified Mandarin, whatever the app's script:
+# >>cmn_Hant<< (which it saw little of in training) stopped early on 103 of
+# 200 FLORES lines — "We now have 4-month-old mice that are non-diabetic that
+# used to be diabetic," became 「我們現在有四個月的老鼠,」 — against 17 with
+# >>cmn_Hans<<. in_app_script turns the result into Traditional.
 OPUS_ROUTES = {
     ("zh", "en"): {"model": "Helsinki-NLP/opus-mt-zh-en"},
-    ("en", "zh"): {"model": "Helsinki-NLP/opus-mt-en-zh", "token": "cmn_Hant"},
+    ("en", "zh"): {"model": "Helsinki-NLP/opus-mt-en-zh", "token": "cmn_Hans"},
     # Spanish. Both single-target (eng, spa), so no token. FLORES chrF++,
     # 100 sentences, against NLLB: see the Spanish PR.
     ("es", "en"): {"model": "Helsinki-NLP/opus-mt-tc-bible-big-roa-en"},
@@ -94,16 +97,11 @@ def opus_prefix(route):
     """The sentence-initial `>>id<< ` a route's model needs, or "".
 
     Accepts a route dict or a bare model name (a single-pair model, no
-    token). The Chinese script follows ZH_SCRIPT: Traditional by default,
-    Simplified when it's off."""
+    token)."""
     if not isinstance(route, dict):
         return ""
     token = route.get("token")
-    if not token:
-        return ""
-    if os.environ.get("ZH_SCRIPT") == "off" and token.endswith("_Hant"):
-        token = token[: -len("_Hant")] + "_Hans"
-    return f">>{token}<< "
+    return f">>{token}<< " if token else ""
 
 # Translate this many subtitle lines per model call. Batching is what makes the
 # CPU path faster; the GPU path benefits even more. Sized for the GPU path while
@@ -789,7 +787,7 @@ def in_app_script(lines):
     them as the model wrote them.
 
     Asked for Traditional, the models still write some Simplified: on 100
-    FLORES sentences 45 of opus-mt-en-zh's lines (with its >>cmn_Hant<< token)
+    FLORES sentences 45 of opus-mt-en-zh's lines (then with a >>cmn_Hant<< token)
     and 19-24 of NLLB's (pt, es -> zho_Hant) mixed in 临床, 公开, 处于. The
     same OpenCC table the transcripts go through puts them right."""
     if os.environ.get("ZH_SCRIPT", "trad") != "trad":

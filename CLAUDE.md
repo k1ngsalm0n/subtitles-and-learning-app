@@ -31,9 +31,11 @@ lifting — speech-to-text and offline translation — runs through Python.
   live in `OPUS_ROUTES` (translate.py), one line per (from, to): a model and,
   for multi-target models, a `token` prepended to every sentence as `>>id<<`.
   `opus-mt-en-zh` is one of those and ran without its token for months — it
-  wrote Simplified; it now gets `>>cmn_Hant<<` (`>>cmn_Hans<<` with
-  `ZH_SCRIPT=off`). Even with it, 45 of 100 FLORES lines mixed in
-  Simplified (临床, 公开), as did NLLB's into zho_Hant; every translation
+  wrote Simplified. Given `>>cmn_Hant<<`, it stopped at the first comma
+  on 103 of 200 FLORES lines (「我們現在有四個月的老鼠,」) and still mixed in
+  Simplified (临床, 公开) on 45 of 100, as NLLB's zho_Hant did; it now gets
+  `>>cmn_Hans<<` whatever the app's script (17 of 200 cut; chrF++ 15.7 →
+  18.7 after conversion), and every translation
   into Chinese, offline (`in_app_script`) or from the chat model
   (`zhconvert.mjs`), now goes through the transcripts' OpenCC table. `docs/language-models.md` has the model to use per pair.
 - **Word lookups:** any OpenAI-compatible chat API (currently free Groq,
