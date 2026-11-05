@@ -802,6 +802,88 @@ def in_app_script(lines):
     return [_to_traditional(line) if line else line for line in lines]
 
 
+# Subtitle tracks cut a sentence wherever the screen ran out: Tagesschau's
+# "In mehr als 30 Städten gingen gestern junge" / "Menschen auf die Straße, um
+# für eine bessere" went to the model as two sentences and came back "In more
+# than 30 cities yesterday young" / "People on the streets for a better". So a
+# track that ends its sentences with punctuation has the cues of one sentence
+# translated together, and the translation spread back over them by length.
+# A track that doesn't (lyrics, many machine tracks) is left line by line: with
+# no ends to go by, a "sentence" would be a guess. Chinese, Japanese and Thai
+# sources aren't joined: their cues are cut differently and their lines have
+# no spaces to spread by.
+_CUE_ENDS = re.compile(r"[.!?…。！？:;][\"'”’»)\]]*\s*$")
+_PUNCTUATED_SHARE = 0.3
+_RUN_CUES = 4
+_RUN_CHARS = 300
+_NOT_JOINED = {"zh", "ja", "th", "ko", "lo", "km", "my"}
+
+
+def sentence_runs(texts, from_code):
+    """Groups of consecutive indices whose texts are one sentence, in order.
+    Every index is in exactly one group."""
+    if from_code in _NOT_JOINED or len(texts) < 2:
+        return [[i] for i in range(len(texts))]
+    ended = [bool(_CUE_ENDS.search(t.strip())) for t in texts]
+    if sum(ended) < _PUNCTUATED_SHARE * len(texts):
+        return [[i] for i in range(len(texts))]
+    runs, run, size = [], [], 0
+    for i, text in enumerate(texts):
+        run.append(i)
+        size += len(text)
+        if ended[i] or not text.strip() or len(run) >= _RUN_CUES or size >= _RUN_CHARS:
+            runs.append(run)
+            run, size = [], 0
+    if run:
+        runs.append(run)
+    return runs
+
+
+def spread(translation, weights, spaced=True):
+    """`translation` cut into len(weights) pieces, each about its weight's
+    share, between words (or, in Chinese and Japanese, characters, after
+    punctuation where one is near). Every piece gets something while there is
+    enough to go round: an empty cue reads as a line with no translation.
+    Rejoining the pieces gives the translation back."""
+    n = len(weights)
+    text = translation.strip()
+    if n == 1:
+        return [text]
+    # The units the text may be cut between: words, or characters.
+    units = text.split(" ") if spaced else list(text)
+    units = [u for u in units if u] if spaced else units
+    join = " " if spaced else ""
+    total = sum(weights) or n
+    lengths = [len(u) + (1 if spaced else 0) for u in units]
+    size = sum(lengths) or 1
+    bounds, at, acc, start = [], 0.0, 0, 0
+    pos = [0]
+    for length in lengths:
+        acc += length
+        pos.append(acc)
+    for k, w in enumerate(weights[:-1]):
+        at += (w or 1) / total
+        want = at * size
+        # The unit boundary nearest the ideal cut, leaving one unit for each
+        # piece still to come, and at least one for this one.
+        lo, hi = start + 1, len(units) - (n - 1 - k)
+        if lo > hi:
+            bounds.append(start)
+            continue
+        cut = min(range(lo, hi + 1), key=lambda b: abs(pos[b] - want))
+        if not spaced:
+            near = [b for b in range(max(lo, cut - 4), min(hi, cut + 4) + 1) if units[b - 1] in "，、。；：,;:"]
+            if near:
+                cut = min(near, key=lambda b: abs(b - cut))
+        bounds.append(cut)
+        start = cut
+    pieces, start = [], 0
+    for cut in bounds + [len(units)]:
+        pieces.append(join.join(units[start:cut]).strip())
+        start = max(start, cut)
+    return pieces
+
+
 def translate_srt(srt_text, from_code, to_code="en", langs=None):
     """Translate a full SRT string and return the translated SRT string.
 
@@ -832,8 +914,28 @@ def translate_srt(srt_text, from_code, to_code="en", langs=None):
 
     for lang, indices in groups.items():
         texts = [entries[i][2] for i in indices]
-        for i, translated_text in zip(indices, _translate_lines(texts, lang, to_code)):
-            translations[i] = translated_text
+        # Cues of one sentence go to the model together; only cues next to
+        # each other in the file, so a line in another language isn't skipped
+        # over.
+        runs = []
+        for run in sentence_runs(texts, lang):
+            pieces = [run[0]]
+            for k in run[1:]:
+                if indices[k] == indices[pieces[-1]] + 1:
+                    pieces.append(k)
+                else:
+                    runs.append(pieces)
+                    pieces = [k]
+            runs.append(pieces)
+        joined = [
+            texts[run[0]] if len(run) == 1 else " ".join(texts[k].replace("\n", " ").strip() for k in run)
+            for run in runs
+        ]
+        spaced = to_code not in CJK_TARGETS
+        for run, translated_text in zip(runs, _translate_lines(joined, lang, to_code)):
+            weights = [len(texts[k]) for k in run]
+            for k, piece in zip(run, spread(translated_text, weights, spaced)):
+                translations[indices[k]] = piece
 
     return "\n\n".join(
         f"{idx}\n{timestamp}\n{translated_text}"
