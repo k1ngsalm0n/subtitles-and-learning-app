@@ -60,6 +60,20 @@ const ENTRIES = [
   de("Tag", "noun", [sense(["day"])]),
   de("Tage", "noun", [sense(["period, that time of the month"], { tags: ["informal"] })]),
   de("Tage", "noun", [formOf("Tag", "plural of Tag")]),
+  // Separable verbs: rufe … an is anrufen; gehe … an stays gehen (no angehen here).
+  de("rufen", "verb", [sense(["to call, to shout"])]),
+  de("rufe", "verb", [formOf("rufen", "first-person singular present of rufen")]),
+  de("anrufen", "verb", [sense(["to phone, to call up"])]),
+  de("gehe", "verb", [formOf("gehen", "first-person singular present of gehen")]),
+  de("geben", "verb", [sense(["to give"])]),
+  de("gab", "verb", [formOf("geben", "first/third-person singular preterite of geben")]),
+  de("nachgeben", "verb", [sense(["to give in, to yield"])]),
+  de("eingeben", "verb", [sense(["to enter (data)"])]),
+  de("willigte", "verb", [formOf("einwilligen", "first/third-person singular preterite of einwilligen")]),
+  de("einwilligen", "verb", [sense(["to consent"])]),
+  de("Weg", "noun", [sense(["way, path"])]),
+  de("weggeben", "verb", [sense(["to give away"])]),
+  de("gibt", "verb", [formOf("geben", "third-person singular present of geben")]),
   de("ein", "num", [sense(["one"])]),
   de("ein", "article", [sense(["a, an"])]),
 ];
@@ -147,4 +161,23 @@ test("real German subtitle lines are German, or left unplaced, never another lan
 test("Afrikaans, which shares 'die', is not called German", () => {
   // Every one of 200 Afrikaans FLORES lines was German before "die" left the list.
   assert.notEqual(detectLanguage("Die mense het gesê dat hulle nie die werk kan doen nie."), "de");
+});
+
+test("a verb whose particle closes its clause is the separable verb", async () => {
+  const r = await wikt.defineInContext("rufe", "Ich rufe dich morgen an.", "de");
+  assert.equal(r.lemma, "anrufen");
+  assert.equal(r.formOf, "rufe … an");
+  assert.equal(r.meaning, "to phone, to call up");
+  // Clicking the particle finds the verb too.
+  assert.equal((await wikt.defineInContext("an", "Ich rufe dich morgen an.", "de")).lemma, "anrufen");
+  // Without its line, or with no such verb, the word is itself.
+  assert.equal((await wikt.defineInContext("rufe", "", "de")).lemma, "rufen");
+  assert.equal((await wikt.defineInContext("gehe", "Ich gehe heute an.", "de")).lemma, "gehen");
+});
+
+test("a clause ends at a conjunction, and Weg is not weg", async () => {
+  const line = "Er gab den Forderungen nach und willigte ein.";
+  assert.equal((await wikt.defineInContext("gab", line, "de")).lemma, "nachgeben");
+  assert.equal((await wikt.defineInContext("willigte", line, "de")).lemma, "einwilligen");
+  assert.equal((await wikt.defineInContext("gibt", "Es gibt nur einen Weg.", "de")).lemma, "geben");
 });
