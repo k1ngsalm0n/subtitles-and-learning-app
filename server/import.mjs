@@ -38,6 +38,7 @@ import { llmCouldTranslate, translateSrtWithLlm } from "./llmTranslate.mjs";
 import { retranslateSoon } from "./retranslate.mjs";
 import { fixTranscriptSrt } from "./transcriptFix.mjs";
 import { toTraditional } from "./zhconvert.mjs";
+import { respellSegments } from "./respell.mjs";
 import { onImported } from "./prepare.mjs";
 import { refineSegments } from "./segment.mjs";
 import {
@@ -1808,7 +1809,10 @@ async function transcribeFastSegments(audioPath, onProgress = null, onSegment = 
   // of transcribing it. Surface a tagged error so the caller can show a
   // friendly message and skip the openai-whisper CLI fallback.
   if (data.error === "unsupported_language") throw notOfferedError(data.language);
-  return { language: toTableCode(data.language) || "unknown", segments: data.segments || [] };
+  const language = toTableCode(data.language) || "unknown";
+  // Spelled as the language is written (respell.mjs: German's ß), text and
+  // word timings alike, before anything reads them.
+  return { language, segments: respellSegments(data.segments || [], language) };
 }
 
 // Every word Whisper timed, flattened across segments and ordered by time, for

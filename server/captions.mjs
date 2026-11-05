@@ -648,7 +648,7 @@ const MIN_SPEECH_CPS = 0.8;
 // invented ("优优独播剧场——YoYo Television Series Exclusive" appeared across
 // 22 s of storm noise). Deliberately specific — no single common word.
 const HALLUCINATION_RE =
-  /独播剧场|獨播劇場|YoYo Television|中文字幕|字幕组|字幕組|字幕志愿者|字幕由|字幕提供|点赞订阅|點贊訂閱|不吝点赞|不吝點贊|按讚訂閱|打赏支持|打賞支持|謝謝觀看|谢谢观看|谢谢收看|明镜|明鏡|點點欄目/;
+  /独播剧场|獨播劇場|YoYo Television|中文字幕|字幕组|字幕組|字幕志愿者|字幕由|字幕提供|点赞订阅|點贊訂閱|不吝点赞|不吝點贊|按讚訂閱|打赏支持|打賞支持|謝謝觀看|谢谢观看|谢谢收看|明镜|明鏡|點點欄目|Untertitel(?:ung)? (?:im Auftrag|des|der|von) |Amara\.org|Copyright WDR/;
 // Speech transcription covering at least this fraction of the video means the
 // audio carries the story (a narrated news piece), not the on-screen text.
 const SPEECH_LED_COVERAGE = 0.5;

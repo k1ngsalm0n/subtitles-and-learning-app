@@ -46,7 +46,9 @@ class ModelByLanguage(unittest.TestCase):
     """The recognition model follows the study language's script (#65)."""
 
     def test_default_model_for_chinese_english_japanese_and_latin(self):
-        for code in ("zh", "en", "ja", "es", "de", "vi", "nb", ""):
+        # Esperanto, not a study language Whisper can hear, stands for the
+        # Latin rows with no override of their own (German has "latin").
+        for code in ("zh", "en", "ja", "es", "eo", "vi", "nb", ""):
             self.assertEqual(ocr_engine.recognition_params(code), {}, code)
 
     def test_own_model_for_other_scripts(self):

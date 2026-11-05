@@ -948,6 +948,239 @@
    "fix": {}
   },
   {
+   "id": "de-gingen",
+   "language": "de",
+   "real": true,
+   "note": "Tagesschau in 100 Sekunden, Whisper small: gingen heard as ging in",
+   "lines": [
+    "Jugendproteste in Deutschland.",
+    "In mehr als 30 Städten ging in gestern junge Menschen auf die Straße,",
+    "um für eine bessere Bildung mehr Klimaschutz und bezahlbaren Wohnraum zu demonstrieren."
+   ],
+   "fix": {
+    "1": [
+     "In mehr als 30 Städten gingen gestern junge Menschen auf die Straße,"
+    ]
+   }
+  },
+  {
+   "id": "de-sollen",
+   "language": "de",
+   "real": true,
+   "note": "Tagesschau in 100 Sekunden, Whisper small: sollen fortgeführt run together",
+   "lines": [
+    "Aufgerufen hatte dazu die Initiative Gen Z regelt.",
+    "Die Demonstrationen verliefen weitgehend friedlich und sonnenfortgeführt werden.",
+    "In der Innenstadt wurden Schaufenster eingeschlagen und Geschäfte geplündert."
+   ],
+   "fix": {
+    "1": [
+     "Die Demonstrationen verliefen weitgehend friedlich und sollen fortgeführt werden."
+    ]
+   }
+  },
+  {
+   "id": "de-ig-metall",
+   "language": "de",
+   "real": true,
+   "note": "Tagesschau in 100 Sekunden, Whisper small: the union IG Metall",
+   "lines": [
+    "Ege Metall beginnt mit Warnstreiks.",
+    "Nach Ablauf der Friedenspflicht legten Beschäftigte um Mitternacht unter anderem",
+    "in Rheinland-Pfalz die Arbeit nieder."
+   ],
+   "fix": {
+    "0": [
+     "IG Metall beginnt mit Warnstreiks."
+    ]
+   }
+  },
+  {
+   "id": "de-hackerangriff",
+   "language": "de",
+   "real": true,
+   "note": "Tagesschau in 100 Sekunden, Whisper small (Bynans, the exchange's name, already corrected)",
+   "lines": [
+    "FBI macht Nordkorea für Hecker Angriff auf weltgrößte Kryptobörse Binance verantwortlich.",
+    "Dem Unternehmen entstand dabei nach eigenen Angaben ein geschätzter Schaden von mehr als 6 Milliarden US-Dollar."
+   ],
+   "fix": {
+    "0": [
+     "FBI macht Nordkorea für Hackerangriff auf weltgrößte Kryptobörse Binance verantwortlich.",
+     "FBI macht Nordkorea für Hacker-Angriff auf weltgrößte Kryptobörse Binance verantwortlich.",
+     "FBI macht Nordkorea für Hacker Angriff auf weltgrößte Kryptobörse Binance verantwortlich."
+    ]
+   }
+  },
+  {
+   "id": "de-anlegern",
+   "language": "de",
+   "real": true,
+   "note": "Tagesschau in 100 Sekunden, Whisper small: Anleger, investors",
+   "lines": [
+    "Dem Unternehmen entstand dabei ein geschätzter Schaden von mehr als 6 Milliarden US-Dollar.",
+    "Binance versprach betroffenen Anliegern die Verluste zu ersetzen."
+   ],
+   "fix": {
+    "1": [
+     "Binance versprach betroffenen Anlegern die Verluste zu ersetzen.",
+     "Binance versprach betroffenen Anlegern, die Verluste zu ersetzen."
+    ]
+   }
+  },
+  {
+   "id": "de-leute",
+   "language": "de",
+   "real": true,
+   "note": "a German vlog, Whisper small: Leute, and sonnig heard as so nicht",
+   "lines": [
+    "Hallo Leiter! Heute ist Samstag, das Wetter ist richtig schön, es ist so nicht und also es ist einfach ein toller Tag,",
+    "deshalb haben wir beschlossen nach Essen zu fahren."
+   ],
+   "fix": {
+    "0": [
+     "Hallo Leute! Heute ist Samstag, das Wetter ist richtig schön, es ist sonnig und also es ist einfach ein toller Tag,"
+    ]
+   }
+  },
+  {
+   "id": "de-strecke",
+   "language": "de",
+   "real": true,
+   "note": "a German vlog, Whisper small",
+   "lines": [
+    "Mit dem Zug braucht man von Köln nach Essen weniger als anderthalb Stunden und die Schrecke ist wirklich schön.",
+    "Man fährt am wunderschönen Rhein vorbei."
+   ],
+   "fix": {
+    "0": [
+     "Mit dem Zug braucht man von Köln nach Essen weniger als anderthalb Stunden und die Strecke ist wirklich schön."
+    ]
+   }
+  },
+  {
+   "id": "de-abgeholt",
+   "language": "de",
+   "real": true,
+   "note": "a German vlog, Whisper small (medium wrote it too)",
+   "lines": [
+    "Wir sind in Essen angekommen und unsere Freunde haben uns am Essener Hauptbahnhof abgeheult.",
+    "Angefangen haben wir mit einem leckeren Eis."
+   ],
+   "fix": {
+    "0": [
+     "Wir sind in Essen angekommen und unsere Freunde haben uns am Essener Hauptbahnhof abgeholt."
+    ]
+   }
+  },
+  {
+   "id": "de-gaense",
+   "language": "de",
+   "real": true,
+   "note": "a German vlog, Whisper small: Gänse, geese",
+   "lines": [
+    "Hier gab es so viele süße Ginzer, die vor kurzem Babys bekommen hatten.",
+    "Die kleinen Küken sind die ganze Zeit direkt neben ihrer Mama geblieben."
+   ],
+   "fix": {
+    "0": [
+     "Hier gab es so viele süße Gänse, die vor kurzem Babys bekommen hatten."
+    ]
+   }
+  },
+  {
+   "id": "de-granatapfel",
+   "language": "de",
+   "real": true,
+   "note": "a German vlog, Whisper small",
+   "lines": [
+    "Es gab so viele verschiedene Eissorten,",
+    "Banane, Schokolade, Nüsse, Walnuss, Sauersahne, Erdbeere, Granatabfell und vieles mehr."
+   ],
+   "fix": {
+    "1": [
+     "Banane, Schokolade, Nüsse, Walnuss, Sauersahne, Erdbeere, Granatapfel und vieles mehr."
+    ]
+   }
+  },
+  {
+   "id": "de-angenehm",
+   "language": "de",
+   "real": true,
+   "note": "Easy German, Whisper small",
+   "lines": [
+    "Wie wichtig ist das Geld in Ihrem Leben?",
+    "Sehr wichtig. Weil wenn man kein Geld hat, hat man kein engeniemes Leben."
+   ],
+   "fix": {
+    "1": [
+     "Sehr wichtig. Weil wenn man kein Geld hat, hat man kein angenehmes Leben."
+    ]
+   }
+  },
+  {
+   "id": "de-ueberleben",
+   "language": "de",
+   "real": true,
+   "note": "Easy German, Whisper small",
+   "lines": [
+    "Alles kostet Geld.",
+    "Man braucht das zum Leben und zum Oberleben.",
+    "Aber wie viel?"
+   ],
+   "fix": {
+    "1": [
+     "Man braucht das zum Leben und zum Überleben."
+    ]
+   }
+  },
+  {
+   "id": "de-control-spoken",
+   "language": "de",
+   "real": true,
+   "note": "Easy German's own captions: filler, hab', 'ne, ne?",
+   "lines": [
+    "Äh, ich brauch' so viel, dass ich meine Rechnungen bezahlen kann.",
+    "Und es gibt halt auch einem 'ne ruhige Nacht, ne?",
+    "Und, ähm, ich hab' mich auf jeden Tag gefreut, ja."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "de-control-colloquial",
+   "language": "de",
+   "note": "colloquial spelling that is what was said",
+   "lines": [
+    "Haste mal 'n Euro?",
+    "Wir ham das gestern schon gemacht.",
+    "Is' doch egal, komm, wir geh'n."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "de-control-homophones",
+   "language": "de",
+   "note": "das/dass, seit/seid, Meer/mehr, all used correctly",
+   "lines": [
+    "Ich weiß, dass das Wetter seit Tagen schlecht ist.",
+    "Ihr seid wieder zu spät.",
+    "Das Meer ist heute mehr grau als blau."
+   ],
+   "fix": {}
+  },
+  {
+   "id": "de-control-plain",
+   "language": "de",
+   "real": true,
+   "note": "Tagesschau's own subtitles",
+   "lines": [
+    "Mehr als 30 Menschen wurden festgenommen, die Innenstadt war zeitweise gesperrt.",
+    "Die Proteste sollen in der kommenden Woche auf das ganze Bundesgebiet ausgeweitet werden.",
+    "Am 1. und 2. November ehren die Mexikaner mit farbenfrohen Opfergaben ihre Toten."
+   ],
+   "fix": {}
+  },
+  {
    "id": "real-streettalk-ep1",
    "language": "zh",
    "real": true,
