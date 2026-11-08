@@ -14,6 +14,10 @@ entirely locally — transcription, translation, and caption OCR are all offline
 > [docs/adding-a-language.md](docs/adding-a-language.md) and
 > [issue #65](https://github.com/k1ngsalm0n/subtitles-and-learning-app/issues/65).
 
+**New to all this?** [docs/getting-started.md](docs/getting-started.md) walks
+through installing and using Stele step by step, with no terminal experience
+assumed.
+
 ## Run
 
 ```bash
