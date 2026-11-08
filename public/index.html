@@ -19,6 +19,7 @@
     <link rel="modulepreload" href="./js/cardmodal.mjs" />
     <link rel="modulepreload" href="./js/flashcards.mjs" />
     <link rel="modulepreload" href="./js/languages.mjs" />
+    <link rel="modulepreload" href="./js/linebreak.mjs" />
     <link rel="modulepreload" href="./js/lookup.mjs" />
     <link rel="modulepreload" href="./js/miniplayer.mjs" />
     <link rel="modulepreload" href="./js/player.mjs" />
@@ -878,6 +879,9 @@ select::-ms-expand { display: none; }
    negative margin — otherwise every word sat 10px from the next and a full
    stop floated a box-width away from its word ("primada ."). */
 .original.plain { font-size: 20px; line-height: 1.6; }
+/* A word and the punctuation that can't be split from it (ui.mjs, glueToWords):
+   no 。 alone at the start of a line. */
+.nobreak { white-space: nowrap; }
 .original.plain .word { padding: 1px 4px; margin: 0 -4px; border-radius: 6px; }
 .word {
   /* inline-block so the box (background + karaoke outline) wraps the whole
