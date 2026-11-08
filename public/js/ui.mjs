@@ -22,6 +22,7 @@ import {
 } from "./knownwords.mjs";
 import { previewIntervals, formatInterval } from "./scheduler.mjs";
 import { hasHan } from "./strokes.mjs";
+import { glueToWords } from "./linebreak.mjs";
 import { getTranslation } from "./subtitle.mjs";
 import { escapeHtml, formatTime, tokenize, isWord, isPlainLatin } from "./util.mjs";
 import { pinyinTone, tonedPinyinHtml } from "./tones.mjs";
@@ -515,11 +516,11 @@ function renderRubyTranscript(tokens, text, markOf, words) {
     // Character index, not UTF-16 offset: the highlight indexes into the
     // recogniser's per-character boxes, which are one per character.
     let charStart = 0;
-    let html = "";
+    const parts = [];
     for (const seg of wordsOf(text, words)) {
       const length = [...seg.segment].length;
       if (!isWord(seg)) {
-        html += escapeHtml(seg.segment);
+        parts.push({ text: seg.segment, word: false });
         charStart += length;
         continue;
       }
@@ -539,10 +540,13 @@ function renderRubyTranscript(tokens, text, markOf, words) {
       // aria-label carries the bare word: the ruby annotations inside would
       // otherwise be read out as part of the name, so a screen reader would
       // announce "d o ng" before every character.
-      html += `<span class="word${savedClass(seg.segment)}" role="button" tabindex="-1" aria-label="${escapeHtml(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${length}" data-start="${charStart}"${said}>${inner}</span>`;
+      parts.push({
+        word: true,
+        html: `<span class="word${savedClass(seg.segment)}" role="button" tabindex="-1" aria-label="${escapeHtml(seg.segment)}" data-word="${escapeHtml(seg.segment)}" data-len="${length}" data-start="${charStart}"${said}>${inner}</span>`,
+      });
       charStart += length;
     }
-    return html;
+    return glueToWords(parts);
   }
   // Chunk-based (Japanese, etc.): each token is one clickable unit.
   return tokens
