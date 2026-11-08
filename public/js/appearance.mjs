@@ -12,11 +12,18 @@ import { STORAGE_KEYS } from "./state.mjs";
 
 export const ACCENTS = [
   {
+    id: "lantern",
+    name: "Lantern",
+    dark: "#ffb347",
+    light: "#b4610a",
+    note: "Amber lamplight on warm brown. The default.",
+  },
+  {
     id: "mint",
     name: "Mint",
     dark: "#6ee7b7",
     light: "#059669",
-    note: "The original. Cool green against near-black.",
+    note: "The first accent the app had. Cool green.",
   },
   {
     id: "ultramarine",
