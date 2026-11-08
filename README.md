@@ -191,7 +191,25 @@ python -m unittest discover -s test -p "test_*.py"
   import, plus an Anki-ready TSV export (front / back / deck columns).
 - AI translation mode placeholder for testing the workflow locally.
 
+## License
+
+Copyright (C) 2026 k1ngsalm0n.
+
+Stele is free software under the
+[GNU Affero General Public License v3.0](LICENSE) or later. You may use,
+study, change and share it. If you share a changed version, or run one for
+other people over a network, you must keep this notice and publish your
+changes under the same license.
+
+The data listed under Attribution below keeps its own license.
+
 ## Attribution
+
+Chinese word meanings and readings come from
+[CC-BY-SA CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict)
+(`data/cedict-seed.u8`, a small committed excerpt, and `data/cedict.u8`,
+downloaded by `npm run sync`, not committed), licensed
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 
 Stroke-order data comes from
 [Make Me a Hanzi](https://github.com/skishore/makemeahanzi)
