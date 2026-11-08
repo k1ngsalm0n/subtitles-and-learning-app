@@ -42,26 +42,30 @@
     <style>
 :root {
   color-scheme: dark;
-  --bg: #0a0a0b;
-  --surface: #141416;
-  --surface-2: #1c1c20;
-  --surface-3: #26262b;
-  --text: #e8e6e1;
-  --muted: #8a8a94;
-  --border: #2a2a30;
-  --accent: #6ee7b7;
-  --accent-2: #fbbf24;
-  --danger: #f87171;
+  /* Lantern: warm browns under amber light, the default look. Easier on the
+     eyes over a long evening's study than the old near-black. The accent is
+     the Lantern scheme's dark value; the dial in Settings → Appearance
+     replaces it. */
+  --bg: #1a1310;
+  --surface: #221915;
+  --surface-2: #2c211b;
+  --surface-3: #3a2b22;
+  --text: #f3e6d6;
+  --muted: #a8917c;
+  --border: #3a2b22;
+  --accent: #ffb347;
+  --accent-2: #ff7b54;
+  --danger: #ff6b5b;
   /* Pinyin tone colours, in Pleco's order: 1 red, 2 orange, 3 green, 4 blue,
      neutral grey. Lighter here, deeper in the light theme, so each keeps its
      contrast against the ground. */
-  --tone1: #f87171;
-  --tone2: #fb923c;
-  --tone3: #4ade80;
-  --tone4: #60a5fa;
+  --tone1: #ff7b72;
+  --tone2: #ffb347;
+  --tone3: #9be37d;
+  --tone4: #7fc4ff;
   --tone5: var(--muted);
-  --shadow: 0 4px 24px rgba(0,0,0,0.3);
-  --radius: 12px;
+  --shadow: 0 12px 40px rgba(0,0,0,0.5);
+  --radius: 10px;
   --topbar-h: 52px;
 }
 :root[data-theme="light"] {
@@ -82,6 +86,36 @@
   --tone4: #1d4ed8;
   --tone5: var(--muted);
   --shadow: 0 4px 24px rgba(0,0,0,0.06);
+}
+/* Lantern's light: a glow from above, serif reading type, and the line being
+   played lit like a page under a lamp. Everything takes --accent, so a colour
+   picked on the dial carries through. Dark theme only — the light theme keeps
+   its own plain look. */
+:root:not([data-theme="light"]) body {
+  background:
+    radial-gradient(ellipse at 30% 0%, color-mix(in srgb, var(--accent) 16%, var(--bg)) 0%, var(--bg) 55%) fixed;
+  font-family: Georgia, "Noto Serif", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif;
+}
+:root:not([data-theme="light"]) :is(button, input, textarea, select, .nav-tab, .file-button) {
+  font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif;
+}
+:root:not([data-theme="light"]) :is(.original, .bubble-word, .bubble-char, .cf-word) {
+  font-family: "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", "PMingLiU", Georgia, serif;
+}
+:root:not([data-theme="light"]) .brand-mark {
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+:root:not([data-theme="light"]) .player-shell {
+  box-shadow: 0 20px 60px -20px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+:root:not([data-theme="light"]) .line.active {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+:root:not([data-theme="light"]) .line.active .original {
+  text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+:root:not([data-theme="light"]) .word-bubble {
+  border-color: color-mix(in srgb, var(--accent) 27%, transparent);
 }
 * { box-sizing: border-box; margin: 0; }
 /* Author display values (flex/grid) must not defeat the hidden attribute. */

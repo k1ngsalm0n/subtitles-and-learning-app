@@ -30,6 +30,14 @@ test("an unknown accent id falls back to the first scheme", () => {
   assert.equal(accentIndex("chartreuse"), 0);
 });
 
+test("Lantern is the default accent, and matches the stylesheet's own", async () => {
+  assert.equal(ACCENTS[0].id, "lantern");
+  const { readFile } = await import("node:fs/promises");
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const dark = html.match(/:root \{[^}]*--accent: (#[0-9a-f]+);/i);
+  assert.equal(dark[1].toLowerCase(), ACCENTS[0].dark);
+});
+
 test("accentIndex finds where a scheme sits on the dial", () => {
   assert.equal(accentIndex(ACCENTS[3].id), 3);
 });
