@@ -126,8 +126,9 @@ export function renderTranscript(els) {
       }</button>`
     : "";
 
-  e.transcript.innerHTML =
-    (html || `<p class="muted">No matching subtitles.</p>`) + toggle;
+  // Nothing at all (a chosen file not transcribed yet) is not a search miss.
+  const empty = state.subtitles.length ? `<p class="muted">No matching subtitles.</p>` : "";
+  e.transcript.innerHTML = (html || empty) + toggle;
   setRovingFocus(e);
   showNewWordCount(e, markOf, query);
   loadLemmas(e);

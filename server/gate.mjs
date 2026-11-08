@@ -42,9 +42,9 @@ import { dir } from "./prefs.mjs";
 export const PAIR_COOKIE = "stele_pair";
 export const PAIR_PARAM = "pair";
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
-// Bodies that aren't JSON, by path. The image's own type is checked by its
-// handler (ocr.mjs).
-const NOT_JSON = new Set(["/api/ocr-image"]);
+// Bodies that aren't JSON, by path. Their handlers check what they were sent:
+// the image's type (ocr.mjs), the chosen file's name (import.mjs).
+const NOT_JSON = new Set(["/api/ocr-image", "/api/import-file"]);
 // The browser's cap on a cookie's life; re-scanning the code renews it.
 const COOKIE_MAX_AGE = 400 * 24 * 60 * 60;
 

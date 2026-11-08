@@ -342,6 +342,17 @@ only files named `<id>.*`, the id checked first). Its cards stay — words,
 meanings, review history — and lose only Replay; the confirmation says how
 many. One still importing can't be deleted (the server can't stop halfway);
 waiting and failed ones are just removed from the queue.
+**A file from this computer** (the folder button) plays at once, clears the
+transcript that belonged to another video, and offers *Transcribe it*: the
+page posts the file's bytes to `POST /api/import-file` (a browser can't name a
+path, and a path field would let a request read any file), which stores it
+beside the downloads as `videoCacheId("file:sha256:<hex>")`, so the same file
+chosen twice is one entry, and runs the URL import's own pipeline from the
+caption OCR and Whisper step on (`importMedia`, `local`). Audio files skip
+OCR. It queues in the Videos list like a link and becomes a normal saved
+video; if it's still playing when done, its subtitles open under it where it
+is. The file lives only in the page, so a reload fails a queued one with
+"choose it again" rather than resuming it (#99).
 After changing anything under `server/`, the reader's running app has to be
 *restarted*: a page reload picks up new page code, but the old server keeps
 answering, so a new endpoint just returns 405 ("the server didn't answer").

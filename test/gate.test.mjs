@@ -194,3 +194,13 @@ test("a proxied loopback request with the pairing cookie gets in, and its page m
   const cross = checkRequest(req("POST", "/api/sync", { ...headers, origin: "https://evil.example", ...json }), opts);
   assert.equal(cross.status, 403);
 });
+
+test("a chosen video's bytes may be posted as they are, from the app's own page only", () => {
+  const same = { host: "localhost:3000", origin: "http://localhost:3000" };
+  assert.ok(checkRequest(req("POST", "/api/import-file", { ...same, "content-type": "video/mp4" }), opts).ok);
+  const cross = checkRequest(
+    req("POST", "/api/import-file", { host: "localhost:3000", origin: "https://evil.example", "content-type": "video/mp4" }),
+    opts,
+  );
+  assert.equal(cross.status, 403);
+});

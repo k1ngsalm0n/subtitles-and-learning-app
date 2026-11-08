@@ -76,7 +76,7 @@ import {
   togglePlayback,
 } from "./player.mjs";
 import { studyAction } from "./shortcuts.mjs";
-import { setupVideos, enqueue, renderVideos, storedId } from "./videos.mjs";
+import { setupVideos, enqueue, enqueueFile, renderVideos, storedId } from "./videos.mjs";
 import {
   populateLanguageSelects,
   syncTranslateLangs,
@@ -130,6 +130,9 @@ const els = {
   sourceStatus: document.querySelector("#sourceStatus"),
   transcript: document.querySelector("#transcript"),
   provisionalNote: document.querySelector("#provisionalNote"),
+  localFileNote: document.querySelector("#localFileNote"),
+  localFileText: document.querySelector("#localFileText"),
+  transcribeFile: document.querySelector("#transcribeFile"),
   subtitleCount: document.querySelector("#subtitleCount"),
   cardCount: document.querySelector("#cardCount"),
   reviewDue: document.querySelector("#reviewDue"),
@@ -325,11 +328,30 @@ function init() {
     els,
     onOpen: (source) => openSource(source),
     onDelete: (sources) => deleteSources(sources),
-    onReady: (source) =>
+    onReady: (source) => {
+      // The file still playing is the one just transcribed: put its subtitles
+      // under it, where it is, rather than asking.
+      if (localFile && source.id === localFile.sourceId && els.video.src.startsWith("blob:")) {
+        const at = els.video.currentTime;
+        const play = !els.video.paused;
+        openSource(source, { at, play }).then((opened) => {
+          if (opened) showToast(`“${source.title}” is transcribed. Click any word to look it up.`);
+        });
+        return;
+      }
       showToast(`“${source.title}” is ready.`, {
         actions: [{ label: "Open", onClick: () => openSource(source) }],
         duration: 15_000,
-      }),
+      });
+    },
+    onFailed: (source) => {
+      if (localFile && source.id === localFile.sourceId) showLocalFileNote("failed", source.error);
+    },
+  });
+  els.transcribeFile.addEventListener("click", () => {
+    if (!localFile) return;
+    localFile.sourceId = enqueueFile(localFile.file).id;
+    showLocalFileNote("queued");
   });
   restoreUiState();
   renderAll(els);
@@ -1241,9 +1263,32 @@ function hasVideo() {
   return Boolean(els.video.currentSrc || els.video.getAttribute("src"));
 }
 
+// The file chosen with the folder button, while it's what's playing:
+// { file, sourceId } — sourceId once it's been sent to be transcribed.
+let localFile = null;
+
+// What the transcript pane says over a chosen file (#99): that it has no
+// subtitles yet and can be transcribed, that it's on its way, or why it
+// couldn't be. Hidden for anything else.
+function showLocalFileNote(stage, error = "") {
+  const name = localFile?.file?.name || "This file";
+  els.localFileNote.hidden = !stage;
+  if (!stage) return;
+  els.transcribeFile.hidden = stage === "queued";
+  els.transcribeFile.textContent = stage === "failed" ? "Try again" : "Transcribe it";
+  els.localFileText.textContent =
+    stage === "queued"
+      ? `Transcribing “${name}” in the background — it’s in the Videos list. Keep watching; the subtitles appear here when it’s done.`
+      : stage === "failed"
+        ? `Couldn’t transcribe “${name}”: ${error || "the import failed."}`
+        : `“${name}” has no subtitles yet. Stele can listen to it and write them — a few minutes, depending on its length.`;
+}
+
 function handleVideoInput(event) {
   const file = event.target.files[0];
   if (!file) return;
+  // The same file can be chosen again later (to try again after a reload).
+  event.target.value = "";
   els.video.src = URL.createObjectURL(file);
   els.emptyPlayer.classList.add("hidden");
   // Whisper's word timings describe the video they were transcribed from, and
@@ -1261,6 +1306,12 @@ function handleVideoInput(event) {
   // import session — otherwise a refresh would resurrect the old imported
   // transcript over this local video.
   clearSession();
+  // The transcript on screen belonged to another video, which read as
+  // "the subtitles are out of sync" (#99). Clear it, and offer to transcribe.
+  setProvisional(false);
+  loadSubtitles("", "");
+  localFile = { file, sourceId: null };
+  showLocalFileNote("offer");
 }
 
 // On startup, bring back the last imported video and its real subtitles rather
@@ -1458,6 +1509,8 @@ async function openSource(source, { at = null, play = false } = {}) {
   }
   state.currentSourceId = source.id;
   setProvisional(false);
+  localFile = null;
+  showLocalFileNote(null);
   // The language before the lines: loading them draws the transcript and
   // asks for its reading and word cut, and a German video drawn as the
   // default "zh" was cut as Chinese, with its words marked as Chinese ones.

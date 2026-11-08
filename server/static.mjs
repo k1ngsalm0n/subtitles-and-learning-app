@@ -18,6 +18,27 @@ const MIME_TYPES = {
   ".ico": "image/x-icon",
   ".mp4": "video/mp4",
   ".webm": "video/webm",
+  // Files chosen on this computer keep their own container (import.mjs,
+  // chosenFile). What the browser can't play it says so itself.
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".mkv": "video/x-matroska",
+  ".ogv": "video/ogg",
+  ".avi": "video/x-msvideo",
+  ".mpg": "video/mpeg",
+  ".mpeg": "video/mpeg",
+  ".ts": "video/mp2t",
+  ".wmv": "video/x-ms-wmv",
+  ".flv": "video/x-flv",
+  ".3gp": "video/3gpp",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".wav": "audio/wav",
+  ".flac": "audio/flac",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".opus": "audio/ogg",
 };
 
 // Parse a single-range `Range: bytes=start-end` header.

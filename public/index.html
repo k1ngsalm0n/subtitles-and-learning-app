@@ -836,6 +836,9 @@ select::-ms-expand { display: none; }
    to be rewritten is the mistake this is here to prevent. The stripe and the
    note carry the meaning; the text itself stays at full contrast, since a
    dimmed transcript is a transcript you can't read. */
+/* A chosen file with no subtitles yet: what it is, and the button (#99). */
+.local-file-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.local-file-note span { flex: 1 1 220px; }
 .provisional-note {
   margin: 0 8px 6px;
   padding: 6px 10px;
@@ -2989,6 +2992,10 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <button id="lineKnown" type="button" title="Mark every new word in this line as known">Line Known</button>
             </div>
             <p id="provisionalNote" class="provisional-note" role="status" aria-live="polite" hidden></p>
+            <div id="localFileNote" class="provisional-note local-file-note" role="status" aria-live="polite" hidden>
+              <span id="localFileText"></span>
+              <button id="transcribeFile" type="button">Transcribe it</button>
+            </div>
             <div id="transcript" class="transcript" aria-label="Transcript"></div>
             <p class="study-keys muted">Space to play · ←/→ to step a line · R to replay · S to save · K on a word to mark it known</p>
           </section>
