@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { handleImportUrl, importInProgress, VIDEO_DIR, adoptLegacyVideoDir } from "./import.mjs";
+import { handleImportFile, handleImportUrl, importInProgress, VIDEO_DIR, adoptLegacyVideoDir } from "./import.mjs";
 import { startYtdlpUpdates } from "./ytdlp.mjs";
 import { startRetranslating } from "./retranslate.mjs";
 import { PYTHON_BIN } from "./device.mjs";
@@ -52,6 +52,7 @@ process.on("uncaughtException", (error) => {
 // included, as the handlers expect); `prefix` its start. First match wins.
 const ROUTES = [
   { methods: ["POST"], path: "/api/import-url", run: handleImportUrl },
+  { methods: ["POST"], path: "/api/import-file", run: handleImportFile },
   { methods: ["GET"], path: "/api/cookies", run: handleGetCookies },
   { methods: ["POST"], path: "/api/cookies", run: handleSaveCookies },
   { methods: ["GET"], prefix: "/api/lookup", run: handleLookup },

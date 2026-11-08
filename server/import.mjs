@@ -1,4 +1,6 @@
-import { readdir, readFile, rm, stat, utimes } from "node:fs/promises";
+import { readdir, readFile, rename, rm, stat, utimes } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -489,6 +491,87 @@ export function handleImportUrl(req, res) {
   return importTranslation.run({ offline: false, uploader: false, checked: false }, () => importUrl(req, res));
 }
 
+// A file chosen on this computer (#99). The page sends the file itself as
+// the body: a browser can't name a path on disk, and a path field would let
+// a request read any file the server can. On loopback the copy is quick.
+//
+// The copy is stored beside the downloads, named like one: its id comes from
+// the file's own bytes (videoCacheId of "file:sha256:<hex>"), so choosing the
+// same file again finds the same Videos-list entry instead of adding another.
+// The original on disk is never touched.
+const VIDEO_EXTS = new Set(["mp4", "m4v", "mov", "webm", "mkv", "avi", "ogv", "mpg", "mpeg", "ts", "wmv", "flv", "3gp"]);
+const AUDIO_EXTS = new Set(["mp3", "m4a", "aac", "wav", "flac", "ogg", "oga", "opus"]);
+// Generous: a feature film is a few gigabytes. Past this the reader is
+// better served by a smaller copy than by filling the disk.
+const MAX_UPLOAD_BYTES = Number(process.env.STELE_MAX_UPLOAD_BYTES) || 8 * 1024 ** 3;
+
+// "Lesson 3.MKV" -> { title: "Lesson 3", ext: "mkv", audioOnly: false }, or
+// null for a file the player couldn't play anyway. Exported for the tests.
+export function chosenFile(name) {
+  const base = path.basename(String(name || "").replace(/\\/g, "/")).trim();
+  const m = /^(.*)\.([A-Za-z0-9]{2,5})$/.exec(base);
+  if (!m) return null;
+  const ext = m[2].toLowerCase();
+  if (!VIDEO_EXTS.has(ext) && !AUDIO_EXTS.has(ext)) return null;
+  return { title: m[1].trim() || base, ext, audioOnly: AUDIO_EXTS.has(ext) };
+}
+
+export function handleImportFile(req, res) {
+  return importTranslation.run({ offline: false, uploader: false, checked: false }, () => importFile(req, res));
+}
+
+async function importFile(req, res) {
+  const failure = (status, message) => Object.assign(new Error(message), { status });
+  let name = "";
+  try {
+    name = decodeURIComponent(String(req.headers["x-stele-filename"] || ""));
+  } catch {
+    // A mangled name is refused just below, as no name at all.
+  }
+  const file = chosenFile(name);
+  if (!file) throw failure(415, "Stele can transcribe a video or audio file (MP4, MKV, WebM, MOV, MP3, M4A …).");
+  const size = Number(req.headers["content-length"]);
+  if (Number.isFinite(size) && size > MAX_UPLOAD_BYTES) {
+    throw failure(413, `That file is over ${Math.round(MAX_UPLOAD_BYTES / 1024 ** 3)} GB. Try a smaller copy of it.`);
+  }
+  const preferred = toTableCode(String(req.headers["x-stele-translate-to"] || ""));
+
+  await mkdir(VIDEO_DIR, { recursive: true });
+  // A dot name: cachedVideoFiles and the Videos list never take it for a video.
+  const staging = path.join(VIDEO_DIR, `.upload-${randomUUID()}`);
+  const hash = createHash("sha256");
+  let received = 0;
+  try {
+    await pipeline(
+      req,
+      async function* (chunks) {
+        for await (const chunk of chunks) {
+          received += chunk.length;
+          if (received > MAX_UPLOAD_BYTES) throw failure(413, "That file is too big to transcribe here.");
+          hash.update(chunk);
+          yield chunk;
+        }
+      },
+      createWriteStream(staging, { mode: 0o600 }),
+    );
+    if (!received) throw failure(400, "That file is empty.");
+  } catch (err) {
+    await rm(staging, { force: true });
+    throw err;
+  }
+  const href = `file:sha256:${hash.digest("hex")}`;
+  const videoPath = path.join(VIDEO_DIR, `${videoCacheId(href)}.${file.ext}`);
+  // The same bytes already stored (chosen before): keep that copy.
+  if (existsSync(videoPath)) await rm(staging, { force: true });
+  else await rename(staging, videoPath);
+  await importMedia(res, {
+    href,
+    key: href,
+    preferred,
+    local: { videoPath, title: file.title, audioOnly: file.audioOnly },
+  });
+}
+
 async function importUrl(req, res) {
   const body = await readJsonBody(req);
   const url = normalizeExternalUrl(body.url);
@@ -498,8 +581,15 @@ async function importUrl(req, res) {
   // running gets that import's choice.
   const preferred = toTableCode(body.translateTo);
   await rejectPrivateHost(url);
+  await importMedia(res, { href: url.href, key: importKey(url.href), preferred });
+}
 
-  const key = importKey(url.href);
+// One import, from a link or from a file the reader chose (`local`: the
+// stored file, its title, and whether it is sound only). A file starts
+// further down the same road: nothing to download, no platform subtitles or
+// metadata to read, so it goes straight to the captions on its frames and
+// the speech in it.
+async function importMedia(res, { href, key, preferred, local = null }) {
   const running = inFlight.get(key);
   if (running) {
     console.log(`Already importing ${key}: this request joins it.`);
@@ -521,7 +611,7 @@ async function importUrl(req, res) {
   // save and names the entry; a failed save still sends the result.
   const send = report.done;
   report.done = (result) => {
-    remember(url.href, result)
+    remember(href, result)
       .then((saved) => send(saved ? { ...result, libraryId: saved.id, duration: saved.duration } : result))
       .catch((err) => {
         console.warn(`Couldn't save the import to the library (${err.message})`);
@@ -530,26 +620,29 @@ async function importUrl(req, res) {
   };
   importsRunning++;
   try {
-    await ensureCommand(
-      YTDLP_BIN,
-      [
-        "Install yt-dlp first: python -m pip install -U yt-dlp",
-        "or use your system package manager, then restart this server.",
-      ].join(" "),
-    );
+    let meta = { title: local?.title || "", language: "", manual: [], auto: [], categories: [] };
+    if (!local) {
+      await ensureCommand(
+        YTDLP_BIN,
+        [
+          "Install yt-dlp first: python -m pip install -U yt-dlp",
+          "or use your system package manager, then restart this server.",
+        ].join(" "),
+      );
 
-    // A background yt-dlp update (ytdlp.mjs) may be swapping its files.
-    await waitForYtdlpUpdate();
-    report.stage("Reading the link\u2026");
-    const meta = await getMediaMeta(url.href);
+      // A background yt-dlp update (ytdlp.mjs) may be swapping its files.
+      await waitForYtdlpUpdate();
+      report.stage("Reading the link\u2026");
+      meta = await getMediaMeta(href);
+    }
     let origBase = baseLang(meta.language);
     // YouTube already says what was spoken. Refuse here, not after a
     // download and a Whisper run that can only end in the same refusal: a
     // 42-minute Spanish video cost minutes of both before saying "Spanish".
     const refused = refusedUpFront(meta);
     if (refused) throw notOfferedError(refused);
-    report.stage("Downloading the video\u2026");
-    const videoPath = await downloadVideo(url.href, {
+    if (!local) report.stage("Downloading the video\u2026");
+    const videoPath = local ? local.videoPath : await downloadVideo(href, {
       // Says so rather than narrating a download that isn't happening \u2014 the
       // step goes from seconds to instant, and an unexplained jump reads as a
       // skipped stage.
@@ -565,9 +658,9 @@ async function importUrl(req, res) {
     // What the speech is, when the import listened confidently: handed to
     // transcription so it skips its own vote (transcriptionHint).
     let spokenHint = null;
-    if (needsListening(meta) && videoPath) {
+    if (!local && needsListening(meta) && videoPath) {
       report.stage("Listening for the language\u2026");
-      const detection = await detectSpokenLanguage(url.href, videoPath);
+      const detection = await detectSpokenLanguage(href, videoPath);
       // The reader's own language decides between the spoken language and a
       // subtitle track in another (an English song with Chinese lyrics).
       origBase = studyBase(detection, meta, preferred || "en");
@@ -579,8 +672,8 @@ async function importUrl(req, res) {
 
     // A subtitle track from the platform is the best source when it exists —
     // human-made, correctly timed, and free. Everything below is fallback.
-    report.stage("Looking for existing subtitles\u2026");
-    const subtitle = await getExistingSubtitle(url.href, workspace, meta, origBase, preferred);
+    if (!local) report.stage("Looking for existing subtitles\u2026");
+    const subtitle = local ? null : await getExistingSubtitle(href, workspace, meta, origBase, preferred);
 
     const finishWithTrack = async (track) => {
       const language = toTableCode(track.lang);
@@ -628,13 +721,13 @@ async function importUrl(req, res) {
     // No usable source track — but the uploader may still have shipped English
     // subtitles, which make a better translation than the machine one. Fetched
     // alongside the transcription; a failure only costs that preference.
-    const uploaderTranslation = getUploaderTranslation(
-      url.href,
+    const uploaderTranslation = (local ? Promise.resolve("") : getUploaderTranslation(
+      href,
       workspace,
       meta,
       toTableCode(origBase),
       knownTarget,
-    ).catch(
+    )).catch(
       (err) => {
         console.warn(`Uploader subtitles skipped (${String(err.message || err).split("\n")[0]})`);
         return "";
@@ -761,14 +854,22 @@ async function importUrl(req, res) {
       // here; either way the captions pass is what the line follows now.
       phase = speechPromise && plan.concurrent ? "both" : "captions";
       paint();
-      const ocr = await ocrCaptions(
-        videoPath,
-        (progress) => {
-          ocrProgress = progress;
-          paint();
-        },
-        toTableCode(origBase),
-      );
+      // A chosen file may be sound only, or a container the frame reader
+      // can't open; either way its speech is still there to transcribe.
+      const ocr = local?.audioOnly
+        ? null
+        : await ocrCaptions(
+            videoPath,
+            (progress) => {
+              ocrProgress = progress;
+              paint();
+            },
+            toTableCode(origBase),
+          ).catch((err) => {
+            if (!local) throw err;
+            console.warn(`Caption OCR skipped (${String(err.message || err).split("\n")[0]})`);
+            return null;
+          });
       if (ocr) {
         const ocrLanguage = ocr.language;
         const ocrTarget = translationTarget(ocrLanguage, preferred);
@@ -852,7 +953,8 @@ async function importUrl(req, res) {
     // back to a direct audio download and transcribe that.
     let whisperResult;
     try {
-      if (!audioPath) audioPath = await downloadAudio(url.href, workspace);
+      if (!audioPath && local) throw new Error("Couldn\u2019t read any sound from this file.");
+      if (!audioPath) audioPath = await downloadAudio(href, workspace);
       // This block now owns the stage line, so point the speech progress at it \u2014
       // the transcription may have been running since the OCR branch above, in
       // which case its readings were being drawn into that block's message.

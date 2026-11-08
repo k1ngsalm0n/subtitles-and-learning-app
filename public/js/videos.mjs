@@ -7,9 +7,13 @@
 //
 // Each entry is a source in state.sources: { id, url, title, status, stage,
 // percent, libraryId, videoUrl, duration, lastTime, error, createdAt,
-// importedAt }. status is "waiting", "importing", "ready" or "failed"; sources
+// importedAt, local }. status is "waiting", "importing", "ready" or "failed"; sources
 // from before the list have none of those and no saved transcript, and offer
 // "Import again" — keeping their id, so cards made from them still point here.
+//
+// A file chosen on this computer (`local: true`, #99) waits in the same queue.
+// The file itself only lives in this page (localFiles): a reload loses it, so
+// such an entry can't resume and asks for the file again instead.
 
 import { percentOf, readImportStream } from "./importstream.mjs";
 import { api } from "./backend.mjs";
@@ -91,11 +95,19 @@ export function listOrder(sources) {
 }
 
 // On startup an import that was running when the page went away is waiting
-// again — the server request died with the page.
+// again — the server request died with the page. A chosen file's can't be:
+// the page held the file, and the page is new.
+export const LOST_FILE = "The page was reloaded before this file was transcribed. Choose it again with the folder button.";
 export function resumeQueue(sources) {
   let changed = false;
   for (const s of sources) {
-    if (s.status === "importing") {
+    if (s.local && isQueued(s)) {
+      s.status = "failed";
+      s.error = LOST_FILE;
+      s.stage = "";
+      s.percent = null;
+      changed = true;
+    } else if (s.status === "importing") {
       s.status = "waiting";
       s.stage = "";
       s.percent = null;
@@ -152,15 +164,17 @@ export function statusText(source) {
 
 // ---- The queue and the list ------------------------------------------------
 
-let ctx = null; // { state, saveSources, els, onOpen, onReady, onDelete }
+let ctx = null; // { state, saveSources, els, onOpen, onReady, onFailed, onDelete }
+// Chosen files waiting or being transcribed, by source id.
+const localFiles = new Map();
 let running = null;
 let renderQueued = false;
 // Ticked for deleting together. Not saved: a selection is for the moment.
 const selected = new Set();
 let lastTicked = null;
 
-export function setupVideos({ state, saveSources, els, onOpen, onReady, onDelete }) {
-  ctx = { state, saveSources, els, onOpen, onReady, onDelete };
+export function setupVideos({ state, saveSources, els, onOpen, onReady, onFailed, onDelete }) {
+  ctx = { state, saveSources, els, onOpen, onReady, onFailed, onDelete };
   refreshClaude();
   setInterval(refreshClaude, 5000);
   if (resumeQueue(state.sources)) saveSources();
@@ -206,6 +220,24 @@ export function enqueue(text) {
   return urls.length;
 }
 
+// A file chosen on this computer, to be transcribed. Returns its source.
+export function enqueueFile(file) {
+  const source = {
+    id: crypto.randomUUID(),
+    url: "",
+    local: true,
+    title: String(file.name || "").replace(/\.[A-Za-z0-9]{2,5}$/, "") || "Video file",
+    status: "waiting",
+    createdAt: Date.now(),
+  };
+  localFiles.set(source.id, file);
+  ctx.state.sources.unshift(source);
+  ctx.saveSources();
+  renderVideos();
+  pump();
+  return source;
+}
+
 function requeue(source) {
   source.status = "waiting";
   source.error = "";
@@ -239,7 +271,7 @@ async function runImport(source) {
   ctx.saveSources();
   renderVideos();
   try {
-    const response = await api("/api/import-url", {
+    const response = source.local ? await sendFile(source) : await api("/api/import-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // The reader's translation language: an English video is translated
@@ -264,7 +296,7 @@ async function runImport(source) {
       percent: null,
       error: "",
       libraryId: result.libraryId,
-      title: result.title || source.url,
+      title: result.title || source.title || source.url,
       videoUrl: result.videoUrl || "",
       duration: result.duration ?? null,
       importedAt: Date.now(),
@@ -275,7 +307,28 @@ async function runImport(source) {
     source.error = error.message;
     source.stage = "";
     source.percent = null;
+    ctx.onFailed?.(source);
+  } finally {
+    if (source.status !== "failed") localFiles.delete(source.id);
   }
+}
+
+// The chosen file itself is the body (server/import.mjs, importFile): a page
+// can't name a path on disk. On this computer the copy takes seconds.
+async function sendFile(source) {
+  const file = localFiles.get(source.id);
+  if (!file) throw new Error(LOST_FILE);
+  source.stage = "Copying the file to Stele…";
+  renderSoon();
+  return api("/api/import-file", {
+    method: "POST",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "X-Stele-Filename": encodeURIComponent(file.name || ""),
+      "X-Stele-Translate-To": ctx.state.translateTo || "",
+    },
+    body: file,
+  });
 }
 
 // Stage lines arrive several times a second; the list repaints once a frame.
@@ -369,7 +422,7 @@ export function renderVideos() {
       row.append(bar);
     }
     const actions = [];
-    if (source.status === "failed") actions.push(["retry", "Retry"]);
+    if (source.status === "failed" && (!source.local || localFiles.has(source.id))) actions.push(["retry", "Retry"]);
     if (isLegacy(source)) actions.push(["retry", "Import again"]);
     if (source.status === "waiting" || source.status === "failed") actions.push(["remove", "Remove"]);
     if (claude.on && source.status === "ready" && source.libraryId && (!job || job.state === "failed")) {
@@ -420,6 +473,7 @@ function onListClick(event) {
   }
   const action = event.target.closest(".video-action")?.dataset.action;
   if (action === "remove") {
+    localFiles.delete(source.id);
     ctx.state.sources = ctx.state.sources.filter((s) => s !== source);
     ctx.saveSources();
     renderVideos();

@@ -12,6 +12,7 @@ import {
   canDelete,
   storedId,
   rangeBetween,
+  LOST_FILE,
 } from "../public/js/videos.mjs";
 
 test("one link, several on separate lines, or several glued together by a paste", () => {
@@ -105,4 +106,22 @@ test("shift-click selects every deletable video between the two, in list order",
   assert.deepEqual(rangeBetween(order, "old", "b"), ["b", "c", "old"], "either direction");
   assert.deepEqual(rangeBetween(order, "gone", "b"), ["b"], "no anchor: just this one");
   assert.deepEqual(rangeBetween(order, "a", "q"), [], "a row still importing can't be picked");
+});
+
+// A chosen file lives only in the page that chose it (#99): after a reload
+// there is nothing to send, so it fails with what to do instead of waiting.
+test("a chosen file cut off by a reload asks to be chosen again", () => {
+  const sources = [
+    { local: true, status: "importing", stage: "Copying the file to Stele…", percent: 5 },
+    { local: true, status: "waiting" },
+    { local: true, status: "ready" },
+    { status: "importing" },
+  ];
+  assert.equal(resumeQueue(sources), true);
+  assert.equal(sources[0].status, "failed");
+  assert.equal(sources[0].error, LOST_FILE);
+  assert.equal(sources[1].status, "failed");
+  assert.equal(sources[2].status, "ready", "a finished one is a normal video");
+  assert.equal(sources[3].status, "waiting", "a link still resumes");
+  assert.equal(nextWaiting(sources), sources[3]);
 });

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { importKey, progressStream } from "../server/import.mjs";
+import { chosenFile, importKey, progressStream } from "../server/import.mjs";
 
 test("the same YouTube video is one import however the link is written", () => {
   const id = "youtube:7I1SPKwTXJ0";
@@ -91,4 +91,16 @@ test("joined before anything was sent, then failed: a plain HTTP error for the j
   report.rejectJoined(err);
   assert.equal(second.status, 400);
   assert.deepEqual(JSON.parse(second.body), { error: "That link isn't a video." });
+});
+
+// The file's name decides how it's stored and served, so only what a player
+// can open is taken (#99); the path a browser may prepend is dropped.
+test("a chosen file is taken by its extension, and named by the rest", () => {
+  assert.deepEqual(chosenFile("Lesson 3.MKV"), { title: "Lesson 3", ext: "mkv", audioOnly: false });
+  assert.deepEqual(chosenFile("podcast.mp3"), { title: "podcast", ext: "mp3", audioOnly: true });
+  assert.deepEqual(chosenFile("C:\\Users\\me\\clip.webm"), { title: "clip", ext: "webm", audioOnly: false });
+  assert.equal(chosenFile("notes.txt"), null);
+  assert.equal(chosenFile("setup.exe"), null);
+  assert.equal(chosenFile("no extension"), null);
+  assert.equal(chosenFile(""), null);
 });
