@@ -6,9 +6,9 @@ pronunciation (pinyin) line above the source text, clickable words with AI
 explanations saved as flashcards, and simple spaced-repetition review. Runs
 entirely locally — transcription, translation, and caption OCR are all offline.
 
-> **Study languages: Chinese and English.** Chinese videos are translated into
-> English, English videos into Chinese (or whatever the translate bar's target
-> is set to). A video in any other language is refused with a message naming
+> **Study languages: Chinese, English, Spanish, Portuguese, French and
+> German.** Videos are translated into the translate bar's language, or English
+> by default (English videos into Chinese). A video in any other language is refused with a message naming
 > what can be studied. More languages are added one at a time, each after its
 > translation, transcription and OCR have been checked — see
 > [docs/adding-a-language.md](docs/adding-a-language.md) and

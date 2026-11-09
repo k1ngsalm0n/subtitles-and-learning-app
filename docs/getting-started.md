@@ -7,9 +7,11 @@ to see what it means, saves words as flashcards, and reviews them with you.
 Everything runs on your own computer. Your videos, cards and notes never
 leave it.
 
-**What it can study today:** Chinese videos (translated into English) and
-English videos (translated into Chinese). Videos in other languages are
-refused with a message saying so.
+**What it can study today:** videos in Chinese, English, Spanish, Portuguese,
+French and German. They're translated into English (English videos into
+Chinese), or into another language you pick. Videos in other languages are
+refused with a message saying so. Pinyin, tone colours and the character
+breakdown are for Chinese only.
 
 This guide assumes you have never used a terminal before. Setting up the
 first time takes about half an hour, most of it waiting for downloads.
