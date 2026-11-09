@@ -1,22 +1,76 @@
 # Stele
 
-A dependency-free personal web app for bilingual subtitle study: play local or
-imported video with source + translated subtitles synced to playback, a
-pronunciation (pinyin) line above the source text, clickable words with AI
-explanations saved as flashcards, and simple spaced-repetition review. Runs
-entirely locally — transcription, translation, and caption OCR are all offline.
+**Learn a language from real videos.** Paste a link (or pick a video file) and
+Stele gives you the subtitles with a translation under every line, pinyin over
+every Chinese character, and a word you can click to see what it means *in
+that sentence*. Save the words you want to keep as flashcards, and Stele
+reviews them with you until you can read them, write them and hear them.
 
-> **Study languages: Chinese, English, Spanish, Portuguese, French and
-> German.** Videos are translated into the translate bar's language, or English
-> by default (English videos into Chinese). A video in any other language is refused with a message naming
-> what can be studied. More languages are added one at a time, each after its
-> translation, transcription and OCR have been checked — see
-> [docs/adding-a-language.md](docs/adding-a-language.md) and
-> [issue #65](https://github.com/k1ngsalm0n/subtitles-and-learning-app/issues/65).
+Everything runs on your own computer: transcription, translation and your
+cards stay there.
+
+![The sample lesson with a word's pop-up open: each character, the meaning, and its definitions](docs/images/word-popup.png)
+
+**Study languages:** Chinese, English, Spanish, Portuguese, French and German.
+Videos are translated into English by default (English videos into Chinese),
+or into the language you pick. A video in any other language is refused with
+a message saying so. More are added one at a time, each after its
+translation, transcription and OCR have been checked; see
+[docs/adding-a-language.md](docs/adding-a-language.md).
 
 **New to all this?** [docs/getting-started.md](docs/getting-started.md) walks
 through installing and using Stele step by step, with no terminal experience
 assumed.
+
+## What it does
+
+**Getting a video in**
+- Paste one or several links (YouTube, Bilibili, Vimeo, news sites and most
+  sites [yt-dlp](https://github.com/yt-dlp/yt-dlp) supports), or choose a video
+  or audio file from your computer. They import one at a time in the
+  background, and every finished video is kept in your Videos list.
+- The uploader's own subtitles are used when there are any. Otherwise the
+  speech is transcribed with Whisper, and captions burned into the picture are
+  read off the frames.
+- With a chat model set up, misheard words are fixed before translating
+  (果 "fruit" for 國 "country", same sound), and lines are translated with
+  their neighbours as context. Without one, an offline translator does it.
+
+**Studying a video**
+- A transcript that follows the video, with the translation under each line.
+- Pinyin over every character, coloured by tone; a switch between Traditional
+  and Simplified.
+- Click a word: its reading, each character and what it contributes, the
+  meaning, what it means in this line, and every dictionary definition. Hear
+  it fast or slow.
+- "N new words" lists the video's words you haven't met yet, the most
+  repeated first. Mark the ones you already know and they fade in every
+  transcript.
+- Keyboard first: Space plays, ← / → step between lines, R replays a line,
+  S saves it, K marks a word as known.
+
+**Flashcards**
+- A card shows the word in the sentence you met it in, with a button that
+  replays that moment of the video.
+- Cards grow with you: first you recognise the word, then you write it from a
+  new sentence, then you write it from hearing the sentence.
+- Spaced repetition decides when each card comes back. Decks, card templates,
+  fill-in-the-blank cards, stroke-order animation and stroke-by-stroke drawing
+  practice for characters.
+- Export to JSON or to Anki.
+
+**Around it**
+- Word explanations from your Claude subscription, a free Groq key, Gemini,
+  OpenRouter, OpenAI, DeepSeek, Ollama on your own computer, or none at all.
+  With Claude, each new video is prepared in the background: hard words
+  explained, stiff translations smoothed.
+- Automatic backups of your cards on your computer.
+- Use it on your phone through [Tailscale](https://tailscale.com); cards sync
+  between the two.
+- Settings → What's running shows every part of Stele: what works, what's
+  using a fallback, and the command that fixes it.
+- A warm dark look by default ("Lantern"), a light mode, and six accent
+  colours.
 
 ## Run
 
@@ -122,10 +176,13 @@ default; set `ZH_SCRIPT=off` in `.env` to keep each source's original script.
 A romanization line is shown above the source subtitles — pinyin for Chinese,
 romaji for Japanese, transliteration for other non-Latin scripts.
 
-Clicking a word fetches an AI explanation through any OpenAI-compatible chat
-API (a free Groq key or local Ollama both work — see `.env.example` for the
-`LLM_*` settings). With no key configured it falls back to the local NLLB
-translator, which gives meanings only.
+Clicking a word asks a chat model for an explanation: your Claude
+subscription, or any OpenAI-compatible API (a free Groq key or local Ollama
+both work). Choose one in the dialog that opens on first visit, or later in
+Settings → What's running; the `LLM_*` settings in `.env.example` do the same.
+Chinese words also get CC-CEDICT's readings and a breakdown by character, and
+the other study languages a Wiktionary dictionary. With no chat model, meanings
+come from the dictionaries and the offline translator.
 
 ### Configuration
 
@@ -156,44 +213,6 @@ Python, from the activated venv:
 ```bash
 python -m unittest discover -s test -p "test_*.py"
 ```
-
-## What works now
-
-- Dark mode by default, with a light mode toggle.
-- Local video file playback.
-- SRT/VTT subtitle import for original and translated lines.
-- URL import through the local server for authorized website media.
-- Existing subtitle tracks are loaded first; if none are available, audio is transcribed with OpenAI Whisper (Chinese only for now — see the note at the top).
-- Automatic OCR of burned-in (hardcoded) captions on URL imports without a subtitle track, merged with Whisper speech in the gaps.
-- Chinese subtitles normalised to Traditional characters by default (`ZH_SCRIPT=off` to disable).
-- Bilingual transcript synced to video time.
-- Pronunciation line above the source subtitles (pinyin / romaji / transliteration).
-- Language bar above the subtitles: pick the source and target language (or let it auto-detect the source) and re-translate the loaded subtitles on demand with the offline Marian/NLLB models. (Currently limited to Chinese ↔ English.)
-- Clickable words that can be saved as flashcards: one-click quick add with an
-  undo toast, or a full editor with live preview and per-field lookups
-  (pinyin, meaning, example translation).
-- Flashcard **templates**: three built-ins (Default, Reverse, Stroke order)
-  plus custom ones — pick which fields appear on each face, set a default.
-- **Decks**: create/rename/delete, move cards between them, per-deck counts,
-  and review scoped to the selected deck. Card editing and duplicate detection.
-- **Spaced repetition** with a minimal SM-2 scheduler: four grades
-  (Again/Hard/Good/Easy), each button previewing the interval it will produce.
-  Again keeps the card in the current session via short learning steps rather
-  than pushing it a day away; lapses reduce the interval and ease instead of
-  resetting. Per-deck daily new/review limits (editable) keep a big import from
-  producing an unmanageable day.
-- **Stroke order** for Han characters: per-stroke charts and stroke-by-stroke
-  animation, fully offline (see attribution below). Honors
-  `prefers-reduced-motion`.
-- **Stroke practice**: draw a character stroke by stroke (mouse/trackpad/touch)
-  and get graded against the real stroke medians, with order enforced, hints
-  after repeated misses, and an optional suggested grade fed back into the
-  scheduler.
-- Cards remember the video moment they came from and can jump back to it.
-- Words that already have a card are underlined in the transcript.
-- **Import/export**: versioned JSON (cards + decks + templates) with a merging
-  import, plus an Anki-ready TSV export (front / back / deck columns).
-- AI translation mode placeholder for testing the workflow locally.
 
 ## License
 
@@ -231,8 +250,8 @@ Wiktionary's text is licensed
 ## Your data, and where it sits
 
 Everything stays on this machine. Nothing is uploaded, with one exception you
-control: word lookups and line translation call an LLM only when you configure
-one in `.env`, and Settings → What's running lets you turn that off and shows
+control: word lookups and line translation call a chat model only when you choose
+one (in the app, or in `.env`), and Settings → What's running lets you turn that off and shows
 which path is actually in use.
 
 Two things are worth knowing about:
