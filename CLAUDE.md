@@ -518,7 +518,7 @@ NLLB Flores-200 code. `languages.mjs` imports it as a JSON module (so
 off disk; all three used to keep their own copy behind a "keep in sync" comment
 (#32). It sits under `public/` because the browser fetches it, which is why
 `.gitignore` anchors the corpora rule to `/data/` — a bare `data/` matched this
-one too. Each row may carry `offered: true` (Chinese and English so far),
+one too. Each row may carry `offered: true` (zh, en, es, pt, fr, de so far),
 `whisper` (Whisper's code when it differs — `no` for `nb` — or null),
 `ocr` (an OCR model override, or null for none) and `inaudible` (the
 placeholder for unclear speech, in the language). With no row offered, all 44

@@ -1,8 +1,8 @@
 # Adding a study language
 
-Stele studies Chinese and English. Everything shared — the "is it offered"
-gate, OCR by script, Whisper's codes, the translation target, the placeholder
-for unclear speech — reads one row of `public/data/languages.json`. Adding a
+Stele studies Chinese, English, Spanish, Portuguese, French and German.
+Everything shared — the "is it offered" gate, OCR by script, Whisper's codes,
+the translation target, the placeholder for unclear speech — reads one row of `public/data/languages.json`. Adding a
 language is mostly **checking three gates and then editing that one row**.
 
 **Model choices come from [language-models.md](language-models.md)**: which
