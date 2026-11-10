@@ -1,0 +1,56 @@
+# Publishes the phone edition to GitHub Pages on every push to main:
+# https://k1ngsalm0n.github.io/subtitles-and-learning-app/
+#
+# Plain files (scripts/build-phone.mjs): no server runs anywhere. Each person
+# brings their own free Groq key, which stays in their browser; nothing they
+# do reaches this repository or its owner. The JS tests run first so a broken
+# main never replaces a working site (the browser tests ran on its PR).
+name: phone edition
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push replaces one still waiting.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      # Full CC-CEDICT (CC BY-SA 4.0, licence kept in the file's header) for
+      # pinyin, word cuts and meanings on the phone.
+      - run: node scripts/fetch-cedict.mjs
+      - run: node scripts/build-phone.mjs --out dist/phone
+      # The site used to be the gh-pages branch, holding only the Phase 0
+      # phone test page; it stays at /phone-test/.
+      - name: Keep the earlier phone test page
+        run: |
+          git fetch --depth=1 origin gh-pages
+          git archive FETCH_HEAD phone-test | tar -x -C dist/phone
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/phone
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
