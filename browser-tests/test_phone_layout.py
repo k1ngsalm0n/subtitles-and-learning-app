@@ -123,6 +123,15 @@ class PhoneLayout(AppTestCase):
 
 
 class DesktopUnchanged(AppTestCase):
+    def test_the_computer_edition_asks_its_own_server(self):
+        # The phone edition's in-page engine must never switch on here.
+        page = self.browser.new_page()
+        self.addCleanup(page.close)
+        page.route("**/api/backup*", lambda r: r.abort())
+        with page.expect_request(lambda r: r.url.startswith(self.url + "api/romanize")):
+            page.goto(self.url)
+        self.assertIsNone(page.evaluate("document.documentElement.dataset.edition ?? null"))
+
     def test_transcript_stays_beside_the_video(self):
         page = self.open(phone=False, width=1280, height=800)
         media = rect(page, ".media-pane")

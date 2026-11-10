@@ -12,6 +12,7 @@
 
 import { createCombobox } from "./combobox.mjs";
 import { api } from "./backend.mjs";
+import { IS_PHONE } from "./edition.mjs";
 
 // Shown beside each option. The server owns the URLs and model names; this
 // owns the words a person choosing between them needs.
@@ -49,8 +50,14 @@ function selected() {
 
 // One dropdown rather than a card per provider: the list had grown to fill the
 // dialog. Searching matches the blurb too, so "free" finds every free one.
+// Only the providers this Stele offers: all of them on a computer, Groq on a
+// phone (its engine asks Groq from the page, and Groq also transcribes there).
+function choices() {
+  return ORDER.filter((id) => id === "offline" || status.providers[id]);
+}
+
 function renderOptions() {
-  els.provider.setItems(ORDER.map((id) => ({
+  els.provider.setItems(choices().map((id) => ({
     value: id,
     label: id === "offline" ? "Offline only" : status.providers[id].label,
     detail: BLURBS[id],
@@ -93,7 +100,9 @@ function fillFields(id) {
   // What leaves this computer, said in terms of this choice: Claude has no key.
   els.privacy.textContent = preset.noAddress
     ? "No key. The words you look up and the subtitle lines go to Claude through Claude Code on this computer, on your own Claude plan."
-    : "The key stays on this computer and goes only to that provider, along with the words you look up and the subtitle lines.";
+    : IS_PHONE
+      ? "The key stays in this browser on this phone and goes only to Groq, along with your videos' sound, the words you look up and the subtitle lines."
+      : "The key stays on this computer and goes only to that provider, along with the words you look up and the subtitle lines.";
   if (id === "claude") refreshClaudeSetup();
   else {
     claudeTicket++;
@@ -334,7 +343,7 @@ export async function openLlmSetup() {
   }
   renderOptions();
   const start = status.provider && status.provider !== "env" ? status.provider : "groq";
-  els.provider.value = ORDER.includes(start) ? start : "groq";
+  els.provider.value = choices().includes(start) ? start : "groq";
   fillFields(selected());
   els.current.textContent = describeCurrent();
   els.current.hidden = !els.current.textContent;
@@ -369,6 +378,11 @@ export function setupLlmDialog({ onSaved } = {}) {
   if (!els.dialog) {
     els = null;
     return;
+  }
+  if (IS_PHONE) {
+    // On a phone the key does more, and lives somewhere else.
+    els.dialog.querySelector(".llm-intro").textContent =
+      "On a phone, a free Groq key writes the subtitles for your videos, translates them, and explains each word you tap in the sentence it's in. Without one you get the dictionary's meanings only.";
   }
   els.provider = createCombobox(els.provider, {
     label: "Provider",
