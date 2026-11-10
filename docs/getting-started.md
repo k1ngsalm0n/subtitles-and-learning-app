@@ -195,10 +195,29 @@ page. To bring one back, go to **Settings → Automatic backups**.
 
 ## 9. Use it on your phone (optional)
 
-The phone button at the top right shows a QR code. It uses
+There are two ways, and you can use either or both.
+
+**The phone edition: no computer needed.** On your phone, open
+[k1ngsalm0n.github.io/subtitles-and-learning-app](https://k1ngsalm0n.github.io/subtitles-and-learning-app/).
+The first time, it asks for a Groq key: make a free account at
+[console.groq.com/keys](https://console.groq.com/keys), create a key, and
+paste it in. The key stays in your phone's browser. Then add the page to your
+home screen (Safari: Share → Add to Home Screen; Chrome: ⋮ → Add to Home
+screen). Choose a video on your phone, tap **Transcribe it**, and Stele writes
+its subtitles and translation. It can't import YouTube links or read
+screenshots; those need the computer.
+
+Your cards stay on the phone. To move them between the phone and your
+computer (or another phone), open **Settings → Your data**, tap **Export a
+copy**, send yourself the file, and use **Import a file…** on the other
+device. Cards from both sides are merged; nothing is lost.
+
+**Your computer's Stele, on the phone.** The phone button at the top right
+of the computer version shows a QR code. It uses
 [Tailscale](https://tailscale.com), a free private network between your own
 devices, and walks you through setting it up. Your cards sync between the
-computer and the phone. The computer has to be on, with Stele running.
+computer and the phone by themselves. The computer has to be on, with Stele
+running.
 
 ## 10. Updating Stele
 

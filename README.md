@@ -18,6 +18,16 @@ a message saying so. More are added one at a time, each after its
 translation, transcription and OCR have been checked; see
 [docs/adding-a-language.md](docs/adding-a-language.md).
 
+**On your phone:** open
+[k1ngsalm0n.github.io/subtitles-and-learning-app](https://k1ngsalm0n.github.io/subtitles-and-learning-app/)
+and add it to your home screen. The phone edition needs no computer: choose a
+video on your phone, and Stele writes its subtitles, translates them and
+explains each word you tap, using a free [Groq](https://console.groq.com/keys)
+key of your own, which stays in your phone's browser. It doesn't import
+YouTube links or read screenshots (those need the computer). Your cards live
+on the phone; to move them between your phone and a computer, use **Settings →
+Your data → Export** on one and **Import** on the other.
+
 **New to all this?** [docs/getting-started.md](docs/getting-started.md) walks
 through installing and using Stele step by step, with no terminal experience
 assumed.
