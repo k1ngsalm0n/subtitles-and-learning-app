@@ -13,108 +13,34 @@
 // A worse translation beats no translation.
 
 import { toTraditional } from "./zhconvert.mjs";
-import { readFileSync } from "node:fs";
 
 import { readPrefs } from "./prefs.mjs";
 import { getLlmConfig } from "./llmConfig.mjs";
 import { chatJson } from "./chat.mjs";
+import {
+  MAX_LINES,
+  batches,
+  buildPrompt,
+  parseCues,
+  readTranslations,
+  rebuildSrt,
+} from "../public/js/shared/linetranslate.mjs";
+// The prompt and the reply's reading are shared with the phone version.
+export {
+  batches,
+  buildPrompt,
+  languageName,
+  parseCues,
+  readTranslations,
+  rebuildSrt,
+} from "../public/js/shared/linetranslate.mjs";
 
 // LLM_TRANSLATE=off is the deployment-level switch and still wins; the
 // Settings toggle is the reader's, checked per call so flipping it takes effect
 // without a restart.
 const ENV_ENABLED = String(process.env.LLM_TRANSLATE || "").toLowerCase() !== "off";
 
-// Lines per request. Enough neighbouring text for names and pronouns to settle,
-// small enough that one bad batch costs little and nothing gets truncated.
-const BATCH = 20;
-// A feature film's subtitles run to thousands of lines. Past this the offline
-// model is the right tool: it is faster in bulk and costs nothing.
-const MAX_LINES = 400;
 const TIMEOUT_MS = 60_000;
-
-// Names for the prompt, from the one language table the frontend and
-// translate.py read too (#32). Regional tags (zh-TW, pt_BR) aren't listed:
-// languageName falls back to the primary subtag, which is the only part the
-// model needs.
-const LANGUAGE_NAMES = Object.fromEntries(
-  JSON.parse(
-    readFileSync(new URL("../public/data/languages.json", import.meta.url), "utf8"),
-  ).languages.map((l) => [l.code, l.name]),
-);
-
-export function languageName(code) {
-  const key = String(code || "").trim().toLowerCase();
-  return LANGUAGE_NAMES[key] || LANGUAGE_NAMES[key.split(/[-_]/)[0]] || key || "the source language";
-}
-
-// SRT is simple and we only need three parts of it. Anything that doesn't look
-// like a cue is passed through untouched so a hand-edited file can't be eaten.
-export function parseCues(srt) {
-  const cues = [];
-  for (const block of String(srt).split(/\r?\n\s*\r?\n/)) {
-    const lines = block.split(/\r?\n/).filter((line) => line.trim() !== "");
-    if (lines.length < 2) continue;
-    const timing = lines.findIndex((line) => line.includes("-->"));
-    if (timing === -1) continue;
-    cues.push({
-      number: lines[timing - 1]?.trim() || String(cues.length + 1),
-      timing: lines[timing].trim(),
-      text: lines.slice(timing + 1).join(" ").trim(),
-    });
-  }
-  return cues;
-}
-
-export function rebuildSrt(cues, translations) {
-  return cues
-    .map((cue, index) =>
-      [cue.number, cue.timing, translations[index] ?? cue.text].join("\n"),
-    )
-    .join("\n\n");
-}
-
-export function batches(items, size = BATCH) {
-  const out = [];
-  for (let at = 0; at < items.length; at += size) out.push(items.slice(at, at + size));
-  return out;
-}
-
-// The model is asked for an object keyed by line number so a dropped or merged
-// line is detectable, rather than silently shifting every later translation
-// onto the wrong cue — the failure mode of returning a bare list.
-export function readTranslations(content, expected) {
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return null;
-  }
-  const lines = parsed?.lines ?? parsed;
-  if (!lines || typeof lines !== "object") return null;
-
-  const out = [];
-  for (let index = 1; index <= expected; index++) {
-    const value = lines[index] ?? lines[String(index)];
-    if (typeof value !== "string") return null;
-    out.push(value.trim());
-  }
-  return out;
-}
-
-export function buildPrompt(from, to) {
-  const source = languageName(from);
-  const target = languageName(to);
-  return (
-    `You are a subtitle translator. Translate each numbered line from ${source} into ${target}.\n` +
-    `Return JSON shaped {"1": "...", "2": "..."} with exactly one entry per input line, using the same numbers.\n` +
-    "Rules:\n" +
-    `- Translate every line, including fragments. Never merge, split, reorder or drop lines.\n` +
-    `- Proper nouns — people, places, ships, battles, organisations, titles — must use their established ${target} name, not a syllable-by-syllable respelling. Use the surrounding lines to work out what is being referred to.\n` +
-    "- Keep numbers, dates, measurements and units as they are.\n" +
-    `- Write natural ${target}, not a word-for-word gloss.\n` +
-    "- Output the translation only: no notes, no romanization, no explanations."
-  );
-}
 
 async function askModel(config, prompt, lines) {
   const numbered = lines.map((text, index) => `${index + 1}. ${text}`).join("\n");
