@@ -1,3 +1,4 @@
+import { revealPhoneTranscript } from "./phonelayout.mjs";
 import {
   state,
   getCurrentReviewCard,
@@ -632,6 +633,7 @@ export function watchTranscriptScroll(els) {
   // quiet window that protects the controls menu would otherwise swallow it.
   e.video?.addEventListener("play", () => {
     _followSuspended = false;
+    revealPhoneTranscript(e.transcript);
     scrollActiveLineIntoView(e, { force: true });
   });
 }

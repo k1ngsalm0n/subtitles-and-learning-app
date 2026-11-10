@@ -2774,6 +2774,99 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   .deck-sidebar, .review-panel, .card-panel { grid-row: auto; grid-column: 1; }
   .deck-nav { max-height: 40vh; overflow-y: auto; scrollbar-gutter: stable; }
 }
+
+/* ── Phones ──────────────────────────────────────────────────────────────
+   Everything above stacks into one column below 980px, which made a phone
+   *fit* without making it usable: the video scrolled off the top as soon as
+   the transcript came into view, so you read lines with nothing playing in
+   sight. On a phone the video stays pinned under the topbar instead, and the
+   transcript below it is exactly the rest of the screen tall: scroll past the
+   translate and import controls once and the page is the video and its lines,
+   with the lines scrolling under it. A pinned player never leaves the screen,
+   so the floating mini player never starts — it would cover half of a 390px
+   transcript if it did. */
+@media (max-width: 700px) {
+  /* No bottom padding: the transcript is sized to end at the bottom of the
+     screen, and 20px under it slid its top 20px under the pinned video. */
+  main { padding: 12px 12px 0; }
+  .media-pane {
+    position: sticky;
+    top: var(--topbar-h);
+    z-index: 4;
+    /* The page scrolls underneath; a strip of page colour above and below the
+       video keeps the controls from showing through the gaps. */
+    margin: -12px -12px 0;
+    padding: 8px 12px;
+    background: var(--bg);
+  }
+  .player-shell {
+    min-height: 0;
+    max-height: 38vh;
+    max-height: 38dvh;
+  }
+  .transcript-pane {
+    position: static;
+    /* Window minus topbar, minus the pinned video (16:9 of the width, capped
+       at 38% of the height, plus its 16px of padding). */
+    height: calc(100vh - var(--topbar-h) - min((100vw - 24px) * 9 / 16, 38vh) - 16px);
+    height: calc(100dvh - var(--topbar-h) - min((100vw - 24px) * 9 / 16, 38dvh) - 16px);
+    max-height: none;
+    min-height: 260px;
+  }
+  .pane-divider { display: none; }
+  /* The timestamp is a 48px column on every line, a sixth of a phone's width
+     taken from the characters. It goes above the text instead. */
+  .line { grid-template-columns: 1fr; gap: 2px; padding: 8px 10px; }
+  .time { padding-top: 0; font-size: 11px; }
+  .original { font-size: 24px; }
+  /* Two rows: the search box with the new-word count beside it, then the
+     line's buttons. styles.css gives every button 130px below 620px, which
+     spread them over three rows with "Line Known" alone on the last. */
+  .toolbar-row { gap: 6px; }
+  .toolbar-row .search-box { flex: 1 1 180px; min-width: 0; }
+  .toolbar-row button { flex: 0 1 auto; padding-inline: 10px; }
+  .toolbar-row .new-word-count { flex: none; }
+  /* Words to learn rises from the bottom like the word pop-up. */
+  .word-list-panel {
+    left: 0; right: 0; top: auto; bottom: 0; width: auto; transform: none;
+    max-height: 80dvh; border-radius: 18px 18px 0 0; border-bottom: 0;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+
+  /* The word pop-up rises from the bottom, where a thumb already is, rather
+     than sitting over the middle of the line that was just tapped. */
+  .word-bubble {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    max-height: 70vh;
+    max-height: 70dvh;
+    transform: none;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+    animation: sheet-up 0.18s ease-out;
+  }
+  dialog.card-modal { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+}
+@keyframes sheet-up {
+  from { transform: translateY(40px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+/* Touch screens: no keyboard to have shortcuts on, and a finger needs a
+   bigger target than a cursor. 40px is the floor here; the controls used most
+   (grades, deck rows) get 44–48. */
+@media (hover: none) and (pointer: coarse) {
+  .study-keys, .review-keys { display: none; }
+  .nav-tab { height: 40px; }
+  select, input[type="text"], input[type="search"], input:not([type]) { min-height: 40px; }
+  /* 16px stops iOS Safari zooming the whole page into a field on focus. */
+  input, select, textarea { font-size: 16px; }
+  .grade-button { min-height: 48px; }
+  .deck-nav-item { min-height: 44px; }
+}
     </style>
     <script>
       // Apply the last-open tab before the first paint. main.mjs restores it
