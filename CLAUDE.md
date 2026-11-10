@@ -1078,6 +1078,18 @@ npm test                                              # JS unit tests
 python -m unittest discover -s test -p "test_*.py"    # Python (venv active)
 ```
 
+**Browser tests** (`browser-tests/`, Python unittest + Playwright, their own
+CI job `browser`) drive the real pages at phone and desktop sizes against a
+sandbox on a free port: `PLAYWRIGHT_PYTHON=<a python with playwright> npm run
+test:browser`. Playwright is never added to `uv.lock` (see the flores note).
+
+**Phones** (≤700px, "Phones" at the end of index.html's stylesheet): the video
+is pinned under the topbar and the transcript is exactly the rest of the screen
+tall, below the translate/import controls, so the floating mini player never
+starts; play scrolls the page until the transcript is in full view
+(`phonelayout.mjs`); the word pop-up and Words to learn rise from the bottom;
+touch screens (`hover: none`) lose the keyboard hints and get ≥40px targets.
+
 Unit tests don't cover what an import actually produces. After any change to
 caption OCR, Whisper or how they merge, audit the **whole** subtitle timeline
 of both test videos, saving a baseline before the change and diffing after:

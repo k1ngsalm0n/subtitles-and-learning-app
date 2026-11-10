@@ -8,7 +8,8 @@
     "start": "node --env-file-if-exists=.env server/index.mjs",
     "sync": "node scripts/sync.mjs",
     "sandbox": "node scripts/sandbox.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "test:browser": "${PLAYWRIGHT_PYTHON:-python3} -m unittest discover -s browser-tests"
   },
   "engines": {
     "node": ">=22"
