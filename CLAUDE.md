@@ -1090,6 +1090,15 @@ starts; play scrolls the page until the transcript is in full view
 (`phonelayout.mjs`); the word pop-up and Words to learn rise from the bottom;
 touch screens (`hover: none`) lose the keyboard hints and get ≥40px targets.
 
+**Installing to a home screen** (`manifest.webmanifest`, `sw.js`, `pwa.mjs`):
+the service worker is network-first for the app's own files and never touches
+`/api/`, `/videos/`, range requests or other origins, so online nothing
+changes (the server's "no-cache" still shows an edit on the next reload), and
+offline the copy from the last visit opens. No file list: main.mjs imports
+every module statically, so the first visit caches them all. Browsers allow it
+on https or localhost only (Tailscale's address, not a LAN IP). Icons are PNGs
+made from `public/icons/*.svg` by `scripts/make_icons.py`.
+
 Unit tests don't cover what an import actually produces. After any change to
 caption OCR, Whisper or how they merge, audit the **whole** subtitle timeline
 of both test videos, saving a baseline before the change and diffing after:

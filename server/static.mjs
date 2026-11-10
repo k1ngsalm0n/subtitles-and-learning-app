@@ -11,6 +11,7 @@ const MIME_TYPES = {
   ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -82,11 +83,11 @@ function parseRange(header, total) {
 // carries a validator (ETag + Last-Modified), so "no-cache" costs a 304 per
 // file instead of the file. Media keeps default handling (range requests
 // dominate).
-const NO_CACHE_EXTS = new Set([".html", ".js", ".mjs", ".css", ".json"]);
+const NO_CACHE_EXTS = new Set([".html", ".js", ".mjs", ".css", ".json", ".webmanifest"]);
 
 // Text compresses to roughly a fifth; over Tailscale to a phone that is most
 // of the first load. Videos and images are compressed already.
-const GZIP_EXTS = new Set([".html", ".js", ".mjs", ".css", ".json", ".svg"]);
+const GZIP_EXTS = new Set([".html", ".js", ".mjs", ".css", ".json", ".webmanifest", ".svg"]);
 // Below this the gzip header and the CPU aren't worth it.
 const GZIP_MIN_BYTES = 1024;
 // Compressed copies are kept so each file is compressed once per change, not
