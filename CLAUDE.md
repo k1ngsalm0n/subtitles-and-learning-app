@@ -1099,6 +1099,24 @@ every module statically, so the first visit caches them all. Browsers allow it
 on https or localhost only (Tailscale's address, not a LAN IP). Icons are PNGs
 made from `public/icons/*.svg` by `scripts/make_icons.py`.
 
+**The phone edition** (`node scripts/build-phone.mjs`,
+served as plain files) has no server. `<html data-edition="phone">` (set by
+the build) makes `phone/boot.mjs`, imported first by main.mjs, put
+`phone/engine.mjs` behind `api()`: it answers the same paths with the same
+replies — Groq's Whisper for `/api/import-file` (files over 25 MB decoded to
+16 kHz WAV pieces cut at quiet moments, `audio.mjs`), Groq's chat model for
+translation and lookups with the server's own prompts (`public/js/shared/`),
+CC-CEDICT for pinyin, word cuts and script conversion (`phone/zh.mjs`,
+bidirectional maximum matching; 99.6% of 2,070 characters from the reader's
+videos read as pypinyin does, neutral tones and 一/不 sandhi aside), and
+IndexedDB for saved videos and their files (`store.mjs`). The reader's own
+Groq key lives in localStorage (`stele.phone.llm`) and goes only to Groq.
+What needs a computer answers 404 and is hidden (`.computer-only`); backups,
+sync and locating don't start. Data moves between devices by Export/Import.
+`scripts/serve-phone.mjs` serves a build like GitHub Pages (no CSP — the
+computer's `connect-src 'self'` would block Groq); `browser-tests/
+test_phone_edition.py` drives it with a fake Groq.
+
 Unit tests don't cover what an import actually produces. After any change to
 caption OCR, Whisper or how they merge, audit the **whole** subtitle timeline
 of both test videos, saving a baseline before the change and diffing after:

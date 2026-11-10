@@ -1,3 +1,7 @@
+// First: on the phone edition this puts the in-page engine behind api()
+// before any other module can ask the (absent) server anything.
+import "./phone/boot.mjs";
+import { IS_PHONE } from "./edition.mjs";
 import { fillSentences } from "./cardsentences.mjs";
 import {
   state,
@@ -57,7 +61,7 @@ import { paintHighlight, clearHighlight } from "./imagehighlight.mjs";
 import { chooseScript } from "./zhscript.mjs";
 import { romanizeSubtitles } from "./romanize.mjs";
 import { renderHealth } from "./health.mjs";
-import { setupLlmDialog, promptLlmSetupIfNeeded } from "./llmsetup.mjs";
+import { setupLlmDialog, promptLlmSetupIfNeeded, openLlmSetup } from "./llmsetup.mjs";
 import {
   createAccentDial,
   applyAccent,
@@ -368,8 +372,11 @@ function init() {
       showToast(
         status.configured
           ? "Saved. Clicked words now get meanings that fit the sentence."
-          : "Offline only. You can set up a chat model later in Settings → What's running.",
+          : IS_PHONE
+            ? "Offline only. Add a Groq key later in Settings → Groq key."
+            : "Offline only. You can set up a chat model later in Settings → What's running.",
       );
+      if (state.settingsPage === "groq") renderGroqSettings();
       // The "What's running" row describes this choice.
       if (state.settingsPage === "health") renderHealth(els, { force: true });
     },
@@ -381,10 +388,13 @@ function init() {
   setupPractice(els);
   setPracticeOpener(openPractice);
   setSourceJumper(jumpToSource);
-  loadCookieSettings();
-  startAutoBackup();
   // Opens from a home screen with no connection (sw.js); never blocks.
   registerServiceWorker();
+  // The phone edition has no server to back up to, sync through or keep
+  // cookies on: its data moves by Export and Import (Settings → Your data).
+  if (IS_PHONE) return;
+  loadCookieSettings();
+  startAutoBackup();
   // Cards made on the phone show up here and the other way round (sync.mjs).
   startSync({
     applied: (touched) => {
@@ -1162,16 +1172,26 @@ function setupSettings() {
     }
   };
 
+  // The phone edition keeps the pages that work without a computer, plus its
+  // own: the Groq key that transcribes, translates and explains.
+  const pages = IS_PHONE
+    ? [
+        { id: "appearance", label: "Appearance" },
+        { id: "data", label: "Your data" },
+        { id: "groq", label: "Groq key" },
+      ]
+    : [
+        { id: "appearance", label: "Appearance" },
+        { id: "data", label: "Your data" },
+        { id: "backups", label: "Automatic backups" },
+        { id: "cookies", label: "Importing video" },
+        { id: "phone", label: "Use on your phone" },
+        { id: "health", label: "What's running" },
+      ];
+  if (!pages.some((p) => p.id === state.settingsPage)) state.settingsPage = "appearance";
   settingsPages = createWheel(
     els.settingsWheel,
-    [
-      { id: "appearance", label: "Appearance" },
-      { id: "data", label: "Your data" },
-      { id: "backups", label: "Automatic backups" },
-      { id: "cookies", label: "Importing video" },
-      { id: "phone", label: "Use on your phone" },
-      { id: "health", label: "What's running" },
-    ],
+    pages,
     (entry) => {
       showSettingsPage(entry.id);
       setSettingsPage(entry.id);
@@ -1179,6 +1199,7 @@ function setupSettings() {
       // to find out, and most visits to Settings are for something else.
       if (entry.id === "health") renderHealth(els);
       if (entry.id === "phone") renderPhoneSettings();
+      if (entry.id === "groq") renderGroqSettings();
     },
     { startAt: state.settingsPage },
   );
@@ -1187,6 +1208,10 @@ function setupSettings() {
   showSettingsPage(state.settingsPage);
   if (state.settingsPage === "health") renderHealth(els);
   if (state.settingsPage === "phone") renderPhoneSettings();
+  if (state.settingsPage === "groq") renderGroqSettings();
+  document.querySelector("#groqSetup")?.addEventListener("click", async () => {
+    await openLlmSetup();
+  });
 
   // The point of "Check again" is to see a fix take effect, so it must ignore
   // the cached answer — which means a real wait, which means saying so.
@@ -1629,7 +1654,7 @@ async function repairOnce() {
   if (!changed && !relinked) return;
   saveCards();
   renderAll(els);
-  if (relinked) locateUncheckedCards();
+  if (relinked && !IS_PHONE) locateUncheckedCards();
   const said = [];
   if (relinked) {
     said.push(relinked === 1
@@ -1808,5 +1833,17 @@ async function saveCookieSettings() {
 // ESTIMATED_QUOTA below had been evaluated, which threw and left the rest of
 // init — including the first-paint cleanup — unrun.
 init();
-setTimeout(locateUncheckedCards, 2000);
+// Settings → Groq key (phone edition): whether a key is set, and the button
+// that opens the same setup dialog the first visit shows.
+async function renderGroqSettings() {
+  const out = document.querySelector("#groqState");
+  if (!out) return;
+  const status = await api("/api/llm").then((r) => r.json()).catch(() => null);
+  out.textContent = status?.configured
+    ? `A Groq key ending ${status.keyHint.replace("…", "")} is set. Videos are transcribed and translated, and words explained, with it.`
+    : "No key yet. Without one, Stele can't write subtitles for your videos, and words get the dictionary's meanings only.";
+}
+
+// Listening for each card's word needs Whisper on a computer (locate.py).
+if (!IS_PHONE) setTimeout(locateUncheckedCards, 2000);
 setTimeout(repairCardsQuietly, 2500);

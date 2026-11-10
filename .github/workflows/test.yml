@@ -54,4 +54,9 @@ jobs:
           python-version: '3.12'
       - run: pip install playwright==1.64.1
       - run: python -m playwright install --with-deps chromium
+      # The full CC-CEDICT: the phone edition's pinyin and conversions are
+      # checked against it (test/phone-zh.test.mjs skips without it), and the
+      # phone edition the browser tests build carries it.
+      - run: node scripts/fetch-cedict.mjs
+      - run: node --test test/phone-zh.test.mjs
       - run: npm run test:browser

@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 // so the phone version's in-page engine runs the same code as the server. That
 // only holds while they stay free of Node: a `node:` import (or a server
 // module) there would load under node --test and then fail in a browser.
-const SHARED = ["cedict.mjs", "linetranslate.mjs", "jsontext.mjs", "wordprompt.mjs"];
+const SHARED = ["cedict.mjs", "linetranslate.mjs", "jsontext.mjs", "wordprompt.mjs", "ratelimit.mjs"];
 
 test("shared modules import nothing a browser can't load", () => {
   for (const name of SHARED) {
@@ -34,6 +34,8 @@ test("the server and the shared modules are the same functions", async () => {
   const chat = await import("../server/chat.mjs");
   const json = await import("../public/js/shared/jsontext.mjs");
   assert.equal(chat.jsonText, json.jsonText);
+  const rate = await import("../public/js/shared/ratelimit.mjs");
+  assert.equal(chat.retryAfterMs, rate.retryAfterMs);
 });
 
 test("buildDictionary files an entry under both scripts, and keeps Map's own methods", async () => {
