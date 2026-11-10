@@ -109,6 +109,7 @@ import { setupMiniPlayer } from "./miniplayer.mjs";
 import { setupSplitter } from "./splitter.mjs";
 import { setupPhone, renderPhoneSettings } from "./phone.mjs";
 import { api } from "./backend.mjs";
+import { registerServiceWorker } from "./pwa.mjs";
 
 const els = {
   video: document.querySelector("#video"),
@@ -382,6 +383,8 @@ function init() {
   setSourceJumper(jumpToSource);
   loadCookieSettings();
   startAutoBackup();
+  // Opens from a home screen with no connection (sw.js); never blocks.
+  registerServiceWorker();
   // Cards made on the phone show up here and the other way round (sync.mjs).
   startSync({
     applied: (touched) => {

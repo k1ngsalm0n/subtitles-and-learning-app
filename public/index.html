@@ -2,8 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: the phone layout pads the bottom sheets by
+         env(safe-area-inset-bottom), which is 0 without it. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Stele</title>
+    <!-- Installing to a home screen (pwa.mjs registers sw.js). -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#1a1310" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Stele" />
     <!-- main.mjs imports 25 other modules, and without this the browser
          only discovers each level after parsing the one above it. That
          waterfall is the window in which restored state has not been
@@ -2866,6 +2875,13 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
   input, select, textarea { font-size: 16px; }
   .grade-button { min-height: 48px; }
   .deck-nav-item { min-height: 44px; }
+}
+/* viewport-fit=cover lets the page reach under a phone's notch when it's
+   turned sideways (wider than 700px, so the desktop paddings apply); the
+   topbar and the page keep their content out of it. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .topbar { padding-left: max(24px, env(safe-area-inset-left)); padding-right: max(24px, env(safe-area-inset-right)); }
+  main { padding-left: max(24px, env(safe-area-inset-left)); padding-right: max(24px, env(safe-area-inset-right)); }
 }
     </style>
     <script>

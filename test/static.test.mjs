@@ -167,3 +167,14 @@ test("inlineScriptHashes skips scripts with a src", () => {
   assert.equal(hashes.length, 2);
   assert.equal(hashes[0], createHash("sha256").update("x()").digest("base64"));
 });
+
+test("the web app manifest is served as one, checked before reuse and gzipped", async (t) => {
+  const { dir, base } = await setup(t);
+  await writeFile(path.join(dir, "manifest.webmanifest"), JSON.stringify({ name: "Stele", description: "x".repeat(2000) }));
+  const res = await get(`${base}/manifest.webmanifest`, { "Accept-Encoding": "gzip" });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers["content-type"], "application/manifest+json; charset=utf-8");
+  assert.equal(res.headers["cache-control"], "no-cache");
+  assert.equal(res.headers["content-encoding"], "gzip");
+  assert.equal(JSON.parse(gunzipSync(res.body)).name, "Stele");
+});
