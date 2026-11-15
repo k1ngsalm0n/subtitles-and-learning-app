@@ -1,0 +1,463 @@
+/* The phone edition's look (and so the Android app's): "design A" — dark
+   with a mint accent, plain sans-serif type, four tabs along the bottom, a
+   Videos tab that opens on the list of videos, the player on a screen of its
+   own, the word's details in a sheet from the bottom, and Forgot / Got it /
+   Easy as big buttons under the card. Loaded only by the phone build
+   (scripts/build-phone.mjs), after index.html's own styles, so the computer
+   is untouched; js/phone/shell.mjs adds the few elements it draws and keeps
+   <html data-phone-screen="library|player"> in step. */
+
+:root[data-edition="phone"] {
+  --bg: #0d0f12;
+  --surface: #15181d;
+  --surface-2: #1a1e24;
+  --surface-3: #262c34;
+  --text: #f4f0e8;
+  --muted: #aeb4bd;
+  --border: #303842;
+  --accent: #6ee7b7;
+  --on-accent: #0d0f12;
+  --accent-soft: color-mix(in srgb, var(--accent) 20%, var(--surface));
+  --topbar-h: 56px;
+  --nav-h: 66px;
+  --sans: system-ui, Roboto, "Noto Sans", "Noto Sans CJK TC", "Noto Sans CJK SC", "PingFang TC", sans-serif;
+}
+:root[data-edition="phone"][data-theme="light"] {
+  --bg: #f7f3eb;
+  --surface: #fffaf2;
+  --surface-2: #f3ece1;
+  --surface-3: #e8e0d2;
+  --text: #17191d;
+  --muted: #5c6570;
+  --border: #d3c9ba;
+  --accent: #059669;
+  --on-accent: #ffffff;
+}
+
+/* ── Type and ground: plain sans everywhere, no lamplight glow. ─────────── */
+:root[data-edition="phone"] body,
+:root[data-edition="phone"] :is(button, input, textarea, select, .nav-tab, .file-button,
+  .original, .bubble-word, .bubble-char, .cf-word, h1, h2, h3) {
+  font-family: var(--sans);
+}
+:root[data-edition="phone"] body {
+  background: var(--bg);
+  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+:root[data-edition="phone"] :is(.player-shell, .brand-mark) { box-shadow: none; }
+:root[data-edition="phone"] .line.active .original { text-shadow: none; }
+:root[data-edition="phone"] :is(.study-keys, .review-keys) { display: none; }
+:root[data-edition="phone"] h2 { font-weight: 700; letter-spacing: 0; }
+
+:root[data-edition="phone"] button,
+:root[data-edition="phone"] .file-button {
+  border-radius: 12px;
+  background: var(--surface-3);
+  border-color: transparent;
+  color: var(--text);
+}
+:root[data-edition="phone"] :is(input[type="text"], input[type="search"], input:not([type]), select) {
+  border-radius: 12px;
+  background: var(--surface);
+  border-color: var(--border);
+}
+:root[data-edition="phone"] button.active,
+:root[data-edition="phone"] .segmented button.active { background: var(--accent); color: var(--on-accent); }
+
+/* ── Top bar: [‹] title … language chip. ─────────────────────────────────── */
+:root[data-edition="phone"] .topbar {
+  height: var(--topbar-h);
+  padding: 0 16px;
+  gap: 8px;
+  background: var(--bg);
+  border-bottom: 0;
+  backdrop-filter: none;
+}
+:root[data-edition="phone"] :is(.brand, .nav-tabs, .topbar-right) { display: none !important; }
+.phone-title {
+  flex: 1;
+  min-width: 0;
+  font: 700 20px/1.2 var(--sans);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root[data-edition="phone"] .phone-back {
+  display: none;
+  width: 40px;
+  height: 40px;
+  margin-left: -10px;
+  padding: 0;
+  font-size: 30px;
+  line-height: 1;
+  background: none;
+}
+:root[data-phone-view="study"][data-phone-screen="player"] .phone-back { display: grid; place-items: center; }
+:root[data-edition="phone"] .phone-chip {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+:root[data-edition="phone"]:not([data-phone-view="study"]) .phone-chip { display: none; }
+:root[data-phone-langs="open"] .phone-chip { color: var(--accent); border-color: var(--accent); }
+
+/* ── Bottom bar: four tabs, the open one in a pill. ──────────────────────── */
+.phone-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: space-around;
+  height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding: 8px 0 env(safe-area-inset-bottom);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+:root[data-edition="phone"] .phone-tab {
+  flex: 1;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.phone-tab i {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 30px;
+  border-radius: 99px;
+  transition: background 0.15s;
+}
+.phone-tab svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+:root[data-edition="phone"] .phone-tab.on { color: var(--text); }
+.phone-tab.on i { background: var(--accent-soft); color: var(--accent); }
+
+/* ── Study, both screens ─────────────────────────────────────────────────── */
+:root[data-edition="phone"] main { padding: 0 16px; }
+:root[data-edition="phone"] .workspace { display: flex; flex-direction: column; gap: 12px; }
+:root[data-edition="phone"] .workspace > * { align-self: stretch; }
+:root[data-edition="phone"] .pane-divider { display: none; }
+:root[data-edition="phone"] .learning-pane {
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+/* The language pair, opened from the chip. */
+:root[data-edition="phone"]:not([data-phone-langs="open"]) .translate-bar { display: none; }
+:root[data-edition="phone"] .translate-bar {
+  margin-top: 4px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+:root[data-edition="phone"] #translateButton { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+/* ── Videos tab: the list. ───────────────────────────────────────────────── */
+:root[data-phone-screen="library"] :is(.media-pane, .transcript-pane) { display: none; }
+:root[data-phone-screen="player"]:not([data-phone-langs="open"]) .learning-pane { display: none; }
+:root[data-phone-screen="player"] .learning-pane .url-row { display: none; }
+
+:root[data-edition="phone"] .url-row { display: flex; flex-direction: column; align-items: stretch; gap: 10px; margin-top: 0; padding-top: 4px; border-top: 0; }
+:root[data-edition="phone"] #videoBrowse {
+  width: auto;
+  height: 52px;
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+:root[data-edition="phone"] #videoBrowse svg { display: none; }
+:root[data-edition="phone"] #videoBrowse::before { content: "Choose a video or audio file"; }
+:root[data-edition="phone"] #videoBrowse::after { content: "＋"; color: var(--accent); font-size: 20px; font-weight: 700; }
+
+:root[data-edition="phone"] .source-status-row:has(.source-status:empty) { display: none; }
+
+/* What's open now, first. */
+.phone-continue {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  height: auto !important;
+  padding: 8px !important;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent) !important;
+  border-radius: 14px !important;
+  background: var(--surface) !important;
+}
+.phone-continue-thumb,
+:root[data-edition="phone"] .video-mark {
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 44px;
+  flex: none;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #3a4d63, #1d2733 55%, #4a3b2f);
+  color: #fff;
+  font-size: 15px;
+}
+.phone-continue-thumb { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, #1d2733), #1d2733); }
+.phone-continue-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.phone-continue-text b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phone-continue-text small { color: var(--accent); font-size: 12px; }
+
+:root[data-edition="phone"] .video-list-head {
+  display: flex;
+  margin: 6px 2px -2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+:root[data-edition="phone"] :is(#videoSelectAll, .video-delete-selected, .video-select) { display: none; }
+:root[data-edition="phone"] .video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+}
+:root[data-edition="phone"] .video-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) auto;
+  grid-template-areas: "thumb title actions" "thumb status actions" "bar bar bar";
+  column-gap: 12px;
+  row-gap: 3px;
+  align-items: center;
+  padding: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface);
+}
+:root[data-edition="phone"] .video-row > span:first-child { display: none; }
+:root[data-edition="phone"] .video-row.current { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+:root[data-edition="phone"] .video-mark { grid-area: thumb; }
+:root[data-edition="phone"] .video-mark:empty::after { content: "▶"; opacity: 0.45; }
+:root[data-edition="phone"] .video-title { grid-area: title; align-self: end; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:root[data-edition="phone"] .video-status { grid-area: status; align-self: start; color: var(--muted); font-size: 12px; }
+:root[data-edition="phone"] .video-ready .video-status { color: var(--accent); }
+:root[data-edition="phone"] .video-progress { grid-area: bar; }
+:root[data-edition="phone"] .video-actions { grid-area: actions; }
+:root[data-edition="phone"] .video-action {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  background: none;
+  color: var(--muted);
+}
+
+/* ── Videos tab: the player. ─────────────────────────────────────────────── */
+:root[data-phone-screen="player"] .media-pane {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: 4;
+  margin: 0 -16px;
+  padding: 0;
+  background: var(--bg);
+}
+:root[data-phone-screen="player"] .player-shell {
+  border-radius: 0;
+  border: 0;
+  max-height: 34vh;
+  max-height: 34dvh;
+}
+:root[data-phone-screen="player"] .transcript-pane {
+  position: static;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  height: calc(100dvh - var(--topbar-h) - var(--nav-h) - env(safe-area-inset-bottom) - min(100vw * 9 / 16, 34dvh) - 12px);
+  min-height: 240px;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+}
+:root[data-edition="phone"] .toolbar-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 6px;
+  padding: 2px 0 8px;
+}
+:root[data-edition="phone"] .toolbar-row::-webkit-scrollbar { display: none; }
+:root[data-edition="phone"] .toolbar-row .search-box { flex: 0 0 150px; }
+:root[data-edition="phone"] .toolbar-row button {
+  flex: none;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+:root[data-edition="phone"] .toolbar-row .search-box input { height: 34px; min-height: 34px; border-radius: 99px; font-size: 14px; }
+:root[data-edition="phone"] .toolbar-row .new-word-count { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+:root[data-edition="phone"] #transcript { flex: 1; min-height: 0; padding: 0 0 8px; }
+
+:root[data-edition="phone"] .line {
+  grid-template-columns: 1fr;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border-left: 3px solid transparent;
+  color: var(--muted);
+}
+:root[data-edition="phone"] .line:hover { background: none; }
+:root[data-edition="phone"] .line.active {
+  background: var(--surface);
+  border-left-color: var(--accent);
+}
+:root[data-edition="phone"] .time { font-size: 11px; color: var(--muted); }
+:root[data-edition="phone"] .original { font-size: 22px; color: var(--text); }
+:root[data-edition="phone"] .translation { font-size: 13px; color: var(--muted); }
+
+/* ── The word: a sheet from the bottom, above the tab bar's place. ───────── */
+:root[data-edition="phone"] .word-bubble {
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: 0;
+  width: auto;
+  max-height: 78dvh;
+  transform: none;
+  z-index: 120;
+  padding: 26px 18px calc(18px + env(safe-area-inset-bottom));
+  border: 0;
+  border-radius: 22px 22px 0 0;
+  background: var(--surface-2);
+  backdrop-filter: none;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+  animation: sheet-up 0.18s ease-out;
+}
+:root[data-edition="phone"] .word-bubble::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  margin-left: -18px;
+  border-radius: 9px;
+  background: var(--border);
+}
+:root[data-edition="phone"] .bubble-word { font-size: 32px; font-weight: 600; }
+:root[data-edition="phone"] .bubble-heading {
+  color: var(--accent);
+  font: 600 11px/1.4 var(--sans);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+:root[data-edition="phone"] .bubble-section { border-top-color: var(--border); }
+:root[data-edition="phone"] .bubble-actions { border-top: 0; padding-top: 14px; gap: 8px; }
+:root[data-edition="phone"] .bubble-actions button {
+  height: 44px;
+  border-radius: 12px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 14px;
+}
+:root[data-edition="phone"] .bubble-actions .bubble-save { background: var(--accent); color: var(--on-accent); }
+:root[data-edition="phone"] .word-list-panel {
+  bottom: 0;
+  border: 0;
+  border-radius: 22px 22px 0 0;
+  background: var(--surface-2);
+}
+
+/* ── Cards: the card to review first, then the decks and the list. ───────── */
+:root[data-edition="phone"] .cards-layout { display: flex; flex-direction: column; align-items: stretch; gap: 18px; padding-top: 4px; }
+:root[data-edition="phone"] .review-panel { order: -1; }
+:root[data-edition="phone"] :is(.deck-sidebar, .review-panel, .card-panel) {
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+:root[data-edition="phone"] .review-card {
+  min-height: 300px;
+  padding: 24px 18px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--surface);
+}
+:root[data-edition="phone"] .review-card mark,
+:root[data-edition="phone"] .review-card .cf-mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 5px;
+}
+:root[data-edition="phone"] .card-actions { gap: 8px; margin-top: 12px; }
+:root[data-edition="phone"] #flipCard {
+  flex: 1;
+  height: 50px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 14px;
+}
+:root[data-edition="phone"] .grade-button {
+  flex: 1;
+  height: 56px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface-3);
+  font-size: 14px;
+  font-weight: 600;
+}
+:root[data-edition="phone"] .grade-int { display: block; margin-top: 2px; font-size: 11px; }
+:root[data-edition="phone"] .grade-button.grade-good { background: var(--accent); color: var(--on-accent); }
+:root[data-edition="phone"] .grade-good .grade-int { color: color-mix(in srgb, var(--on-accent) 65%, transparent); }
+:root[data-edition="phone"] .grade-button.suggested { box-shadow: none; }
+:root[data-edition="phone"] .deck-nav-item { border-radius: 12px; }
+:root[data-edition="phone"] .deck-nav-item { background: none; color: var(--muted); }
+:root[data-edition="phone"] .deck-nav-item.active { background: var(--surface); color: var(--text); }
+
+/* ── Above the tab bar: toasts, and nothing hidden behind it. ────────────── */
+:root[data-edition="phone"] .toast-container {
+  bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom)) !important;
+}
+:root[data-edition="phone"] .word-bubble ~ .phone-nav,
+:root[data-edition="phone"] body:has(.word-bubble:not([hidden])) .phone-nav { z-index: 40; }

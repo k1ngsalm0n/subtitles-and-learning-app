@@ -23,6 +23,9 @@ test("the phone build is public/ marked as the phone edition, with the dictionar
 
   const html = readFileSync(path.join(out, "index.html"), "utf8");
   assert.match(html, /<html lang="en" data-edition="phone">/);
+  // The phone's own look, after the page's styles so it wins.
+  assert.ok(html.indexOf('<link rel="stylesheet" href="phone.css" />') > html.lastIndexOf("</style>"));
+  assert.ok(existsSync(path.join(out, "phone.css")));
   assert.equal(readFileSync(path.join(out, "data", "cedict.txt"), "utf8"), readFileSync(SEED, "utf8"));
   for (const file of [".nojekyll", "sw.js", "manifest.webmanifest", "icons/icon-192.png", "js/phone/engine.mjs", "data/languages.json"]) {
     assert.ok(existsSync(path.join(out, file)), file);

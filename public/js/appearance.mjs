@@ -9,6 +9,7 @@
 // it's applied.
 
 import { STORAGE_KEYS } from "./state.mjs";
+import { IS_PHONE } from "./edition.mjs";
 
 export const ACCENTS = [
   {
@@ -16,7 +17,7 @@ export const ACCENTS = [
     name: "Lantern",
     dark: "#ffb347",
     light: "#b4610a",
-    note: "Amber lamplight on warm brown. The default.",
+    note: "Amber lamplight on warm brown.",
   },
   {
     id: "mint",
@@ -62,18 +63,25 @@ export const ACCENTS = [
   },
 ];
 
-const DEFAULT_ACCENT = ACCENTS[0].id;
+// The computer wears Lantern; the phone edition (and the Android app) wears
+// Mint, the look chosen for it (phone.css).
+export const DEFAULT_ACCENT = IS_PHONE ? "mint" : ACCENTS[0].id;
+const defaultScheme = () => ACCENTS.find((entry) => entry.id === DEFAULT_ACCENT);
+
+export function accentNote(scheme) {
+  return scheme.id === DEFAULT_ACCENT ? `${scheme.note} The default.` : scheme.note;
+}
 
 // Unknown ids fall back rather than throwing: this value comes out of
 // localStorage, where an older build or a hand edit can leave anything.
 export function accentFor(id, theme) {
-  const scheme = ACCENTS.find((entry) => entry.id === id) || ACCENTS[0];
+  const scheme = ACCENTS.find((entry) => entry.id === id) || defaultScheme();
   return theme === "light" ? scheme.light : scheme.dark;
 }
 
 export function accentIndex(id) {
   const at = ACCENTS.findIndex((entry) => entry.id === id);
-  return at === -1 ? 0 : at;
+  return at === -1 ? ACCENTS.indexOf(defaultScheme()) : at;
 }
 
 export function storedAccent() {
