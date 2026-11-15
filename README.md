@@ -28,6 +28,15 @@ YouTube links or read screenshots (those need the computer). Your cards live
 on the phone; to move them between your phone and a computer, use **Settings →
 Your data → Export** on one and **Import** on the other.
 
+**As an Android app:** the same phone edition also comes as an app. Download
+`stele.apk` from the [Releases](https://github.com/k1ngsalm0n/subtitles-and-learning-app/releases)
+page on the phone, open it, and when Android asks, allow your browser (or Files app) to
+install apps — once. It works the same as the web page, with its own icon and
+no browser bars around it, and it opens with no connection; transcribing and
+word explanations still need the internet and your Groq key. To build it
+yourself: `npm run build:android` (needs the Android SDK and a JDK; see
+[docs/android.md](docs/android.md)).
+
 **New to all this?** [docs/getting-started.md](docs/getting-started.md) walks
 through installing and using Stele step by step, with no terminal experience
 assumed.

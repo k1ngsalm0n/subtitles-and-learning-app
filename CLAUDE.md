@@ -1117,6 +1117,17 @@ sync and locating don't start. Data moves between devices by Export/Import.
 computer's `connect-src 'self'` would block Groq); `browser-tests/
 test_phone_edition.py` drives it with a fake Groq.
 
+**The Android app** (`npm run build:android`, `docs/android.md`) is that
+build inside a WebView (`android/src/app/stele/MainActivity.java`), built
+with the SDK's own tools and no Gradle. It serves the files from the APK on
+`https://appassets.androidplatform.net/` (every file type needs a `MIME`
+entry, or a module won't run), opens the system file picker, and
+`android/web/android.js` — first in `<head>`, Android only — turns Export's
+blob downloads into Android's "Save to…" and makes Back close what's open
+before it leaves. Updates install only when signed with the same key:
+`~/.local/share/stele/android/release.jks`, made on the first release
+build, outside the repo, to be backed up.
+
 Unit tests don't cover what an import actually produces. After any change to
 caption OCR, Whisper or how they merge, audit the **whole** subtitle timeline
 of both test videos, saving a baseline before the change and diffing after:
