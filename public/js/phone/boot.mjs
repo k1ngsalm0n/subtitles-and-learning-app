@@ -5,6 +5,7 @@ import { IS_PHONE } from "../edition.mjs";
 import { useEngine } from "../backend.mjs";
 import { createEngine } from "./engine.mjs";
 import { indexedDbStore, memoryStore, localSettings } from "./store.mjs";
+import { setupPhoneShell } from "./shell.mjs";
 
 if (IS_PHONE) {
   useEngine(
@@ -13,4 +14,5 @@ if (IS_PHONE) {
       settings: localSettings(),
     }),
   );
+  setupPhoneShell();
 }

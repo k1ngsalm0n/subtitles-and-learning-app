@@ -101,7 +101,7 @@ function fillFields(id) {
   els.privacy.textContent = preset.noAddress
     ? "No key. The words you look up and the subtitle lines go to Claude through Claude Code on this computer, on your own Claude plan."
     : IS_PHONE
-      ? "The key stays in this browser on this phone and goes only to Groq, along with your videos' sound, the words you look up and the subtitle lines."
+      ? "The key stays on this phone and goes only to Groq, along with your videos' sound, the words you look up and the subtitle lines."
       : "The key stays on this computer and goes only to that provider, along with the words you look up and the subtitle lines.";
   if (id === "claude") refreshClaudeSetup();
   else {

@@ -8,6 +8,7 @@
     "start": "node --env-file-if-exists=.env server/index.mjs",
     "sync": "node scripts/sync.mjs",
     "sandbox": "node scripts/sandbox.mjs",
+    "build:android": "node scripts/build-android.mjs",
     "test": "node --test",
     "test:browser": "${PLAYWRIGHT_PYTHON:-python3} -m unittest discover -s browser-tests"
   },
