@@ -1117,6 +1117,18 @@ sync and locating don't start. Data moves between devices by Export/Import.
 computer's `connect-src 'self'` would block Groq); `browser-tests/
 test_phone_edition.py` drives it with a fake Groq.
 
+**The phone's look** (the phone edition and so the Android app): `public/phone.css`, which only the
+phone build links, and `public/js/phone/shell.mjs`, started by boot.mjs —
+"design A", the reader's pick of four mockups: mint on near-black, plain sans
+type, four tabs along the bottom (Videos, Words, Cards, Settings) that press
+the hidden `.nav-tab`s, a Videos tab that opens on the list
+(`<html data-phone-screen="library">`) and a player screen of its own with a
+‹ back (`player`), the language pair as a chip that opens the translate bar,
+the word as a bottom sheet, and Forgot / Got it / Easy as big buttons. Mint is
+the phone edition's default accent (`DEFAULT_ACCENT` in appearance.mjs); the
+computer keeps Lantern. A video opened by a tap (row, file, toast) switches to
+the player; the browser tests open it with "Continue".
+
 **The Android app** (`npm run build:android`, `docs/android.md`) is that
 build inside a WebView (`android/src/app/stele/MainActivity.java`), built
 with the SDK's own tools and no Gradle. It serves the files from the APK on

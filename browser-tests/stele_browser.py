@@ -168,7 +168,9 @@ class PhoneEditionTestCase(unittest.TestCase):
         page.on("request", groq.saw)
         context.route("https://api.groq.com/**", groq.answer)
         page.goto(self.url)
-        page.wait_for_selector("#transcript .line .word")
+        # The Videos tab opens on the list; the transcript is on the player
+        # screen behind "Continue" (open_player).
+        page.wait_for_selector("#transcript .line .word", state="attached")
         return page, groq
 
 

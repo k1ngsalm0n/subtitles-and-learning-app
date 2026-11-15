@@ -35,7 +35,14 @@ export async function buildPhone({ out = path.join(ROOT, "dist", "phone"), dict 
   const indexPath = path.join(out, "index.html");
   const html = await readFile(indexPath, "utf8");
   if (!/<html lang="en">/.test(html)) throw new Error("index.html's <html> tag isn't the one this build marks.");
-  await writeFile(indexPath, html.replace('<html lang="en">', '<html lang="en" data-edition="phone">'));
+  // phone.css after the page's own styles: the phone edition's look.
+  if (!html.includes("</head>")) throw new Error("index.html has no </head> for phone.css.");
+  await writeFile(
+    indexPath,
+    html
+      .replace('<html lang="en">', '<html lang="en" data-edition="phone">')
+      .replace("</head>", '  <link rel="stylesheet" href="phone.css" />\n  </head>'),
+  );
 
   await mkdir(path.join(out, "data"), { recursive: true });
   await writeFile(path.join(out, "data", "cedict.txt"), await readFile(dictionary));

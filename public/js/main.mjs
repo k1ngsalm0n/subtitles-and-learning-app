@@ -66,6 +66,7 @@ import {
   createAccentDial,
   applyAccent,
   accentFor,
+  accentNote,
   storedAccent,
   storeAccent,
 } from "./appearance.mjs";
@@ -1267,7 +1268,7 @@ function paintAccentState() {
   const scheme = accentDial.scheme();
   const settled = scheme.id === appliedAccent;
   els.accentName.textContent = scheme.name;
-  els.accentNote.textContent = scheme.note;
+  els.accentNote.textContent = accentNote(scheme);
   els.accentBay.classList.toggle("previewing", !settled);
   els.accentPill.textContent = settled ? "In use everywhere" : "Preview only";
   els.accentPill.classList.toggle("settled", settled);

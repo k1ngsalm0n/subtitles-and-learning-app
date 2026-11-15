@@ -68,6 +68,8 @@
       escape();
       return true;
     }
+    // The phone's own screens: the languages panel, then player → videos.
+    if (window.stelePhoneBack?.()) return true;
     const study = document.querySelector('.nav-tab[data-view="study"]');
     if (study && !study.classList.contains("active")) {
       study.click();
