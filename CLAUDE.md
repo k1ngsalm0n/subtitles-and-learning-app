@@ -1119,15 +1119,20 @@ test_phone_edition.py` drives it with a fake Groq.
 
 **The phone's look** (the phone edition and so the Android app): `public/phone.css`, which only the
 phone build links, and `public/js/phone/shell.mjs`, started by boot.mjs —
-"design A", the reader's pick of four mockups: mint on near-black, plain sans
-type, four tabs along the bottom (Videos, Words, Cards, Settings) that press
-the hidden `.nav-tab`s, a Videos tab that opens on the list
-(`<html data-phone-screen="library">`) and a player screen of its own with a
-‹ back (`player`), the language pair as a chip that opens the translate bar,
-the word as a bottom sheet, and Forgot / Got it / Easy as big buttons. Mint is
-the phone edition's default accent (`DEFAULT_ACCENT` in appearance.mjs); the
-computer keeps Lantern. A video opened by a tap (row, file, toast) switches to
-the player; the browser tests open it with "Continue".
+"design C, Immersive", the reader's pick of four mockups (after trying A).
+Home is a feed of big video cards on black with a yellow ＋ in the bottom bar
+(Home, ＋, Cards; Settings is the ⚙ up top); a video plays full screen
+(`<html data-phone-screen="player">`, no bars) with its line big over the
+picture. That subtitle *is* the transcript, with every line hidden but the
+active one and the one before, so word taps, the karaoke sweep and the pop-up
+are the app's own. A tap on the picture plays/pauses, a swipe up/down is the
+next/previous line, and the side buttons (Replay, Slow, Pinyin, Save, Words)
+go through the same keys and buttons as a computer. A review card is swiped:
+left Forgot, right Got it. Ochre is the phone edition's default accent
+(`DEFAULT_ACCENT` in appearance.mjs); the computer keeps Lantern. WebView
+paints its own grey play button on an unstarted video, so the player gets a
+blank `poster`; Android reads only `#rrggbb` for the bar colour (android.js
+converts).
 
 **The Android app** (`npm run build:android`, `docs/android.md`) is that
 build inside a WebView (`android/src/app/stele/MainActivity.java`), built

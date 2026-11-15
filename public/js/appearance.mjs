@@ -64,8 +64,8 @@ export const ACCENTS = [
 ];
 
 // The computer wears Lantern; the phone edition (and the Android app) wears
-// Mint, the look chosen for it (phone.css).
-export const DEFAULT_ACCENT = IS_PHONE ? "mint" : ACCENTS[0].id;
+// Ochre, the yellow of the look chosen for it (phone.css).
+export const DEFAULT_ACCENT = IS_PHONE ? "ochre" : ACCENTS[0].id;
 const defaultScheme = () => ACCENTS.find((entry) => entry.id === DEFAULT_ACCENT);
 
 export function accentNote(scheme) {

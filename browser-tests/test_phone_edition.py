@@ -53,7 +53,7 @@ class PhoneEdition(PhoneEditionTestCase):
         page.fill("#llmKey", FakeGroq.KEY)
         page.locator("#llmSave").tap()
         page.wait_for_selector("#llmSetupDialog", state="hidden")
-        page.locator('.phone-tab[data-tab="settings"]').tap()
+        page.locator("#phoneSettings").tap()
         page.locator(".settings-wheel .wheel-item", has_text="Groq key").dispatch_event("click")
         page.wait_for_function("document.querySelector('#groqState').textContent.includes('9876')")
         # The key went to Groq and nowhere else.
@@ -69,26 +69,46 @@ class PhoneEdition(PhoneEditionTestCase):
         for selector in ("#sourceUrl", "#queueUrl", "#phoneButton", ".import-bar", "#locateWords"):
             with self.subTest(selector=selector):
                 self.assertFalse(page.locator(selector).is_visible())
-        self.assertTrue(page.locator("#videoBrowse").is_visible())
-        self.assertIn("Choose a video", page.evaluate("getComputedStyle(document.querySelector('#videoBrowse'), '::before').content"))
-        page.locator('.phone-tab[data-tab="settings"]').tap()
+        # Adding a video is the ＋ in the bottom bar, which presses the folder button.
+        self.assertTrue(page.locator(".phone-tab-add").is_visible())
+        page.locator("#phoneSettings").tap()
         pages = page.evaluate("[...document.querySelectorAll('.settings-wheel [role=option], .settings-wheel li')].map(e => e.textContent.trim()).filter(Boolean)")
         self.assertEqual(pages, ["Appearance", "Your data", "Groq key"])
 
-    def test_tabs_along_the_bottom_and_the_player_on_its_own_screen(self):
+    def test_home_is_a_feed_and_a_video_plays_full_screen_with_its_line_over_it(self):
         page, _ = self.phone()
         page.keyboard.press("Escape")
-        # Videos opens on the list, not on a player.
+        # Home: the feed, a ＋ to add, no player yet.
         self.assertTrue(page.locator("#phoneContinue").is_visible())
+        self.assertTrue(page.locator("#phoneEmpty").is_visible())
         self.assertFalse(page.locator("#transcript").is_visible())
-        self.assertEqual(page.inner_text("#phoneTitle"), "Stele")
         self.assertIn("on", page.locator('.phone-tab[data-tab="study"]').get_attribute("class"))
 
         open_player(page)
-        self.assertEqual(page.inner_text("#phoneTitle"), "Sample lesson")
-        self.assertTrue(page.locator("#phoneBack").is_visible())
-        self.assertTrue(page.locator("#video").is_visible())
-        # Android's back button asks the page first: player → list.
+        # Full screen: no bars, the picture fills the window, one line shows.
+        self.assertFalse(page.locator(".phone-nav").is_visible())
+        self.assertFalse(page.locator(".topbar").is_visible())
+        box = page.locator(".media-pane").bounding_box()
+        self.assertEqual((box["x"], box["y"], box["width"]), (0, 0, 390))
+        shown = page.evaluate("[...document.querySelectorAll('#transcript .line')].filter(l => l.getClientRects().length).length")
+        self.assertLessEqual(shown, 2)
+        self.assertIn("Sample lesson", page.inner_text("#phoneStageBack"))
+        first = page.evaluate("document.querySelector('#transcript .line.active')?.dataset.index ?? null")
+        # Swipe up: the next line.
+        page.locator("#phoneSide, .phone-side").first.wait_for()
+        page.mouse.move(195, 300)
+        page.mouse.down()
+        page.mouse.move(195, 180, steps=4)
+        page.mouse.up()
+        page.wait_for_function(f"document.querySelector('#transcript .line.active')?.dataset.index !== {json.dumps(first)}")
+        # Pinyin off and on from the side.
+        page.locator('.phone-side-button[data-side="pinyin"]').tap()
+        self.assertEqual(page.evaluate("document.documentElement.dataset.phonePinyin"), "off")
+        page.locator('.phone-side-button[data-side="words"]').tap()
+        page.wait_for_selector(".word-list-panel")
+        page.keyboard.press("Escape")
+
+        # Android's back button asks the page first: player → Home.
         self.assertTrue(page.evaluate("window.stelePhoneBack()"))
         self.assertTrue(page.locator("#phoneContinue").is_visible())
         self.assertFalse(page.evaluate("window.stelePhoneBack()"))
@@ -96,17 +116,40 @@ class PhoneEdition(PhoneEditionTestCase):
         page.locator('.phone-tab[data-tab="cards"]').tap()
         self.assertTrue(page.locator("#cardsView").is_visible())
         self.assertEqual(page.inner_text("#phoneTitle"), "Cards")
-        self.assertFalse(page.locator("#phoneLangs").is_visible())
-        page.locator('.phone-tab[data-tab="words"]').tap()
-        page.wait_for_selector(".word-list-panel")
-        self.assertTrue(page.locator("#transcript").is_visible())
+        page.locator("#phoneSettings").tap()
+        self.assertTrue(page.locator("#settingsView").is_visible())
+        page.locator("#phoneBack").tap()
+        self.assertTrue(page.locator("#phoneContinue").is_visible())
 
         # The language pair is a chip; tapping it shows the translate bar.
-        page.keyboard.press("Escape")
         self.assertIn("→", page.inner_text("#phoneLangs"))
         self.assertFalse(page.locator(".translate-bar").is_visible())
         page.locator("#phoneLangs").tap()
         self.assertTrue(page.locator(".translate-bar").is_visible())
+
+    def test_a_review_card_is_swiped(self):
+        page, _ = self.phone()
+        page.keyboard.press("Escape")
+        open_player(page)
+        page.locator("#transcript .word").nth(1).tap()
+        page.get_by_text("+ Flashcard").tap()
+        page.locator("#modalSave").tap()
+        page.locator("#phoneStageBack").tap()
+        page.locator('.phone-tab[data-tab="cards"]').tap()
+        card = page.locator("#reviewCard").bounding_box()
+        mid_y = card["y"] + card["height"] / 2
+        page.mouse.click(card["x"] + card["width"] / 2, mid_y)  # a tap turns it
+        page.wait_for_selector(".grade-good", state="visible")
+        page.wait_for_timeout(300)
+        card = page.locator("#reviewCard").bounding_box()  # the back is taller
+        mid_y = card["y"] + min(card["height"] / 2, 120)
+        page.mouse.move(card["x"] + 60, mid_y)
+        page.mouse.down()
+        page.mouse.move(card["x"] + card["width"] - 40, mid_y, steps=5)
+        page.mouse.up()
+        # Graded Got it: nothing left to review now, the card back in ten minutes.
+        page.wait_for_function("document.querySelector('#reviewProgress').textContent === ''")
+        self.assertIn("10m", page.inner_text("#reviewCard"))
 
     def test_pinyin_and_word_cuts_come_from_the_dictionary_in_the_page(self):
         page, groq = self.phone()
@@ -157,7 +200,8 @@ class PhoneEdition(PhoneEditionTestCase):
         page.locator("#transcript .word").nth(1).tap()
         page.get_by_text("+ Flashcard").tap()
         page.locator("#modalSave").tap()
-        page.locator('.phone-tab[data-tab="settings"]').tap()
+        page.locator("#phoneStageBack").tap()
+        page.locator("#phoneSettings").tap()
         page.locator(".settings-wheel .wheel-item", has_text="Your data").dispatch_event("click")
         with page.expect_download() as download:
             page.locator("#exportFromData").tap()
@@ -170,7 +214,7 @@ class PhoneEdition(PhoneEditionTestCase):
         other.keyboard.press("Escape")
         other.locator('.phone-tab[data-tab="cards"]').tap()
         self.assertNotIn(word, other.inner_text(".card-panel"))
-        other.locator('.phone-tab[data-tab="settings"]').tap()
+        other.locator("#phoneSettings").tap()
         other.locator(".settings-wheel .wheel-item", has_text="Your data").dispatch_event("click")
         other.set_input_files("#importFileSettings", exported)
         other.locator('.phone-tab[data-tab="cards"]').tap()
