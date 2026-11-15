@@ -239,7 +239,7 @@ export function importFromText(current, text) {
     console.error("Import failed:", err);
     return {
       error:
-        "Part of that file isn't in a shape Stele can read, so nothing was imported. Your cards are unchanged.",
+        "Stele can't read part of that file, so nothing was imported. Your cards are unchanged.",
     };
   }
 }

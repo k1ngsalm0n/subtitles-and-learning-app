@@ -17,7 +17,7 @@ import { IS_PHONE } from "./edition.mjs";
 // Shown beside each option. The server owns the URLs and model names; this
 // owns the words a person choosing between them needs.
 const BLURBS = {
-  claude: "No key. Uses your Claude plan through Claude Code on this computer. A few seconds per word.",
+  claude: "No key. Uses your Claude plan through Claude Code. A few seconds a word.",
   groq: "Free account, then paste a key. Fast.",
   gemini: "Free tier with a Google account.",
   openrouter: "Free models with an account; daily limit.",
@@ -99,10 +99,10 @@ function fillFields(id) {
   }
   // What leaves this computer, said in terms of this choice: Claude has no key.
   els.privacy.textContent = preset.noAddress
-    ? "No key. The words you look up and the subtitle lines go to Claude through Claude Code on this computer, on your own Claude plan."
+    ? "No key. Looked-up words and subtitle lines go to Claude, on your own plan."
     : IS_PHONE
-      ? "The key stays in this browser on this phone and goes only to Groq, along with your videos' sound, the words you look up and the subtitle lines."
-      : "The key stays on this computer and goes only to that provider, along with the words you look up and the subtitle lines.";
+      ? "The key stays on this phone. Only Groq gets it, with your videos' sound, looked-up words and subtitle lines."
+      : "The key stays on this computer. Only that provider gets it, with the words you look up and the subtitle lines.";
   if (id === "claude") refreshClaudeSetup();
   else {
     claudeTicket++;
@@ -166,7 +166,7 @@ async function refreshClaudeSetup(message = "") {
   const remote = s.here !== "computer";
   if (!s.installed) {
     panel.replaceChildren(
-      claudeEl("span", {}, "Claude Code isn't on this computer yet. It's free to install, and needs a paid Claude plan (Pro or Max) to sign in."),
+      claudeEl("span", {}, "Claude Code isn't installed. It's free, but signing in needs a paid Claude plan (Pro or Max)."),
       note,
       remote
         ? claudeEl("span", { class: "muted" }, "Install it from the computer Stele runs on.")
@@ -382,7 +382,7 @@ export function setupLlmDialog({ onSaved } = {}) {
   if (IS_PHONE) {
     // On a phone the key does more, and lives somewhere else.
     els.dialog.querySelector(".llm-intro").textContent =
-      "On a phone, a free Groq key writes the subtitles for your videos, translates them, and explains each word you tap in the sentence it's in. Without one you get the dictionary's meanings only.";
+      "A free Groq key writes subtitles for your videos, translates them and explains the words you tap. Without one: dictionary meanings only.";
   }
   els.provider = createCombobox(els.provider, {
     label: "Provider",

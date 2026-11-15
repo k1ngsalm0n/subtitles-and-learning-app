@@ -197,7 +197,7 @@ function deviceList(peers) {
   return h(
     "div",
     { class: "phone-devices" },
-    online.length ? null : h("p", { class: "muted" }, "None of your devices is connected right now — open the Tailscale app on your phone."),
+    online.length ? null : h("p", { class: "muted" }, "No device is connected — open Tailscale on your phone."),
     h(
       "ul",
       {},
@@ -232,7 +232,7 @@ function getTheApp() {
       ),
     ),
     h("div", { class: "phone-start" }, linkButton("Create a free Tailscale account ↗", SIGN_UP),
-      h("p", { class: "muted" }, "No account yet? Make one here on the computer. Already have one? The same page signs you in.")),
+      h("p", { class: "muted" }, "No account? Make one here. Have one? The same page signs you in.")),
   );
 }
 
@@ -342,7 +342,7 @@ export function setupPhone() {
   document.querySelector("#phoneSettingsStop")?.addEventListener("click", async (event) => {
     // Kept: event.currentTarget is null again once the await below returns.
     const stop = event.currentTarget;
-    if (!confirm("Stop sharing Stele on Tailscale? Your phone won't be able to open it until you share it again.")) return;
+    if (!confirm("Stop sharing on Tailscale? Your phone can't open Stele until you share again.")) return;
     stop.disabled = true;
     const result = await act("unshare");
     stop.disabled = false;

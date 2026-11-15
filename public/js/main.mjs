@@ -1306,7 +1306,7 @@ function showLocalFileNote(stage, error = "") {
   els.transcribeFile.textContent = stage === "failed" ? "Try again" : "Transcribe it";
   els.localFileText.textContent =
     stage === "queued"
-      ? `Transcribing “${name}” in the background — it’s in the Videos list. Keep watching; the subtitles appear here when it’s done.`
+      ? `Transcribing “${name}” — keep watching; subtitles appear here when it’s done.`
       : stage === "failed"
         ? `Couldn’t transcribe “${name}”: ${error || "the import failed."}`
         : `“${name}” has no subtitles yet. Stele can listen to it and write them — a few minutes, depending on its length.`;
@@ -1494,7 +1494,7 @@ async function deleteSources(sources) {
   if (!deleted.length) {
     showToast("Couldn't delete — the server didn't answer. Nothing was removed.");
   } else if (failed) {
-    showToast(`Deleted ${deleted.length} of ${sources.length} videos. The server didn't answer for the rest, which are still in the list.`);
+    showToast(`Deleted ${deleted.length} of ${sources.length} videos. The rest are still listed — the server didn't answer.`);
   } else {
     showToast(many ? `Deleted ${deleted.length} videos.` : `Deleted “${deleted[0].title || deleted[0].url}”.`);
   }
@@ -1531,7 +1531,7 @@ async function openSource(source, { at = null, play = false } = {}) {
     );
     els.video.addEventListener(
       "error",
-      () => showToast("This video is no longer stored — import it again to watch it. Its subtitles are still here."),
+      () => showToast("This video isn't stored anymore — import it again to watch. Its subtitles are still here."),
       { once: true },
     );
   }
@@ -1582,7 +1582,7 @@ async function locateAllWords() {
       onVideo: (done, total) =>
         showToast(
           done < total
-            ? `Finding words — listening to video ${done + 1} of ${total}. The first listen to a video takes a minute or two.`
+            ? `Finding words in video ${done + 1} of ${total}… the first time takes a minute or two.`
             : "Finding words…",
           { duration: 600_000 },
         ),
@@ -1841,7 +1841,7 @@ async function renderGroqSettings() {
   const status = await api("/api/llm").then((r) => r.json()).catch(() => null);
   out.textContent = status?.configured
     ? `A Groq key ending ${status.keyHint.replace("…", "")} is set. Videos are transcribed and translated, and words explained, with it.`
-    : "No key yet. Without one, Stele can't write subtitles for your videos, and words get the dictionary's meanings only.";
+    : "No key yet. Without one, Stele can't make subtitles, and words get dictionary meanings only.";
 }
 
 // Listening for each card's word needs Whisper on a computer (locate.py).

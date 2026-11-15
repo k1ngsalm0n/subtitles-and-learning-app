@@ -3122,7 +3122,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <button id="transcribeFile" type="button">Transcribe it</button>
             </div>
             <div id="transcript" class="transcript" aria-label="Transcript"></div>
-            <p class="study-keys muted">Space to play · ←/→ to step a line · R to replay · S to save · K on a word to mark it known</p>
+            <p class="study-keys muted">Space play · ←/→ next line · R replay · S save · K know word</p>
           </section>
         </div>
       </section>
@@ -3152,7 +3152,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <button class="grade-button grade-good" type="button" data-grade="good">Got it<span class="grade-int"></span></button>
               <button class="grade-button grade-easy" type="button" data-grade="easy">Easy<span class="grade-int"></span></button>
             </div>
-            <p class="review-keys muted">Space shows the answer, then takes the outlined grade (Got it unless marked) · 1 Forgot · 2 Got it · 3 Easy</p>
+            <p class="review-keys muted">Space: show answer, then the outlined grade · 1 Forgot · 2 Got it · 3 Easy</p>
           </section>
 
           <section class="card-panel">
@@ -3239,7 +3239,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 
           <section class="panel settings-page" data-page="data">
             <h2>Your data</h2>
-            <p class="muted data-note">Your cards, decks and templates are stored by <strong>this browser</strong>, for <strong>this exact address</strong>. Clearing site data, using a private window, or opening the app on a different port all leave them behind. Nothing is sent anywhere — the copies below are files on this machine.</p>
+            <p class="muted data-note">Your cards are saved in <strong>this browser</strong>, at <strong>this address</strong> only. Clearing site data or a private window won't keep them. Nothing is sent anywhere.</p>
             <div class="data-usage">
               <div class="data-usage-bar"><span id="usageFill"></span></div>
               <p id="usageText" class="muted data-note"></p>
@@ -3248,12 +3248,12 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <button id="exportFromData" type="button">Export a copy (JSON)</button>
               <label class="file-button" title="Merge a previously exported JSON file">Import a file…<input id="importFileSettings" type="file" accept=".json,application/json" /></label>
             </div>
-            <p class="muted data-note phone-only">Moving to another phone or a computer: <strong>Export</strong> here, send yourself the file, then <strong>Import</strong> it there. Cards, decks, templates and known words come along and merge with what's already there; videos are imported again.</p>
+            <p class="muted data-note phone-only">To move to another device: <strong>Export</strong> here, then <strong>Import</strong> the file there. Cards and known words are added; videos need importing again.</p>
           </section>
 
           <section class="panel settings-page phone-only" data-page="groq">
             <h2>Groq key</h2>
-            <p class="muted data-note">On a phone, Stele writes your videos' subtitles, translates them and explains words with Groq, on your own free account. The key stays in this browser.</p>
+            <p class="muted data-note">Groq writes subtitles, translates them and explains words, on your own free account. The key stays on this phone.</p>
             <p id="groqState" class="data-note"></p>
             <div class="settings-actions">
               <button id="groqSetup" type="button">Set up Groq</button>
@@ -3262,7 +3262,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 
           <section class="panel settings-page" data-page="backups">
             <h2>Automatic backups</h2>
-            <p class="muted data-note">A snapshot of everything above, written to a folder on this machine while the app is open. This is what survives the browser losing its storage.</p>
+            <p class="muted data-note">Saves a copy of your cards on this computer while the app is open, in case the browser loses them.</p>
             <label class="data-row">
               <span>Back up to this machine</span>
               <input id="backupEnabled" type="checkbox" />
@@ -3283,13 +3283,13 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
               <button id="backupNow" type="button">Back up now</button>
             </div>
             <p class="modal-section-label">Snapshots</p>
-            <p class="muted data-note">The twenty most recent are kept. Restoring merges — nothing you already have is overwritten or deleted.</p>
+            <p class="muted data-note">The last 20 are kept. Restoring only adds; nothing is deleted.</p>
             <div id="backupList" class="backup-list"></div>
           </section>
 
           <section class="panel settings-page" data-page="cookies">
             <h2>Importing video</h2>
-            <p class="muted data-note">YouTube may block downloads without cookies. Pasted cookies are live session credentials: they're kept unencrypted in <code>~/.local/share/stele/cookies.txt</code>, readable only by your account, and never shown again here — “Browser” keeps them in your browser instead. See “Your data, and where it sits” in the README.</p>
+            <p class="muted data-note">YouTube may block downloads without cookies. Pasted cookies are your login: they're saved unencrypted in <code>~/.local/share/stele/cookies.txt</code>, readable only by you. “Browser” reads them from your browser instead.</p>
             <div class="segmented" style="margin: 10px 0;">
               <button id="cookieModeNone" type="button" class="active">None</button>
               <button id="cookieModeBrowser" type="button">Browser</button>
@@ -3309,7 +3309,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
 
           <section class="panel settings-page" data-page="phone">
             <div class="section-title"><h2>Use on your phone</h2></div>
-            <p class="muted data-note">Your phone opens Stele from this computer through Tailscale, a free private network between your own devices. Nothing is on the public internet, and the computer has to be on.</p>
+            <p class="muted data-note">Open Stele on your phone through Tailscale, a free private network for your own devices. This computer must be on.</p>
             <p id="phoneSettingsStatus" class="data-note" role="status" aria-live="polite"></p>
             <div class="settings-actions">
               <button id="phoneSettingsOpen" type="button">Show QR code</button>
@@ -3327,7 +3327,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
                 <span id="healthStatus" class="health-status" role="status" aria-live="polite"></span>
               </div>
             </div>
-            <p class="muted data-note">Every part of this app keeps working when a piece is missing — it just quietly settles for a simpler one. This is where it says so, and what to type to fix it.</p>
+            <p class="muted data-note">When something is missing, the app quietly uses a simpler fallback. This page shows what's in use and how to fix it.</p>
             <div id="healthList" class="health-list"></div>
           </section>
         </div>
@@ -3470,7 +3470,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
         <label class="nest-deck-row">Put <span id="nestDeckName"></span> inside
           <select id="nestDeckParent" aria-label="Parent deck"></select>
         </label>
-        <p class="muted nest-deck-note">Decks nest one level deep. Studying a deck includes its sub-decks' cards.</p>
+        <p class="muted nest-deck-note">Decks nest one level deep. Studying a deck includes its sub-decks.</p>
         <p id="nestDeckError" class="danger" role="alert" aria-live="polite"></p>
         <menu>
           <button value="cancel" type="submit">Cancel</button>
@@ -3486,7 +3486,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
         </div>
         <p id="emptyCardsText"></p>
-        <p class="muted empty-cards-note">Their review history goes with them. You can undo this straight after.</p>
+        <p class="muted empty-cards-note">Their review history goes too. You can undo right after.</p>
         <menu>
           <button value="cancel" type="submit">Cancel</button>
           <button id="emptyCardsConfirm" type="button" class="danger">Delete them</button>
@@ -3566,7 +3566,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
           <h2 id="llmSetupTitle">Get clear word meanings</h2>
           <button value="cancel" class="icon-button" type="submit" aria-label="Close">×</button>
         </div>
-        <p class="llm-intro">When you click a word, a chat model picks the meaning that fits <em>this</em> sentence and explains it, and translates names and idioms properly. Without one you get the dictionary's whole list and a word-for-word translation.</p>
+        <p class="llm-intro">A chat model explains what a clicked word means in <em>this</em> sentence, and translates names and idioms properly. Without one: dictionary meanings and word-for-word translation.</p>
         <p id="llmCurrent" class="muted llm-current" hidden></p>
         <div class="llm-provider-row">
           <span class="llm-field-name">Provider</span>
@@ -3594,7 +3594,7 @@ dialog.card-modal { width: min(380px, calc(100vw - 32px)); padding: 14px 16px; }
             <label>API address<input id="llmBaseUrl" type="url" spellcheck="false" /></label>
             <label>Model<input id="llmModel" type="text" spellcheck="false" /></label>
           </details>
-          <p id="llmPrivacy" class="muted llm-privacy">The key stays on this computer and goes only to that provider, along with the words you look up and the subtitle lines.</p>
+          <p id="llmPrivacy" class="muted llm-privacy">The key stays on this computer. Only that provider gets it, with the words you look up and the subtitle lines.</p>
         </div>
         <p id="llmError" class="danger" role="alert" aria-live="polite"></p>
         <menu>

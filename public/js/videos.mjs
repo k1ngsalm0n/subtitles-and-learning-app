@@ -97,7 +97,7 @@ export function listOrder(sources) {
 // On startup an import that was running when the page went away is waiting
 // again — the server request died with the page. A chosen file's can't be:
 // the page held the file, and the page is new.
-export const LOST_FILE = "The page was reloaded before this file was transcribed. Choose it again with the folder button.";
+export const LOST_FILE = "The page reloaded before this was transcribed. Choose the file again.";
 export function resumeQueue(sources) {
   let changed = false;
   for (const s of sources) {
