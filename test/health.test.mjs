@@ -255,7 +255,7 @@ test("the transcriber names its models, and Apple Silicon's medium for music", (
     "whisper",
   );
   assert.match(mac.using, /faster-whisper \(small; medium for music\) on the CPU/);
-  assert.match(mac.detail, /Songs .* get medium/);
+  assert.match(mac.detail, /Songs get medium/);
   assert.equal(mac.state, "fallback", "speech still runs the small model on the CPU");
   const pc = row({ ...EVERYTHING, cuda: false, whisperModel: "small", whisperMusicModel: "small" }, "whisper");
   assert.match(pc.using, /\(small\) on the CPU/);
@@ -295,7 +295,7 @@ test("the app's own yt-dlp gone stale means updating has stopped working", () =>
   const stale = { source: "venv", version: "2026.06.01", ageDays: 45 };
   const on = row({ ...EVERYTHING, ytdlp: stale }, "import");
   assert.equal(on.state, "fallback");
-  assert.match(on.detail, /updating is failing/);
+  assert.match(on.detail, /Updating is failing/);
   const off = row({ ...EVERYTHING, ytdlp: stale, ytdlpAutoUpdate: false }, "import");
   assert.match(off.detail, /STELE_YTDLP_AUTOUPDATE=off/);
   // A week or two old is just between updates, not a problem.
@@ -371,7 +371,7 @@ test("OCR: OpenVINO is best, onnxruntime alone is a slower fallback with its fix
   const slow = row({ ...EVERYTHING, has: (m) => m !== "openvino" }, "ocr");
   assert.equal(slow.state, "fallback");
   assert.match(slow.using, /onnxruntime/);
-  assert.match(slow.detail, /three times slower/);
+  assert.match(slow.detail, /3× slower/);
   assert.equal(slow.fix, "uv sync");
 
   const none = row({ ...EVERYTHING, has: (m) => m !== "rapidocr" && m !== "openvino" }, "ocr");

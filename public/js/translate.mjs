@@ -146,7 +146,7 @@ export async function runTranslation(els) {
   els.translateButton.disabled = true;
   setStatus(
     els,
-    `Translating ${languageName(from)} → ${languageName(to)}… first run loads the model and can take a while.`,
+    `Translating ${languageName(from)} → ${languageName(to)}… the first run can take a while.`,
   );
 
   try {

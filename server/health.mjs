@@ -170,11 +170,11 @@ function pythonCheck({ venv }) {
     ok: venv,
     using: { yes: "set up, in .venv", no: "not set up — there is no .venv" },
     detail: {
-      yes: "Pinyin, word boundaries, Traditional/Simplified, transcription, screenshot reading and the offline translator have what they need. The rows below say how well each one is running.",
-      no: "Pinyin, word boundaries, Traditional/Simplified, transcription, screenshot reading and the offline translator are all off, and URL import uses whatever yt-dlp the system has, which is usually out of date.",
+      yes: "Everything the app needs is installed. The rows below show how each part runs.",
+      no: "Pinyin, word cutting, Traditional/Simplified, transcription, image reading and offline translation are off, and URL import uses the system's yt-dlp (usually out of date).",
     },
     fix: "npm run sync",
-    fixNote: "Sets up .venv with everything the app uses, and downloads the speech and translation models (several GB). Restart the app afterwards.",
+    fixNote: "Installs everything into .venv and downloads the speech and translation models (several GB). Restart the app after.",
   });
 }
 
@@ -203,7 +203,7 @@ function speechCheck({ has, voices, prefs }) {
   else if (piperReady) detail = "Words are spoken by a voice that sounds like a person.";
   else
     detail =
-      "The listen button still works, but the voice is robotic. On Linux the browser's own voices are usually this same engine under other names, so they don't help.";
+      "Listening works, but the voice is robotic. On Linux, browser voices are usually this same engine.";
 
   return {
     id: "speech",
@@ -214,7 +214,7 @@ function speechCheck({ has, voices, prefs }) {
     fix: settled ? null : "VOICES=1 npm run sync",
     fixNote: settled
       ? null
-      : "Downloads a Chinese and an English voice (~63 MB each) and installs piper. Restart the app afterwards.",
+      : "Downloads a Chinese and an English voice (~63 MB each) and installs piper. Restart the app after.",
     toggle: {
       name: "speech",
       value: choice,
@@ -226,20 +226,20 @@ function speechCheck({ has, voices, prefs }) {
           // Describing what "best" resolves to on *this* machine, because the
           // label alone can't say whether that means piper or espeak.
           hint: piperReady
-            ? "piper, on this machine. Sounds like a person; takes a moment to generate the first time."
+            ? "piper, on this computer. Sounds human; the first time takes a moment."
             : "Falls to espeak-ng until a voice is installed.",
         },
         {
           value: "browser",
           label: "Browser voice",
           enabled: true,
-          hint: "Whatever your browser offers. Instant, nothing sent to the app. Good on macOS and Windows; on Linux these are usually espeak-ng under other names.",
+          hint: "Your browser's voices. Instant. Good on macOS and Windows; on Linux usually espeak-ng.",
         },
         {
           value: "espeak",
           label: "espeak-ng",
           enabled: true,
-          hint: "A tiny formant synthesiser. Robotic, but instant and always there — some people prefer it for drilling.",
+          hint: "Robotic, but instant and always there.",
         },
       ],
       note: null,
@@ -267,7 +267,7 @@ function llmCheck({ has, llm: ready, llmProvider, llmModel, llmFailure, prefs })
       label: "Translation and word meanings",
       state: FALLBACK,
       using: `the offline translator — the chat model (${llmProvider}) stopped working at ${when}`,
-      detail: `${llmFailure.reason} Until it answers again, word meanings and translations quietly use the offline translator, which is more literal.${slow}`,
+      detail: `${llmFailure.reason} Until it's back, meanings and translations use the offline translator, which is more literal.${slow}`,
       fix: null,
       fixNote: null,
       action: { id: "llm-setup", label: "Change provider or key" },
@@ -286,8 +286,8 @@ function llmCheck({ has, llm: ready, llmProvider, llmModel, llmFailure, prefs })
     using,
     detail:
       (on
-      ? "Everyday phrases come out as what they mean rather than word by word, less common names are recognised, and word lookups come with real explanations."
-      : "Free, private and quick, but it translates literally. 你别给我戴高帽子了 — “stop flattering me” — comes back as “Don't put your hat on me”, and 她的中文说得很地道 as “Her Chinnese laguage says a lot”. Common names are fine; unusual ones get spelled out a syllable at a time. Word lookups give a bare meaning with no explanation.") + slow,
+      ? "Phrases are translated by meaning, names are recognised, and word lookups come with explanations."
+      : "Free, private and quick, but literal: 你别给我戴高帽子了 (“stop flattering me”) becomes “Don't put your hat on me”. Unusual names get spelled out, and word lookups have no explanation.") + slow,
     fix: null,
     fixNote: null,
     // Not a terminal command any more: the key is pasted into a dialog, which
@@ -306,17 +306,17 @@ function llmCheck({ has, llm: ready, llmProvider, llmModel, llmFailure, prefs })
           value: "on",
           label: "Use the chat model",
           enabled: ready,
-          hint: "Subtitle lines and looked-up words are sent to the provider you configured. Slower, and better at anything idiomatic.",
+          hint: "Lines and looked-up words go to your provider. Slower, better with idioms.",
         },
         {
           value: "off",
           label: "Offline only",
           enabled: true,
-          hint: "Nothing leaves this machine. Faster and free, and it takes phrases at face value.",
+          hint: "Nothing leaves this computer. Faster and free, but literal.",
         },
       ],
       note: ready
-        ? "Either way, a file over 400 lines uses the offline translator — it is faster in bulk."
+        ? "Either way, files over 400 lines use the offline translator (faster in bulk)."
         : "Needs a key before there is anything to choose.",
     },
   };
@@ -332,7 +332,7 @@ function segmentCheck({ has }) {
     using: { yes: "jieba", no: "the browser's own segmenter" },
     detail: {
       yes: "Clicking a word looks up the whole word.",
-      no: "The browser splits Chinese badly — 弗里斯兰 becomes 弗 | 里斯 | 兰 and 战列舰 becomes three — so clicking a name looks up a fragment of it.",
+      no: "The browser cuts Chinese badly (弗里斯兰 → 弗 | 里斯 | 兰), so clicking a name looks up part of it.",
     },
     fix: "uv sync",
     fixNote: "jieba is in the lockfile; this installs it.",
@@ -361,7 +361,7 @@ function romanizeCheck({ has }) {
     detail:
       missing.length === 0
         ? "The line above each subtitle shows how to pronounce it."
-        : "Languages whose romanizer is missing show no pronunciation line at all.",
+        : "Languages without a romanizer show no pronunciation line.",
     fix: missing.length === 0 ? null : "uv sync",
     fixNote: null,
   };
@@ -378,7 +378,7 @@ function ocrCheck({ has }) {
       label: "Reading screenshots and burned-in captions",
       ok: false,
       using: { yes: "", no: "not installed" },
-      detail: { yes: "", no: "The Images tab can't read anything, and videos without a subtitle track rely on Whisper alone." },
+      detail: { yes: "", no: "Images can't be read, and videos without subtitles rely on Whisper alone." },
       fix: "uv sync",
     });
   }
@@ -389,8 +389,8 @@ function ocrCheck({ has }) {
     state: fast ? BEST : FALLBACK,
     using: fast ? "RapidOCR on OpenVINO" : "RapidOCR on onnxruntime",
     detail: fast
-      ? "Images can be read, translated and clicked like subtitles, and a video's burned-in captions are read about three times faster than on onnxruntime."
-      : "Everything works, but reading a video's burned-in captions is about three times slower: a 7-minute video spent 17 minutes on it, and kept Whisper waiting.",
+      ? "Images can be read and clicked like subtitles, and burned-in captions are read about 3× faster than on onnxruntime."
+      : "Everything works, but reading burned-in captions is about 3× slower.",
     fix: fast ? null : "uv sync",
     fixNote: fast ? null : "OpenVINO is in the lockfile; this installs it.",
   };
@@ -405,7 +405,7 @@ function openccCheck({ has }) {
     using: { yes: "OpenCC", no: "not installed" },
     detail: {
       yes: "The script toggle converts between the two.",
-      no: "The toggle can't convert, and text stays in whichever script it arrived in.",
+      no: "The toggle can't convert; text stays as it arrived.",
     },
     fix: "uv sync",
   });
@@ -428,12 +428,12 @@ function whisperCheck({ has, cuda, whisperModel = "", whisperMusicModel = "" }) 
   if (!installed) detail = "A video with no subtitle track can't be transcribed.";
   else if (cuda)
     detail =
-      "Transcription runs on the graphics card, which is much faster and allows a larger, more accurate model.";
+      "Transcription runs on the graphics card: faster, with a larger, more accurate model.";
   else if (whisperMusicModel && whisperMusicModel !== whisperModel)
     // Apple Silicon (transcribe.py's _resolve_model): medium runs about as
     // fast as small there and is more accurate on songs; speech keeps small.
-    detail = `Transcription works but is slow, and picks a smaller model to stay usable. Songs (YouTube's Music category) get ${whisperMusicModel}: this processor runs it about as fast, and it catches far more of the lyrics.`;
-  else detail = "Transcription works but is slow, and picks a smaller model to stay usable.";
+    detail = `Transcription works but is slow, so it uses a smaller model. Songs get ${whisperMusicModel}, which catches more lyrics at about the same speed here.`;
+  else detail = "Transcription works but is slow, so it uses a smaller model.";
 
   const onCpu = installed && !cuda;
   const model = !whisperModel
@@ -449,7 +449,7 @@ function whisperCheck({ has, cuda, whisperModel = "", whisperMusicModel = "" }) 
     detail,
     fix: installed ? (onCpu ? "See the GPU section of CLAUDE.md" : null) : "npm run sync",
     fixNote: onCpu
-      ? "Only worth it with an NVIDIA card. torch is pinned to the CPU build so the lockfile runs anywhere; a matching CUDA wheel is installed over the top."
+      ? "Only for NVIDIA cards: installs a matching CUDA build of torch over the CPU one."
       : null,
   };
 }
@@ -480,12 +480,12 @@ function importPlanCheck({ whisperCuda, cores }) {
     state: plan.concurrent ? BEST : FALLBACK,
     using,
     detail: plan.concurrent
-      ? "The two heavy passes run at the same time, so an import takes about as long as the slower one rather than the sum of both."
-      : "Below six cores the two passes get in each other's way, so they queue — transcription first, since its lines appear as they are decoded and there is something to read long before the import ends.",
+      ? "Transcription and caption reading run together, so an import takes as long as the slower one."
+      : "Below six cores they slow each other down, so they take turns — transcription first, so lines appear early.",
     fix: settled ? null : "See the GPU section of CLAUDE.md",
     fixNote: settled
       ? null
-      : "A graphics card takes transcription off the CPU entirely, which lets both run at once whatever the core count. Nothing else here is worth changing — capping threads was measured and made imports slower without making the machine meaningfully quieter.",
+      : "A graphics card takes transcription off the CPU, so both can run at once.",
   };
 }
 
@@ -516,7 +516,7 @@ function importCheck({ ytdlp, ytdlpAutoUpdate = true, deno }) {
       state: FALLBACK,
       using: `the system's yt-dlp ${version}${age} — not the app's own`,
       detail:
-        "Nothing here keeps it up to date, and YouTube refuses old versions with HTTP 403. The app's own copy updates itself.",
+        "Nothing updates it, and YouTube refuses old versions (HTTP 403). The app's own copy updates itself.",
       fix: "npm run sync",
       fixNote: "Gives the app its own yt-dlp. Restart the app afterwards.",
     };
@@ -528,8 +528,8 @@ function importCheck({ ytdlp, ytdlpAutoUpdate = true, deno }) {
       state: FALLBACK,
       using: `yt-dlp ${version}${age}`,
       detail: ytdlpAutoUpdate
-        ? "It should have updated itself by now, so updating is failing — the server log says why. YouTube refuses old versions with HTTP 403."
-        : "Automatic updates are off (STELE_YTDLP_AUTOUPDATE=off). YouTube refuses old versions with HTTP 403.",
+        ? "Updating is failing — the server log says why. YouTube refuses old versions (HTTP 403)."
+        : "Automatic updates are off (STELE_YTDLP_AUTOUPDATE=off). YouTube refuses old versions (HTTP 403).",
       fix: "npm run sync",
       fixNote: null,
     };
@@ -540,7 +540,7 @@ function importCheck({ ytdlp, ytdlpAutoUpdate = true, deno }) {
       state: FALLBACK,
       using: `yt-dlp ${version} without a JavaScript runtime`,
       detail:
-        "YouTube extraction without a JS runtime is deprecated and falls back to low quality — often capped around 144p.",
+        "Without one, YouTube video falls back to low quality (often 144p).",
       fix: "npm run sync",
       fixNote: "Installs deno into the venv.",
     };
@@ -550,8 +550,8 @@ function importCheck({ ytdlp, ytdlpAutoUpdate = true, deno }) {
     state: BEST,
     using: `yt-dlp ${version} with deno${confirmedCurrent ? " — the newest release" : ""}`,
     detail: ytdlpAutoUpdate
-      ? "Full-quality video. yt-dlp updates itself once it is a week old, between imports."
-      : "Full-quality video. Automatic yt-dlp updates are off, so run npm run sync now and then.",
+      ? "Full-quality video. yt-dlp updates itself weekly, between imports."
+      : "Full-quality video. Auto-updates are off, so run npm run sync now and then.",
     fix: null,
     fixNote: null,
   };
@@ -566,7 +566,7 @@ function strokesCheck({ strokes }) {
     using: { yes: "Make Me a Hanzi data", no: "not downloaded" },
     detail: {
       yes: "Characters can be drawn stroke by stroke and practised.",
-      no: "Stroke diagrams and practice are unavailable; everything else about a card works.",
+      no: "No stroke diagrams or practice; everything else on cards works.",
     },
     fix: "npm run sync",
     fixNote: "Downloads graphics.txt (~30 MB).",
@@ -586,8 +586,8 @@ function dictionaryCheck({ dictionaries = [] }) {
     missing: FALLBACK,
     using: { yes: `Wiktionary (${names})`, no: `not downloaded: ${missing.join(", ")}` },
     detail: {
-      yes: "A clicked word has its meanings, its dictionary form (falou → falar), and a noun its gender, with no chat model.",
-      no: "Those words' meanings come from the chat model, or else a one-word guess from the offline translator, with no dictionary form or gender.",
+      yes: "Clicked words get meanings, their dictionary form (falou → falar) and a noun's gender, without a chat model.",
+      no: "Meanings come from the chat model, or a one-word guess from the offline translator.",
     },
     fix: "npm run sync",
     fixNote: "Downloads each language's Wiktionary entries from kaikki.org (50–100 MB each).",
