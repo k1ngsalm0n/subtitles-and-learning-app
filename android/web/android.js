@@ -78,9 +78,18 @@
     return false;
   };
 
+  // Android reads #rrggbb only: "#000" and "rgb(0, 0, 0)" are turned into it.
+  const toHex = (css) => {
+    const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(css);
+    if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+    const rgb = /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i.exec(css);
+    if (rgb) return `#${rgb.slice(1, 4).map((n) => Number(n).toString(16).padStart(2, "0")).join("")}`;
+    return css;
+  };
+  window.steleAndroidColour = toHex;
   let last = "";
   const paintBars = () => {
-    const colour = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    const colour = toHex(getComputedStyle(document.documentElement).getPropertyValue("--bg").trim());
     if (colour && colour !== last) {
       last = colour;
       bridge.setBarColor(colour);
@@ -88,4 +97,7 @@
   };
   new MutationObserver(paintBars).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
   document.addEventListener("DOMContentLoaded", paintBars);
+  // The phone's own stylesheet (phone.css) may land after that first read.
+  window.addEventListener("load", paintBars);
+  setTimeout(paintBars, 1500);
 })();

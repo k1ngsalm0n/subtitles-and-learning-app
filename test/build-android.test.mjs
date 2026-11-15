@@ -93,7 +93,7 @@ function loadAndroidJs({ dialogs = [], shown = [], studyActive = true } = {}) {
       });
     }
   }
-  const window = { SteleAndroid: { saveFile: (...args) => saved.push(args), setBarColor: () => {} } };
+  const window = { SteleAndroid: { saveFile: (...args) => saved.push(args), setBarColor: () => {} }, addEventListener: () => {} };
   const context = vm.createContext({
     window, document, URL: URL_, Blob, FileReader, HTMLAnchorElement: FakeAnchor, KeyboardEvent: class { constructor(type, init) { this.key = init.key; } },
     MutationObserver: class { observe() {} }, getComputedStyle: () => ({ getPropertyValue: () => "" }), setTimeout,
@@ -119,6 +119,14 @@ test("Export's download link hands its file to the phone, even after the page re
   plain.href = "https://console.groq.com/keys";
   plain.click();
   assert.equal(plain.clicked, true);
+});
+
+test("the bar colour is handed to Android as #rrggbb, the only form it reads", () => {
+  const { context } = loadAndroidJs();
+  const toHex = context.window.steleAndroidColour;
+  assert.equal(toHex("#000"), "#000000");
+  assert.equal(toHex("#0d0f12"), "#0d0f12");
+  assert.equal(toHex("rgb(246, 244, 239)"), "#f6f4ef");
 });
 
 test("back closes a dialog, then a pop-up, then returns to Study, then leaves", () => {
