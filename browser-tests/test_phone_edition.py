@@ -13,6 +13,9 @@ from pathlib import Path
 from stele_browser import FakeGroq, PhoneEditionTestCase
 
 CLIP = str(Path(__file__).parent / "fixtures" / "clip.mp4")
+# The build falls back to a 66-entry seed dictionary, which can't turn the
+# heard Simplified into Traditional; CI downloads the full one.
+FULL_DICT = Path(__file__).resolve().parent.parent / "data" / "cedict.u8"
 
 
 def set_up_groq(page):
@@ -84,13 +87,18 @@ class PhoneEdition(PhoneEditionTestCase):
         self.assertIn("real; true", page.inner_text(".word-bubble"))
         self.assertTrue(any(c["url"].endswith("/chat/completions") for c in groq.groq_calls))
 
+    @unittest.skipUnless(FULL_DICT.exists(), "data/cedict.u8 not downloaded (node scripts/fetch-cedict.mjs)")
     def test_transcribe_a_video_from_the_phone_then_find_it_again_after_a_reload(self):
         page, groq = self.phone()
         set_up_groq(page)
         page.set_input_files("#videoInput", CLIP)
         page.locator("#transcribeFile").tap()
         # Heard (Simplified), written in Traditional, translated, opened under the video.
-        page.wait_for_function("document.querySelector('#transcript').textContent.includes('銀行')", timeout=20000)
+        # Both lines: the transcript can show the first before the second.
+        page.wait_for_function(
+            "(t => t.includes('銀行') && t.includes('頭髮'))(document.querySelector('#transcript').textContent)",
+            timeout=20000,
+        )
         text = page.inner_text("#transcript")
         self.assertIn("頭髮", text)
         self.assertIn("EN 我們今天去銀行", text)
