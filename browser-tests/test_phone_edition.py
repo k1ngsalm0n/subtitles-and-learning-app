@@ -177,12 +177,13 @@ class PhoneEdition(PhoneEditionTestCase):
         page.set_input_files("#videoInput", CLIP)
         page.locator("#transcribeFile").tap()
         # Heard (Simplified), written in Traditional, translated, opened under the video.
-        # Both lines: the transcript can show the first before the second.
+        # Read the whole transcript, not what's on screen: the phone shows
+        # only the current line.
         page.wait_for_function(
             "(t => t.includes('銀行') && t.includes('頭髮'))(document.querySelector('#transcript').textContent)",
             timeout=20000,
         )
-        text = page.inner_text("#transcript")
+        text = page.text_content("#transcript")
         self.assertIn("頭髮", text)
         self.assertIn("EN 我們今天去銀行", text)
         self.assertGreater(len(page.evaluate("[...document.querySelectorAll('#transcript rt')].map(r => r.textContent).filter(Boolean)")), 4)
