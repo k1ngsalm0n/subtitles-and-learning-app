@@ -126,7 +126,35 @@ export function setupPhoneShell(doc = globalThis.document) {
     showHint();
   }
 
+  // ── Moving between screens: the new one slides in from the side it lies
+  // on (Home, Cards, Settings left to right; a video in front of Home).
+  // Instant where the browser has no view transitions or the phone asks
+  // for less motion.
+  const ORDER = { study: 0, cards: 1, settings: 2 };
+  function animate(direction, change) {
+    if (!doc.startViewTransition || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return change();
+    root.dataset.phoneMotion = direction;
+    const moving = doc.startViewTransition(change);
+    // A second tap before the slide ends skips the first: not an error.
+    moving.ready.catch(() => {});
+    moving.finished.catch(() => {});
+  }
+  function go(view, change) {
+    const from = currentView();
+    const run = () => {
+      change?.();
+      $(`.nav-tab[data-view="${view}"]`)?.click();
+      render();
+    };
+    if (from === view) return run();
+    animate((ORDER[view] ?? 0) > (ORDER[from] ?? 0) ? "forward" : "back", run);
+  }
   function setScreen(screen) {
+    if (root.dataset.phoneScreen === screen) return render();
+    animate(screen === "player" ? "forward" : "back", () => showScreen(screen));
+  }
+
+  function showScreen(screen) {
     if (root.dataset.phoneScreen !== screen) {
       root.dataset.phoneScreen = screen;
       if (screen === "library") video?.pause?.();
@@ -141,18 +169,17 @@ export function setupPhoneShell(doc = globalThis.document) {
   }
 
   // ── Bars.
-  back.addEventListener("click", () => $('.nav-tab[data-view="study"]')?.click());
+  back.addEventListener("click", () => go("study"));
   langs.addEventListener("click", () => setLangs(root.dataset.phoneLangs !== "open"));
-  due.addEventListener("click", () => $('.nav-tab[data-view="cards"]')?.click());
-  gear.addEventListener("click", () => $('.nav-tab[data-view="settings"]')?.click());
+  due.addEventListener("click", () => go("cards"));
+  gear.addEventListener("click", () => go("settings"));
   resume.addEventListener("click", () => setScreen("player"));
   nav.addEventListener("click", (event) => {
     const tab = event.target.closest(".phone-tab")?.dataset.tab;
     if (!tab) return;
     if (tab === "add") return $("#videoBrowse")?.click();
-    if (tab === "study") setScreen("library");
-    $(`.nav-tab[data-view="${tab}"]`)?.click();
-    render();
+    if (tab === "study" && currentView() === "study") return setScreen("library");
+    go(tab, tab === "study" ? () => showScreen("library") : null);
   });
 
   // ── Player.
@@ -278,6 +305,7 @@ export function setupPhoneShell(doc = globalThis.document) {
   globalThis.stelePhoneBack = () => {
     if (root.dataset.phoneLangs === "open") return setLangs(false), true;
     if (currentView() === "study" && root.dataset.phoneScreen === "player") return setScreen("library"), true;
+    if (currentView() !== "study") return go("study"), true;
     return false;
   };
   return { setScreen, render };

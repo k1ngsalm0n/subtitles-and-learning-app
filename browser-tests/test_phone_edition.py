@@ -130,6 +130,19 @@ class PhoneEdition(PhoneEditionTestCase):
         page.locator("#phoneLangs").tap()
         self.assertTrue(page.locator(".translate-bar").is_visible())
 
+    def test_switching_screens_slides_the_new_one_in_from_its_side(self):
+        page, _ = self.phone(motion=True)
+        page.keyboard.press("Escape")
+        slide = """() => document.getAnimations()
+            .filter(a => (a.effect?.pseudoElement || '').includes('view-transition-new'))
+            .map(a => a.animationName)[0]"""
+        page.locator('.phone-tab[data-tab="cards"]').tap()
+        self.assertEqual(page.wait_for_function(slide).json_value(), "phone-in-right")
+        page.wait_for_function("document.querySelector('#cardsView').classList.contains('active')")
+        page.wait_for_function(f"!({slide})()")
+        page.locator('.phone-tab[data-tab="study"]').tap()
+        self.assertEqual(page.wait_for_function(slide).json_value(), "phone-in-left")
+
     def test_a_review_card_is_swiped(self):
         page, _ = self.phone()
         page.keyboard.press("Escape")

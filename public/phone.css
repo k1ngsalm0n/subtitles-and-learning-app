@@ -545,3 +545,20 @@
 /* ── Toasts above the bottom bar. ────────────────────────────────────────── */
 :root[data-edition="phone"] .toast-container { bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom)) !important; }
 :root[data-phone-screen="player"][data-phone-view="study"] .toast-container { bottom: calc(44px + env(safe-area-inset-bottom)) !important; top: auto; }
+
+/* ── Moving between screens (shell.mjs sets data-phone-motion). ─────────── */
+:root[data-edition="phone"] .topbar { view-transition-name: phone-top; }
+:root[data-edition="phone"] .phone-nav { view-transition-name: phone-nav; }
+:root[data-edition="phone"]::view-transition-old(root),
+:root[data-edition="phone"]::view-transition-new(root) { animation-duration: 0.24s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+:root[data-phone-motion="forward"]::view-transition-old(root) { animation-name: phone-out-left; }
+:root[data-phone-motion="forward"]::view-transition-new(root) { animation-name: phone-in-right; }
+:root[data-phone-motion="back"]::view-transition-old(root) { animation-name: phone-out-right; }
+:root[data-phone-motion="back"]::view-transition-new(root) { animation-name: phone-in-left; }
+@keyframes phone-out-left { to { transform: translateX(-25%); opacity: 0; } }
+@keyframes phone-in-right { from { transform: translateX(25%); opacity: 0; } }
+@keyframes phone-out-right { to { transform: translateX(25%); opacity: 0; } }
+@keyframes phone-in-left { from { transform: translateX(-25%); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
