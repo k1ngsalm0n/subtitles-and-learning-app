@@ -152,13 +152,17 @@ class PhoneEditionTestCase(unittest.TestCase):
         cls._server.wait(10)
         cls._site.cleanup()
 
-    def phone(self, *, groq=None, context=None):
-        """A phone-sized page on the phone edition. Returns (page, groq)."""
+    def phone(self, *, groq=None, context=None, motion=False):
+        """A phone-sized page on the phone edition. Returns (page, groq).
+
+        Asks for reduced motion unless motion=True: a screen change slides
+        for a quarter of a second, and taps during it land on the slide."""
         groq = groq or FakeGroq()
         if context is None:
             context = self.browser.new_context(
                 viewport={"width": 390, "height": 844}, device_scale_factor=3,
                 is_mobile=True, has_touch=True, accept_downloads=True,
+                reduced_motion="no-preference" if motion else "reduce",
             )
             self.addCleanup(context.close)
         page = context.new_page()
@@ -168,7 +172,9 @@ class PhoneEditionTestCase(unittest.TestCase):
         page.on("request", groq.saw)
         context.route("https://api.groq.com/**", groq.answer)
         page.goto(self.url)
-        page.wait_for_selector("#transcript .line .word")
+        # The Videos tab opens on the list; the transcript is on the player
+        # screen behind "Continue" (open_player).
+        page.wait_for_selector("#transcript .line .word", state="attached")
         return page, groq
 
 

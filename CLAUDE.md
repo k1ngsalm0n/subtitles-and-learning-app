@@ -1117,6 +1117,34 @@ sync and locating don't start. Data moves between devices by Export/Import.
 computer's `connect-src 'self'` would block Groq); `browser-tests/
 test_phone_edition.py` drives it with a fake Groq.
 
+**The phone's look** (the phone edition and so the Android app): `public/phone.css`, which only the
+phone build links, and `public/js/phone/shell.mjs`, started by boot.mjs —
+"design C, Immersive", the reader's pick of four mockups (after trying A).
+Home is a feed of big video cards on black with a yellow ＋ in the bottom bar
+(Home, ＋, Cards; Settings is the ⚙ up top); a video plays full screen
+(`<html data-phone-screen="player">`, no bars) with its line big over the
+picture. That subtitle *is* the transcript, with every line hidden but the
+active one and the one before, so word taps, the karaoke sweep and the pop-up
+are the app's own. A tap on the picture plays/pauses, a swipe up/down is the
+next/previous line, and the side buttons (Replay, Slow, Pinyin, Save, Words)
+go through the same keys and buttons as a computer. A review card is swiped:
+left Forgot, right Got it. Ochre is the phone edition's default accent
+(`DEFAULT_ACCENT` in appearance.mjs); the computer keeps Lantern. WebView
+paints its own grey play button on an unstarted video, so the player gets a
+blank `poster`; Android reads only `#rrggbb` for the bar colour (android.js
+converts).
+
+**The Android app** (`npm run build:android`, `docs/android.md`) is that
+build inside a WebView (`android/src/app/stele/MainActivity.java`), built
+with the SDK's own tools and no Gradle. It serves the files from the APK on
+`https://appassets.androidplatform.net/` (every file type needs a `MIME`
+entry, or a module won't run), opens the system file picker, and
+`android/web/android.js` — first in `<head>`, Android only — turns Export's
+blob downloads into Android's "Save to…" and makes Back close what's open
+before it leaves. Updates install only when signed with the same key:
+`~/.local/share/stele/android/release.jks`, made on the first release
+build, outside the repo, to be backed up.
+
 Unit tests don't cover what an import actually produces. After any change to
 caption OCR, Whisper or how they merge, audit the **whole** subtitle timeline
 of both test videos, saving a baseline before the change and diffing after:

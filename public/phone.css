@@ -1,0 +1,564 @@
+/* The phone edition's look (and so the Android app's): "design C —
+   Immersive", the reader's pick of four mockups. Home is a feed of big video
+   cards on black with a yellow ＋ in the bottom bar; a video plays full screen
+   with its current line written big over the picture (the transcript itself,
+   showing only that line, so tapping a word works as everywhere else), the
+   line before it faint above, buttons down the side and a yellow progress
+   line along the bottom; the word opens as a glass card; a review card is
+   swiped. Loaded only by the phone build (scripts/build-phone.mjs), after
+   index.html's own styles, so the computer keeps its own look;
+   js/phone/shell.mjs adds the elements and keeps <html data-phone-screen>
+   in step. */
+
+:root[data-edition="phone"] {
+  --bg: #000000;
+  --surface: #121418;
+  --surface-2: #1a1d23;
+  --surface-3: #262a31;
+  --text: #fff;
+  --muted: rgba(255, 255, 255, 0.62);
+  --border: rgba(255, 255, 255, 0.12);
+  --accent: #e8c46a;
+  --on-accent: #111;
+  --glass: rgba(20, 22, 28, 0.84);
+  --topbar-h: 56px;
+  --nav-h: 64px;
+  --sans: system-ui, Roboto, "Noto Sans", "Noto Sans CJK TC", "Noto Sans CJK SC", "PingFang TC", sans-serif;
+}
+:root[data-edition="phone"][data-theme="light"] {
+  --bg: #f6f4ef;
+  --surface: #ffffff;
+  --surface-2: #f0ede6;
+  --surface-3: #e4e0d7;
+  --text: #15171b;
+  --muted: #5d6470;
+  --border: #dcd6ca;
+  --accent: #99781f;
+  --on-accent: #fff;
+}
+
+/* ── Type and ground ─────────────────────────────────────────────────────── */
+:root[data-edition="phone"] body,
+:root[data-edition="phone"] :is(button, input, textarea, select, .nav-tab, .file-button,
+  .original, .bubble-word, .bubble-char, .cf-word, h1, h2, h3) {
+  font-family: var(--sans);
+}
+:root[data-edition="phone"] body {
+  background: var(--bg);
+  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+:root[data-edition="phone"] :is(.player-shell, .brand-mark) { box-shadow: none; }
+:root[data-edition="phone"] .line.active .original { text-shadow: none; }
+:root[data-edition="phone"] :is(.study-keys, .review-keys) { display: none; }
+:root[data-edition="phone"] button,
+:root[data-edition="phone"] .file-button {
+  border-radius: 99px;
+  background: var(--surface-3);
+  border-color: transparent;
+  color: var(--text);
+}
+:root[data-edition="phone"] :is(input[type="text"], input[type="search"], input:not([type]), select) {
+  border-radius: 14px;
+  background: var(--surface);
+  border-color: var(--border);
+}
+:root[data-edition="phone"] button.active,
+:root[data-edition="phone"] .segmented button.active { background: var(--accent); color: var(--on-accent); }
+
+/* ── Top bar: [‹] Stele … languages · due · ⚙ ────────────────────────────── */
+:root[data-edition="phone"] .topbar {
+  height: var(--topbar-h);
+  padding: 0 14px 0 16px;
+  gap: 6px;
+  background: var(--bg);
+  border-bottom: 0;
+  backdrop-filter: none;
+}
+:root[data-edition="phone"] :is(.brand, .nav-tabs, .topbar-right) { display: none !important; }
+.phone-title {
+  flex: 1;
+  min-width: 0;
+  font: 700 20px/1.2 var(--sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root[data-edition="phone"] .phone-back {
+  display: none;
+  width: 36px;
+  height: 40px;
+  margin-left: -8px;
+  padding: 0;
+  font-size: 30px;
+  background: none;
+}
+:root[data-phone-view="settings"] .phone-back { display: grid; place-items: center; }
+:root[data-edition="phone"] .phone-chip {
+  flex: none;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+:root[data-edition="phone"]:not([data-phone-view="study"]) #phoneLangs,
+:root[data-phone-view="cards"] .phone-due { display: none; }
+:root[data-phone-langs="open"] #phoneLangs { color: var(--accent); border-color: var(--accent); }
+:root[data-edition="phone"] .phone-due { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+:root[data-edition="phone"] .phone-icon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: none;
+  color: var(--muted);
+}
+.phone-icon svg, .phone-tab svg, .phone-side-button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Bottom bar: ⌂  [＋]  ❏ ─────────────────────────────────────────────── */
+.phone-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+:root[data-edition="phone"] .phone-tab {
+  width: 64px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+.phone-tab svg { width: 26px; height: 26px; }
+:root[data-edition="phone"] .phone-tab.on { color: var(--text); }
+:root[data-edition="phone"] .phone-tab-add { width: 68px; height: 42px; background: var(--accent); color: var(--on-accent); }
+.phone-tab-add svg { stroke-width: 2.4; }
+
+/* ── Study, both screens ─────────────────────────────────────────────────── */
+:root[data-edition="phone"] main { padding: 0 14px; }
+:root[data-edition="phone"] .workspace { display: flex; flex-direction: column; gap: 12px; }
+:root[data-edition="phone"] .workspace > * { align-self: stretch; }
+:root[data-edition="phone"] .pane-divider { display: none; }
+:root[data-edition="phone"] .learning-pane { padding: 0; background: none; border: 0; box-shadow: none; }
+:root[data-edition="phone"]:not([data-phone-langs="open"]) .translate-bar { display: none; }
+:root[data-edition="phone"] .translate-bar {
+  margin-top: 4px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+:root[data-edition="phone"] #translateButton { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+/* ── Home: a feed of big cards. ──────────────────────────────────────────── */
+:root[data-phone-screen="library"] :is(.media-pane, .transcript-pane) { display: none; }
+:root[data-edition="phone"] .url-row { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin-top: 0; padding-top: 2px; border-top: 0; }
+:root[data-edition="phone"] #videoBrowse { display: none; }
+:root[data-edition="phone"] .source-status-row:has(.source-status:empty) { display: none; }
+.phone-empty {
+  margin: 4px 0 0;
+  padding: 22px 18px;
+  border: 1px dashed var(--border);
+  border-radius: 18px;
+  color: var(--muted);
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* The cards: a picture-sized tile with the name over its lower edge. Imports
+   carry no picture, so each gets a colour of its own instead. */
+.phone-reel,
+:root[data-edition="phone"] .video-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  min-height: 168px;
+  padding: 14px !important;
+  overflow: hidden;
+  text-align: left;
+  border: 0 !important;
+  border-radius: 18px !important;
+  color: #fff !important;
+  background: linear-gradient(160deg, #2c3e50, #121a24 55%, #3d2b22) !important;
+}
+.phone-reel::after,
+:root[data-edition="phone"] .video-row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(transparent 35%, rgba(0, 0, 0, 0.78));
+  pointer-events: none;
+}
+.phone-reel > *, :root[data-edition="phone"] .video-row > * { position: relative; z-index: 1; }
+:root[data-edition="phone"] .video-row:nth-child(4n + 2) { background: linear-gradient(160deg, #3b2f4f, #16131f 55%, #23394a) !important; }
+:root[data-edition="phone"] .video-row:nth-child(4n + 3) { background: linear-gradient(160deg, #1f4a40, #0f1a17 55%, #4a3b2f) !important; }
+:root[data-edition="phone"] .video-row:nth-child(4n + 4) { background: linear-gradient(160deg, #4f2f2f, #1c1212 55%, #2f3b4f) !important; }
+.phone-reel { height: auto !important; }
+.phone-reel-play {
+  position: absolute !important;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: -40px 0 0 -28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 22px;
+}
+.phone-reel-text { display: flex; flex-direction: column; gap: 3px; max-width: 100%; }
+.phone-reel-text b { font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phone-reel-text small { color: var(--accent); font-size: 12.5px; font-weight: 600; }
+
+:root[data-edition="phone"] .video-list-head {
+  display: flex;
+  margin: 8px 2px -4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+:root[data-edition="phone"] :is(#videoSelectAll, .video-delete-selected, .video-select) { display: none; }
+:root[data-edition="phone"] .video-list { display: flex; flex-direction: column; gap: 12px; max-height: none; padding: 0; border: 0; overflow: visible; }
+:root[data-edition="phone"] .video-row > span:first-child,
+:root[data-edition="phone"] .video-mark { display: none; }
+:root[data-edition="phone"] .video-row.current { box-shadow: inset 0 0 0 2px var(--accent); }
+:root[data-edition="phone"] .video-title { max-width: 100%; font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:root[data-edition="phone"] .video-status { margin-top: 2px; font-size: 12px; color: rgba(255, 255, 255, 0.72); }
+:root[data-edition="phone"] .video-progress { align-self: stretch; margin-top: 8px; }
+:root[data-edition="phone"] .video-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
+:root[data-edition="phone"] .video-action {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+
+/* ── The player: full screen, the line over the picture. ─────────────────── */
+:root[data-phone-screen="player"][data-phone-view="study"] body { padding-bottom: 0; background: #000; }
+:root[data-phone-screen="player"][data-phone-view="study"] :is(.topbar, .phone-nav) { display: none; }
+:root[data-phone-screen="player"]:not([data-phone-langs="open"]) .learning-pane { display: none; }
+:root[data-phone-screen="player"] .learning-pane .url-row { display: none; }
+:root[data-phone-screen="player"][data-phone-langs="open"] .learning-pane {
+  position: fixed;
+  top: 56px;
+  left: 12px;
+  right: 12px;
+  z-index: 40;
+}
+
+:root[data-phone-screen="player"] .media-pane {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  margin: 0;
+  padding: 0;
+  background: #000;
+}
+:root[data-phone-screen="player"] :is(.player-shell, #playerWrap) {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+  aspect-ratio: auto;
+}
+:root[data-phone-screen="player"] #video { width: 100%; height: 100%; object-fit: contain; object-position: 50% 38%; }
+:root[data-phone-screen="player"] .empty-player {
+  background: linear-gradient(170deg, #2c3e50 0%, #121a24 45%, #3d2b22 100%);
+  color: rgba(255, 255, 255, 0.5);
+  align-items: flex-start;
+  padding-top: 32vh;
+}
+:root[data-edition="phone"] :is(.mini-drag, .mini-drag-surface, .mini-rz) { display: none !important; }
+
+.phone-stage { display: none; }
+:root[data-phone-screen="player"] .phone-stage { display: block; position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.phone-stage > * { pointer-events: auto; }
+.phone-stage-top {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+:root[data-edition="phone"] .phone-pill {
+  height: 32px;
+  max-width: 70%;
+  padding: 0 13px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+:root[data-phone-translation="off"] #phoneSubs { opacity: 0.55; }
+.phone-side {
+  position: absolute;
+  right: 10px;
+  top: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+:root[data-edition="phone"] .phone-side-button {
+  width: auto;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  background: none;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+.phone-side-button i {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(38, 40, 46, 0.62);
+  backdrop-filter: blur(8px);
+}
+.phone-side-button.on i { background: color-mix(in srgb, var(--accent) 85%, transparent); color: #111; }
+:root[data-edition="phone"] .phone-side-button[data-side="pinyin"].on i { background: rgba(38, 40, 46, 0.62); color: #fff; }
+:root[data-phone-pinyin="off"] .phone-side-button[data-side="pinyin"] i { opacity: 0.55; }
+.phone-progress {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  height: 20px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.phone-progress::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.phone-progress b { position: relative; display: block; width: 0; height: 3px; border-radius: 9px; background: var(--accent); }
+.phone-play-hint {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  margin: -38px 0 0 -38px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 30px;
+  pointer-events: none !important;
+}
+
+/* The subtitle: the transcript, its current line only, over the picture. */
+:root[data-phone-screen="player"] .transcript-pane {
+  position: fixed;
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: calc(34px + env(safe-area-inset-bottom));
+  z-index: 35;
+  height: auto;
+  min-height: 0;
+  max-height: 58dvh;
+  padding: 48px 18px 6px;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.72) 42%);
+  color: #fff;
+}
+:root[data-phone-screen="player"] .toolbar-row { display: none; }
+:root[data-phone-screen="player"] #transcript {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+:root[data-phone-screen="player"] #transcript .line { display: none; }
+:root[data-phone-screen="player"] #transcript .line:is(.active, :has(+ .line.active)),
+:root[data-phone-screen="player"] #transcript:not(:has(.line.active)) .line:first-child {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+}
+:root[data-phone-screen="player"] #transcript .line :is(.time, .line-actions) { display: none; }
+:root[data-phone-screen="player"] #transcript .line .original { font-size: 26px; font-weight: 700; line-height: 1.5; color: #fff; }
+:root[data-phone-screen="player"] #transcript .line .translation { margin-top: 4px; font-size: 14px; color: rgba(255, 255, 255, 0.86); }
+:root[data-phone-screen="player"] #transcript .line:has(+ .line.active) { margin-bottom: 12px; opacity: 0.5; }
+:root[data-phone-screen="player"] #transcript .line:has(+ .line.active) .original { font-size: 14px; font-weight: 500; }
+:root[data-phone-screen="player"] #transcript .line:has(+ .line.active) :is(rt, .translation) { display: none; }
+:root[data-phone-pinyin="off"] #transcript rt { visibility: hidden; }
+:root[data-phone-translation="off"] #transcript .translation { display: none; }
+:root[data-phone-screen="player"] :is(#provisionalNote, #localFileNote) {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: var(--glass);
+  color: #fff;
+}
+:root[data-edition="phone"] #transcribeFile { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+/* ── The word: a glass card over the picture. ────────────────────────────── */
+:root[data-edition="phone"] .word-bubble {
+  left: 10px;
+  right: 10px;
+  top: auto;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  width: auto;
+  max-height: 72dvh;
+  transform: none;
+  z-index: 120;
+  padding: 16px 16px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+  color: #fff;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  animation: sheet-up 0.18s ease-out;
+}
+:root[data-edition="phone"] .word-bubble :is(.bubble-meaning, .bubble-char-meaning, .bubble-explanation, .bubble-defs) { color: rgba(255, 255, 255, 0.86); }
+:root[data-edition="phone"] .bubble-word { font-size: 30px; font-weight: 700; color: #fff; }
+:root[data-edition="phone"] .bubble-heading {
+  color: rgba(255, 255, 255, 0.55);
+  font: 600 11px/1.4 var(--sans);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+:root[data-edition="phone"] .bubble-section { border-top-color: rgba(255, 255, 255, 0.1); }
+:root[data-edition="phone"] .bubble-actions { border-top: 0; padding-top: 12px; gap: 8px; }
+:root[data-edition="phone"] .bubble-actions button {
+  height: 42px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 14px;
+}
+:root[data-edition="phone"] .bubble-actions .bubble-save { background: var(--accent); color: var(--on-accent); }
+:root[data-edition="phone"] .word-list-panel {
+  bottom: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px 22px 0 0;
+  background: rgba(16, 18, 23, 0.94);
+  backdrop-filter: blur(16px);
+  color: #fff;
+  z-index: 120;
+}
+
+/* ── Cards: one card, swiped. ────────────────────────────────────────────── */
+:root[data-edition="phone"] .cards-layout { display: flex; flex-direction: column; align-items: stretch; gap: 20px; padding-top: 4px; }
+:root[data-edition="phone"] .review-panel { order: -1; }
+:root[data-edition="phone"] :is(.deck-sidebar, .review-panel, .card-panel) { padding: 0; background: none; border: 0; box-shadow: none; }
+:root[data-edition="phone"] .review-card {
+  min-height: 340px;
+  padding: 26px 18px;
+  border: 0;
+  border-radius: 24px;
+  background: linear-gradient(160deg, #22303f, #141a22);
+  color: #fff;
+  touch-action: pan-y;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+:root[data-edition="phone"][data-theme="light"] .review-card { background: var(--surface); color: var(--text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08); }
+:root[data-edition="phone"] .review-card.phone-swiped-left { transform: translateX(-60px) rotate(-4deg); opacity: 0.4; }
+:root[data-edition="phone"] .review-card.phone-swiped-right { transform: translateX(60px) rotate(4deg); opacity: 0.4; }
+:root[data-edition="phone"] .review-card :is(mark, .cf-mark) { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; border-radius: 5px; }
+:root[data-edition="phone"] .card-actions { gap: 8px; margin-top: 14px; }
+:root[data-edition="phone"] #flipCard { flex: 1; height: 52px; background: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 700; }
+:root[data-edition="phone"] .grade-button { flex: 1; height: 54px; border: 0; background: var(--surface-3); font-size: 14px; font-weight: 700; }
+:root[data-edition="phone"] .grade-again { order: 1; }
+:root[data-edition="phone"] .grade-easy { order: 2; }
+:root[data-edition="phone"] .grade-good { order: 3; }
+:root[data-edition="phone"] .grade-int { display: block; margin-top: 2px; font-size: 11px; }
+:root[data-edition="phone"] .grade-button.grade-good { background: var(--accent); color: var(--on-accent); }
+:root[data-edition="phone"] .grade-good .grade-int { color: color-mix(in srgb, var(--on-accent) 65%, transparent); }
+:root[data-edition="phone"] .grade-button.suggested { box-shadow: none; }
+:root[data-edition="phone"] .review-panel::after {
+  content: "Swipe the card: left for Forgot, right for Got it";
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+:root[data-edition="phone"] .deck-nav-item { background: none; color: var(--muted); border-radius: 14px; }
+:root[data-edition="phone"] .deck-nav-item.active { background: var(--surface); color: var(--text); }
+
+/* ── Toasts above the bottom bar. ────────────────────────────────────────── */
+:root[data-edition="phone"] .toast-container { bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom)) !important; }
+:root[data-phone-screen="player"][data-phone-view="study"] .toast-container { bottom: calc(44px + env(safe-area-inset-bottom)) !important; top: auto; }
+
+/* ── Moving between screens (shell.mjs sets data-phone-motion). ─────────── */
+:root[data-edition="phone"] .topbar { view-transition-name: phone-top; }
+:root[data-edition="phone"] .phone-nav { view-transition-name: phone-nav; }
+:root[data-edition="phone"]::view-transition-old(root),
+:root[data-edition="phone"]::view-transition-new(root) { animation-duration: 0.24s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+:root[data-phone-motion="forward"]::view-transition-old(root) { animation-name: phone-out-left; }
+:root[data-phone-motion="forward"]::view-transition-new(root) { animation-name: phone-in-right; }
+:root[data-phone-motion="back"]::view-transition-old(root) { animation-name: phone-out-right; }
+:root[data-phone-motion="back"]::view-transition-new(root) { animation-name: phone-in-left; }
+@keyframes phone-out-left { to { transform: translateX(-25%); opacity: 0; } }
+@keyframes phone-in-right { from { transform: translateX(25%); opacity: 0; } }
+@keyframes phone-out-right { to { transform: translateX(25%); opacity: 0; } }
+@keyframes phone-in-left { from { transform: translateX(-25%); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
